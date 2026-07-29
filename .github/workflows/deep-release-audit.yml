@@ -1,0 +1,79 @@
+name: AuraLunis Deep Release Audit
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: auralunis-deep-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deep-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Verify release version
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const app = JSON.parse(fs.readFileSync('app.json', 'utf8'));
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          if (app.expo.version !== '1.0.1') throw new Error(`app.json version is ${app.expo.version}, expected 1.0.1`);
+          if (pkg.version !== '1.0.1') throw new Error(`package.json version is ${pkg.version}, expected 1.0.1`);
+          if (app.expo.ios.bundleIdentifier !== 'com.ocoeestudios.auralunis') throw new Error('Unexpected iOS bundle identifier');
+          console.log('Release identity verified: AuraLunis 1.0.1');
+          NODE
+
+      - name: TypeScript
+        run: npm run typecheck
+
+      - name: Complete feature-by-feature QA suite
+        run: npm run qa:all
+
+      - name: Expo Doctor
+        run: npx expo-doctor
+
+      - name: Production dependency audit
+        run: npm audit --omit=dev --audit-level=critical
+
+      - name: Shipping-source hygiene
+        run: |
+          set -euo pipefail
+          if git grep -nEI 'BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|sk_live_[A-Za-z0-9]+|AKIA[0-9A-Z]{16}' -- ':!package-lock.json'; then
+            echo 'Potential private credential found in shipping source.' >&2
+            exit 1
+          fi
+          if git grep -nEI 'TODO|FIXME|HACK|XXX' -- 'src/**' 'app.json' 'eas.json'; then
+            echo 'Unresolved shipping marker found in release source.' >&2
+            exit 1
+          fi
+          echo 'No private-key patterns or unresolved shipping markers found.'
+
+      - name: Upload QA report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: auralunis-1.0.1-deep-audit
+          path: |
+            qa/FRESH_BUG_CHECK_RESULTS.json
+            docs/APP_UPDATE_1.0.1.md
+          if-no-files-found: warn
