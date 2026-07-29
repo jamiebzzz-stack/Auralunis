@@ -1,5 +1,5 @@
-import React, { useCallback, useMemo } from "react";
-import Svg, { Circle, Defs, G, RadialGradient, Stop } from "react-native-svg";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import Svg, { Circle, Defs, G, Line, RadialGradient, Stop } from "react-native-svg";
 import { StyleSheet } from "react-native";
 import { projectTarget, DEFAULT_FOV, type CameraPointing, type CameraFov } from "./ar/SkyLensProjection";
 import { GridLayer } from "./layers/GridLayer";
@@ -53,6 +53,22 @@ type Props = {
   onSelect: (object: SelectedObject) => void;
 };
 
+const RETICLE_RADIUS = 24;
+const RETICLE_CAPTURE_RADIUS = 34;
+const RETICLE_DWELL_MS = 420;
+
+const PLANET_DESCRIPTIONS: Record<string, string> = {
+  sun: "The star at the center of our Solar System.",
+  mercury: "The smallest planet and the closest to the Sun.",
+  venus: "The brightest planet, often called the morning or evening star.",
+  mars: "The red planet, shaped by volcanoes, canyons, and ancient water.",
+  jupiter: "The largest planet in our Solar System.",
+  saturn: "The ringed giant, surrounded by an intricate system of icy rings.",
+  uranus: "An ice giant rotating almost on its side.",
+  neptune: "A distant blue ice giant with extremely fast winds.",
+  moon: "Earth's natural satellite and the main driver of ocean tides."
+};
+
 // Composes the enabled celestial layers over the cinematic sky. The presentation may
 // look like a planetarium, but normal viewing remains horizon-correct: objects beneath
 // the observer are never painted into the visible sky.
@@ -69,16 +85,7 @@ export function SkyLensCanvas({ box, pointing, sky, fov, activeLayers, nightMode
   }, [sky.domeStars, domeStarMultiplier]);
 
   const showLabels = !cinematic;
-  // Safe margins keep every label clear of the top HUD and the bottom control dock. The
-  // bottom figure is now DERIVED from the dock the screen actually rendered (it shrinks
-  // when brightness/time-travel are collapsed), rather than a fixed 176 that assumed the
-  // tall stack — so compacting the UI genuinely hands the reclaimed space back to labels.
   const placeLabel = makeLabelPlacer(box, { top: topInset, bottom: bottomInset });
-  // Reserve on-screen UI chrome (shutter, guidance banner, zoom chip) BEFORE any layer
-  // places a label, so chrome always wins: a label that can't find a clear slot is
-  // suppressed rather than drawn under a control. The top HUD and bottom dock are already
-  // excluded by the top/bottom safe bands above; these are the floating controls the bands
-  // don't cover. Rects come from skyLensChromeLayout (the shared geometry source).
   for (const r of reservedRects) placeLabel.reserve(r.x, r.y, r.w, r.h);
   const depth = (d: number) => `translate(${(parallax.x * d).toFixed(2)} ${(parallax.y * d).toFixed(2)})`;
   const constellations = sky.constellations;
@@ -89,7 +96,6 @@ export function SkyLensCanvas({ box, pointing, sky, fov, activeLayers, nightMode
   );
 
   const zoomLevel = DEFAULT_FOV.horizontalDegrees / fov.horizontalDegrees;
-  // Keep normal viewing sparse: only the brightest named stars earn labels until zoomed.
   const starLabelMag = 1.65 + Math.min(2.2, Math.max(0, zoomLevel - 1) * 0.65);
 
   const moon = sky.bodies.find((b) => b.id === "moon");
@@ -98,13 +104,135 @@ export function SkyLensCanvas({ box, pointing, sky, fov, activeLayers, nightMode
   const heroDim = moonOnScreen ? 0.85 : 1;
   const lensR = Math.min(box.height * 0.95, box.height * (30 / Math.max(8, fov.verticalDegrees)));
 
-  // The Moon renders LAST (it sits outside the hero-dim group so it keeps full
-  // brightness), which means it would claim its artwork only after every other layer had
-  // already placed its labels — a star or planet label could land right on the Moon.
-  // Claim it HERE, up front, so the whole scene lays out around it.
   if (moonOnScreen && moonProj) {
     placeLabel.reserveCircle(moonProj.x, moonProj.y, MOON_RADIUS * 1.2);
   }
+
+  // Center-reticle discovery. It uses the exact same projection as the rendered layers,
+  // waits briefly before locking, and remembers the last object so nearby labels do not flicker.
+  const centeredCandidate = useMemo<{ object: SelectedObject; distance: number } | null>(() => {
+    if (cinematic || box.width <= 0 || box.height <= 0) return null;
+    const cx = box.width / 2;
+    const cy = box.height / 2;
+    let closest: { object: SelectedObject; distance: number } | null = null;
+
+    const consider = (object: SelectedObject, azimuthDegrees: number, altitudeDegrees: number) => {
+      const p = projectTarget(pointing, azimuthDegrees, altitudeDegrees, fov, box);
+      if (!p.onScreen || p.behind) return;
+      const distance = Math.hypot(p.x - cx, p.y - cy);
+      if (distance > RETICLE_CAPTURE_RADIUS) return;
+      if (!closest || distance < closest.distance) closest = { object, distance };
+    };
+
+    if (activeLayers.has("planets")) {
+      for (const body of sky.bodies) {
+        if (!body.aboveHorizon) continue;
+        consider(
+          {
+            kind: body.id === "moon" ? "moon" : "planet",
+            id: body.id,
+            name: body.name,
+            subtitle: body.id === "moon" ? "Earth's Moon" : body.id === "sun" ? "Star" : "Planet",
+            description: PLANET_DESCRIPTIONS[body.id],
+            facts: [
+              ...(body.magnitude !== undefined ? [{ label: "Magnitude", value: body.magnitude.toFixed(1) }] : []),
+              { label: "Altitude", value: `${Math.round(body.altitudeDegrees)}°` },
+              { label: "Azimuth", value: `${Math.round(body.azimuthDegrees)}°` }
+            ]
+          },
+          body.azimuthDegrees,
+          body.altitudeDegrees
+        );
+      }
+    }
+
+    if (activeLayers.has("stars")) {
+      for (const star of sky.stars) {
+        if (!star.aboveHorizon || star.magnitude >= 1.8) continue;
+        consider(
+          {
+            kind: "star",
+            id: star.id,
+            name: star.name || star.id,
+            subtitle: `Magnitude ${star.magnitude.toFixed(1)}`,
+            description: "A bright star currently crossing the center of Sky Lens.",
+            facts: [
+              { label: "Magnitude", value: star.magnitude.toFixed(1) },
+              { label: "Altitude", value: `${Math.round(star.altitudeDegrees)}°` },
+              { label: "Azimuth", value: `${Math.round(star.azimuthDegrees)}°` }
+            ]
+          },
+          star.azimuthDegrees,
+          star.altitudeDegrees
+        );
+      }
+    }
+
+    if (activeLayers.has("constellations") && !closest) {
+      for (const constellation of sky.constellations) {
+        const center = constellation.centroid;
+        if (!center.aboveHorizon) continue;
+        consider(
+          {
+            kind: "constellation",
+            id: constellation.id,
+            name: constellation.name || constellation.id,
+            subtitle: "Constellation",
+            description: "A recognized constellation centered in Sky Lens.",
+            facts: [
+              { label: "Altitude", value: `${Math.round(center.altitudeDegrees)}°` },
+              { label: "Azimuth", value: `${Math.round(center.azimuthDegrees)}°` }
+            ]
+          },
+          center.azimuthDegrees,
+          center.altitudeDegrees
+        );
+      }
+    }
+
+    return closest;
+  }, [activeLayers, box, cinematic, fov, pointing, sky.bodies, sky.constellations, sky.stars]);
+
+  const dwellTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingIdRef = useRef<string | null>(null);
+  const identifiedIdRef = useRef<string | null>(null);
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
+
+  useEffect(() => {
+    const candidate = centeredCandidate?.object ?? null;
+    if (!candidate) {
+      pendingIdRef.current = null;
+      identifiedIdRef.current = null;
+      if (dwellTimerRef.current) clearTimeout(dwellTimerRef.current);
+      dwellTimerRef.current = null;
+      return;
+    }
+
+    if (identifiedIdRef.current === candidate.id || pendingIdRef.current === candidate.id) return;
+    if (dwellTimerRef.current) clearTimeout(dwellTimerRef.current);
+    pendingIdRef.current = candidate.id;
+    dwellTimerRef.current = setTimeout(() => {
+      if (pendingIdRef.current !== candidate.id) return;
+      identifiedIdRef.current = candidate.id;
+      pendingIdRef.current = null;
+      onSelectRef.current(candidate);
+    }, RETICLE_DWELL_MS);
+
+    return () => {
+      if (dwellTimerRef.current) clearTimeout(dwellTimerRef.current);
+      dwellTimerRef.current = null;
+    };
+  }, [centeredCandidate?.object]);
+
+  useEffect(() => () => {
+    if (dwellTimerRef.current) clearTimeout(dwellTimerRef.current);
+  }, []);
+
+  const reticleColor = nightMode ? "#FF6B5F" : "#D9A84E";
+  const reticleActive = !!centeredCandidate;
+  const reticleX = box.width / 2;
+  const reticleY = box.height / 2;
 
   return (
     <Svg style={StyleSheet.absoluteFillObject} pointerEvents="box-none">
@@ -121,13 +249,6 @@ export function SkyLensCanvas({ box, pointing, sky, fov, activeLayers, nightMode
       )}
 
       <G opacity={heroDim}>
-        {/* §1 — SHIMMERING STARDUST. Sky-locked silver-gold dust, concentrated along the
-            REAL galactic plane (sky.milkyWay, projected) so it hugs the Milky Way and
-            thins out when you point away — no faked screen-space band. Backmost layer,
-            behind the stars. Its animated glints ride TwinkleOverlay's shared clock
-            (see stardustGlints in SkyLensScreen) rather than a second animation system.
-            horizonCorrect keeps its motes off the below-horizon sky, same as every
-            other layer here. */}
         <CosmicDustLayer
           box={box}
           project={project}
@@ -137,13 +258,6 @@ export function SkyLensCanvas({ box, pointing, sky, fov, activeLayers, nightMode
         />
         <HorizonGlowLayer project={project} centerAzimuth={pointing.azimuthDegrees} box={box} nightMode={nightMode} boost={milkyWayBoost} />
 
-        {/* NEBULAE ARE RENDERED BY NebulaImageLayer (mounted in SkyLensScreen) — the ONE
-            nebula renderer. The procedural NebulaLayer used to draw here on the same
-            `deepsky` key, so every nebula was painted TWICE: doubled opacity, muddied
-            colour. It also built silhouettes from 9-point blobs (visibly angular) and
-            treated star clusters and galaxies as glowing emission clouds. Retired.
-            The file remains on disk; nothing mounts it. */}
-
         {activeLayers.has("grid") && !cinematic && (
           <GridLayer project={project} centerAzimuth={pointing.azimuthDegrees} box={box} palette={palette} />
         )}
@@ -152,15 +266,9 @@ export function SkyLensCanvas({ box, pointing, sky, fov, activeLayers, nightMode
           <EclipticLayer points={sky.ecliptic} project={project} palette={palette} nightMode={nightMode} />
         )}
 
-        {/* The mythology engraving layer was beautiful in isolation but crowded the live
-            sky. Keep the constellation map refined: quiet gold lines and restrained labels. */}
         {activeLayers.has("constellations") && (
           <ConstellationArtLayer constellations={constellations} project={project} box={box} fov={fov} enabled={false} />
         )}
-        {/* Constellation FIGURES (lines) — rendered here, UNDER the stars. Labels are NOT
-            drawn in this pass (showLabels={false}); they are placed later, after the stars
-            and planets, so constellation names correctly yield to star/planet names in the
-            shared label placer (see the labels-only mount further down). */}
         {activeLayers.has("constellations") && (
           <G opacity={cinematic ? 0.48 : 0.72}>
             <ConstellationLayer
@@ -177,10 +285,6 @@ export function SkyLensCanvas({ box, pointing, sky, fov, activeLayers, nightMode
           </G>
         )}
 
-        {/* Zodiac ARTWORK (figure lines, star dots, glyph markers) — under the stars. Names
-            are NOT drawn here (placeLabel is passed, so inline names are off); they are
-            placed in the labels-only pass below, after every higher-priority layer has
-            claimed, so sign names correctly yield in the shared ladder. */}
         {activeLayers.has("zodiac") && !cinematic && (
           <ZodiacLayer
             zodiac={sky.zodiac}
@@ -193,12 +297,6 @@ export function SkyLensCanvas({ box, pointing, sky, fov, activeLayers, nightMode
           />
         )}
 
-        {/* PLANET DISCS + LABELS claim their slots HERE, BEFORE the stars — this labels-only
-            pass reserves each planet's disc and places its name in the shared placer first,
-            so a nearby named star (e.g. Aldebaran beside Mars) yields its label slot to the
-            planet instead of stealing it. The artwork itself is drawn later, over the stars,
-            by the second PlanetLayer mount (showLabels={false}). No coordinates change — this
-            is purely label claim-order. */}
         {activeLayers.has("planets") && showLabels && (
           <PlanetLayer
             bodies={sky.bodies}
@@ -224,10 +322,6 @@ export function SkyLensCanvas({ box, pointing, sky, fov, activeLayers, nightMode
         )}
 
         {vg.shootingStars && <ShootingStarLayer width={box.width} height={box.height} nightMode={nightMode} />}
-        {/* PLANET ARTWORK — discs, halos, rings, illustrations. Drawn over the stars.
-            showLabels={false}: the names were already claimed + rendered by the labels-only
-            pass above (which runs before the stars), so planet labels outrank nearby star
-            labels. This mount reserves nothing new. */}
         {activeLayers.has("planets") && (
           <PlanetLayer
             bodies={sky.bodies}
@@ -242,11 +336,6 @@ export function SkyLensCanvas({ box, pointing, sky, fov, activeLayers, nightMode
             onSelect={onSelect}
           />
         )}
-        {/* Constellation LABELS — placed HERE, after stars & planets have claimed their
-            slots, so a constellation name yields to a nearby star/planet name (priority
-            ladder) instead of stealing its slot. Same opacity wrapper as the figures so
-            the names keep their tuned ~0.40 effective opacity. Rendered above the stars,
-            which is correct for label legibility. */}
         {activeLayers.has("constellations") && showLabels && (
           <G opacity={cinematic ? 0.48 : 0.72}>
             <ConstellationLayer
@@ -267,10 +356,6 @@ export function SkyLensCanvas({ box, pointing, sky, fov, activeLayers, nightMode
           <SatelliteLayer satellites={satellites} project={project} palette={palette} nightMode={nightMode} placeLabel={placeLabel} onSelect={onSelect} />
         )}
 
-        {/* Zodiac NAMES — placed LAST (lowest priority), so a sign name yields to planet,
-            Moon, star, constellation and satellite names and to UI chrome, and is suppressed
-            when no clean slot exists. Same shared placer; figure/glyph positions above are
-            untouched. */}
         {activeLayers.has("zodiac") && showLabels && !cinematic && (
           <ZodiacLayer
             zodiac={sky.zodiac}
@@ -297,6 +382,24 @@ export function SkyLensCanvas({ box, pointing, sky, fov, activeLayers, nightMode
         fullSphere={horizonCorrect}
         onSelect={onSelect}
       />
+
+      {!cinematic && (
+        <G opacity={reticleActive ? 0.95 : 0.55} pointerEvents="none">
+          <Circle
+            cx={reticleX}
+            cy={reticleY}
+            r={RETICLE_RADIUS}
+            fill="rgba(3,8,22,0.18)"
+            stroke={reticleColor}
+            strokeWidth={reticleActive ? 2.2 : 1.4}
+          />
+          <Circle cx={reticleX} cy={reticleY} r={2.6} fill={reticleColor} />
+          <Line x1={reticleX - 36} y1={reticleY} x2={reticleX - 27} y2={reticleY} stroke={reticleColor} strokeWidth={1.5} />
+          <Line x1={reticleX + 27} y1={reticleY} x2={reticleX + 36} y2={reticleY} stroke={reticleColor} strokeWidth={1.5} />
+          <Line x1={reticleX} y1={reticleY - 36} x2={reticleX} y2={reticleY - 27} stroke={reticleColor} strokeWidth={1.5} />
+          <Line x1={reticleX} y1={reticleY + 27} x2={reticleX} y2={reticleY + 36} stroke={reticleColor} strokeWidth={1.5} />
+        </G>
+      )}
     </Svg>
   );
 }
