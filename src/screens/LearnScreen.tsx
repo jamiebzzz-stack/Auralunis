@@ -32,8 +32,8 @@ export function LearnScreen() {
   }
 
   const [deepSkyTabIndex, setDeepSkyTabIndex] = useState(0);
-
   const { prefs, reload, lastSaveRevision } = useLearnPreferences();
+
   useFocusEffect(
     useCallback(() => {
       void reload();
@@ -66,8 +66,6 @@ export function LearnScreen() {
     });
   }, [categoryMatchesLevel, prefs.interests]);
 
-  // Every completed Save deliberately re-opens the first existing category that actually has
-  // a lesson at the selected level. This fixes stale cards without adding or redesigning UI.
   useEffect(() => {
     const exactLevelCategory = orderedCategories.find((category) => categoryMatchesLevel(category.id));
     if (exactLevelCategory) {
@@ -152,7 +150,11 @@ export function LearnScreen() {
         <Text style={styles.selectedCopy}>{selectedMeta?.description}</Text>
       </View>
 
-      <LearnVisualForCategory categoryId={selectedCategory} onDeepSkyTabChange={setDeepSkyTabIndex} />
+      <LearnVisualForCategory
+        categoryId={selectedCategory}
+        onDeepSkyTabChange={setDeepSkyTabIndex}
+        deepSkySelectedIndex={deepSkyTabIndex}
+      />
 
       {selectedTopics.map((topic) => (
         <FeatureCard
