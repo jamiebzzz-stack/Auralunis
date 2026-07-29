@@ -1,11 +1,10 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import Svg, { Circle, Defs, Ellipse, G, Path, RadialGradient, Stop } from "react-native-svg";
 import { AuraLunisColors } from "@/theme/tokens";
 
 const LABELS = ["Nebula", "Galaxy", "Cluster", "Remnant"];
 
-// Per-type descriptions shown beneath the illustration — index matches LABELS/active.
 const CAPTIONS = [
   "Nebulae glow as vast clouds of gas and dust — the stellar nurseries where new stars ignite.",
   "Galaxies are island cities of billions of stars, often spiralling around a bright central core.",
@@ -13,20 +12,16 @@ const CAPTIONS = [
   "Supernova remnants are the glowing shells flung outward when a massive star explodes."
 ];
 
-// Seeded star dots for the Cluster illustration (center-dense, deterministic).
 const CLUSTER = (() => {
   let s = 0x2545f491 >>> 0;
   const rng = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 0xffffffff);
   return Array.from({ length: 24 }, () => {
     const a = rng() * Math.PI * 2;
-    const r = Math.pow(rng(), 0.7) * 34; // bias toward the centre
+    const r = Math.pow(rng(), 0.7) * 34;
     return { x: Math.cos(a) * r, y: Math.sin(a) * r * 0.9, rad: 1 + rng() * 1.9, warm: rng() < 0.3 };
   });
 })();
 
-// Each deep-sky type gets a DISTINCT, recognisable SVG illustration (no photos):
-// Nebula = soft glowing cloud, Galaxy = tilted spiral disc, Cluster = tight star group,
-// Remnant = expanding shell/ring. Centred at (cx, cy) within a 280×150 viewBox.
 function DeepSkyShape({ type, cx, cy }: { type: number; cx: number; cy: number }) {
   if (type === 0) {
     return (
@@ -67,8 +62,8 @@ function DeepSkyShape({ type, cx, cy }: { type: number; cx: number; cy: number }
   if (type === 2) {
     return (
       <G>
-        {CLUSTER.map((st, i) => (
-          <Circle key={i} cx={cx + st.x} cy={cy + st.y} r={st.rad} fill={st.warm ? "#FFE9A8" : "#FFF6D6"} opacity={0.92} />
+        {CLUSTER.map((star, index) => (
+          <Circle key={index} cx={cx + star.x} cy={cy + star.y} r={star.rad} fill={star.warm ? "#FFE9A8" : "#FFF6D6"} opacity={0.92} />
         ))}
       </G>
     );
@@ -90,9 +85,19 @@ function DeepSkyShape({ type, cx, cy }: { type: number; cx: number; cy: number }
   );
 }
 
-export function DeepSkyGlowVisual({ onTabChange }: { onTabChange?: (index: number) => void } = {}) {
-  const [active, setActive] = useState(0);
-  // No auto-cycle: the widget starts on Nebula and only changes when the user taps a tab.
+export function DeepSkyGlowVisual({
+  onTabChange,
+  selectedIndex
+}: {
+  onTabChange?: (index: number) => void;
+  selectedIndex?: number;
+} = {}) {
+  const [active, setActive] = useState(selectedIndex ?? 0);
+
+  useEffect(() => {
+    if (selectedIndex === undefined) return;
+    setActive(selectedIndex);
+  }, [selectedIndex]);
 
   return (
     <View style={styles.card}>
