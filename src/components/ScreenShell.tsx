@@ -1,7 +1,7 @@
 import React from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { AuraLunisColors, AuraLunisTypography } from "@/theme/tokens";
 import { LogoMark } from "@/components/LogoMark";
 import { StarDust } from "@/components/StarDust";
@@ -11,8 +11,7 @@ type Props = {
   title: string;
   subtitle: string;
   children: React.ReactNode;
-  /** Optional custom background layer (rendered absolutely behind the scroll
-   *  content). Defaults to the gold StarDust. Home passes a living Starfield. */
+  /** Optional custom background layer rendered behind the safe scrolling content. */
   background?: React.ReactNode;
 };
 
@@ -23,31 +22,37 @@ export function ScreenShell({ title, subtitle, children, background }: Props) {
   return (
     <LinearGradient colors={palette.gradient as unknown as readonly [string, string, ...string[]]} style={styles.root}>
       {background ?? <StarDust count={12} color={AuraLunisColors.gold} opacity={0.18} />}
-      <ScrollView
-        contentContainerStyle={[styles.content, { paddingTop: insets.top + 12 }]}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
-      >
-        {/* Brand header matching mockup: [Logo] AURALUNIS */}
-        <View style={styles.brandBar}>
-          <LogoMark size={32} />
-          <Text style={styles.brandName}>AURALUNIS</Text>
-          <View style={{ flex: 1 }} />
-        </View>
-        {/* Screen title */}
-        <View style={styles.header}>
-          <Text style={[styles.subtitle, { color: palette.accent }]}>{subtitle}</Text>
-          <Text style={styles.title}>{title}</Text>
-        </View>
-        {children}
-      </ScrollView>
+      {/* The scroll viewport itself begins below the Dynamic Island. Padding the content
+          alone lets scrolled content slide underneath the status bar, which caused the
+          overlapping lesson headers seen on physical iPhones. */}
+      <SafeAreaView style={styles.safe} edges={["top"]}>
+        <ScrollView
+          contentContainerStyle={[styles.content, { paddingBottom: Math.max(36, insets.bottom + 28) }]}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          contentInsetAdjustmentBehavior="never"
+          automaticallyAdjustContentInsets={false}
+        >
+          <View style={styles.brandBar}>
+            <LogoMark size={32} />
+            <Text style={styles.brandName} allowFontScaling={false}>AURALUNIS</Text>
+            <View style={{ flex: 1 }} />
+          </View>
+          <View style={styles.header}>
+            <Text style={[styles.subtitle, { color: palette.accent }]}>{subtitle}</Text>
+            <Text style={styles.title} maxFontSizeMultiplier={1.25}>{title}</Text>
+          </View>
+          {children}
+        </ScrollView>
+      </SafeAreaView>
     </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  content: { padding: 18, paddingBottom: 120 },
+  safe: { flex: 1 },
+  content: { paddingHorizontal: 18, paddingTop: 12 },
   brandBar: {
     flexDirection: "row",
     alignItems: "center",
@@ -71,6 +76,7 @@ const styles = StyleSheet.create({
   title: {
     color: "#FFF",
     fontSize: 29,
+    lineHeight: 34,
     fontWeight: "900",
     letterSpacing: -1.1,
     marginTop: 2
