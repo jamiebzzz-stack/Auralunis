@@ -28,9 +28,9 @@ export const LEARN_INTERESTS: { key: LearnInterest; label: string }[] = [
 
 export type LearnPreferences = { level: LearnLevel; interests: LearnInterest[] };
 
-const VALID_LEVELS = new Set<string>(LEARN_LEVELS.map((l) => l.key));
-const VALID_INTERESTS = new Set<string>(LEARN_INTERESTS.map((i) => i.key));
-const ALL_INTERESTS = LEARN_INTERESTS.map((i) => i.key);
+const VALID_LEVELS = new Set<string>(LEARN_LEVELS.map((level) => level.key));
+const VALID_INTERESTS = new Set<string>(LEARN_INTERESTS.map((interest) => interest.key));
+const ALL_INTERESTS = LEARN_INTERESTS.map((interest) => interest.key);
 
 export const DEFAULT_LEARN_PREFERENCES: LearnPreferences = {
   level: "beginner",
@@ -91,7 +91,7 @@ export async function loadLearnPreferences(): Promise<LearnPreferences> {
 }
 
 // Save the complete preference object in one storage operation. Returning false lets the
-// modal keep itself open and show a real error instead of silently closing on a failed write.
+// modal stay open and report a failure instead of closing before storage has finished.
 export async function saveLearnPreferences(preferences: LearnPreferences): Promise<boolean> {
   const interests = normalizeInterests(preferences.interests);
   if (!VALID_LEVELS.has(preferences.level) || interests.length === 0) return false;
@@ -109,8 +109,7 @@ export async function saveLearnPreferences(preferences: LearnPreferences): Promi
   }
 }
 
-// Compatibility helpers for any older call sites. New editors should save the complete
-// object with saveLearnPreferences() so level + interests can never drift apart.
+// Compatibility helpers for older call sites.
 export async function saveLearnLevel(level: LearnLevel): Promise<boolean> {
   const current = await loadLearnPreferences();
   return saveLearnPreferences({ ...current, level });
