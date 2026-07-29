@@ -117,6 +117,15 @@ export function OrbitalAlignmentScreen() {
   const location = simMode ? SIM_LOCATION : liveLocation;
   const pointing = simMode ? buildSimPointing(simTick) : livePointing;
 
+  // `pointing` (and `location`) are new objects on nearly every render — the sensors update
+  // continuously. Any 1s setInterval that lists them as effect dependencies is therefore torn
+  // down and recreated before it can ever fire. Mirror them into refs so the tick effects can
+  // read the latest values while depending only on `mode`.
+  const locationRef = useRef(location);
+  const pointingRef = useRef(pointing);
+  locationRef.current = location;
+  pointingRef.current = pointing;
+
   // Sim sweep
   useEffect(() => {
     if (!simMode) return;
@@ -162,13 +171,13 @@ export function OrbitalAlignmentScreen() {
       // Re-propagate live TLE or advance mock
       tickDebrisLive().catch(() => {});
       tickDebrisMock();
-      const fleet = computeDebrisFleet(location, pointing);
+      const fleet = computeDebrisFleet(locationRef.current, pointingRef.current);
       tickLockTimers(fleet);
       setDebrisFleet(fleet);
       setDebrisLockCounters({ ...debrisLockTimers.current });
     }, 1000);
     return () => clearInterval(id);
-  }, [mode, location, pointing]);
+  }, [mode]);
 
   // Solar wind fetch
   useEffect(() => {
@@ -184,7 +193,7 @@ export function OrbitalAlignmentScreen() {
     initReEntryLive().catch(() => {});
     const id = setInterval(() => {
       simulateDecayTick();
-      const fleet = computeReentryFleet(location, pointing);
+      const fleet = computeReentryFleet(locationRef.current, pointingRef.current);
       setReentryFleet(fleet);
       // Fire urgent haptic if critical/imminent corridor crosses local horizon
       fleet.forEach(s => {
@@ -196,7 +205,7 @@ export function OrbitalAlignmentScreen() {
       });
     }, 1000);
     return () => clearInterval(id);
-  }, [mode, location, pointing, isPremium]);
+  }, [mode, isPremium]);
 
   // Audio engine — init on mount, destroy on unmount
   useEffect(() => {

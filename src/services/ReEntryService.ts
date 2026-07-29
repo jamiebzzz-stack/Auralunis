@@ -13,6 +13,7 @@ import type { ObserverLocation } from "@/features/sky-lens/accuracy/SkyLensAccur
 import { getSpaceTrackCookie, ensureSpaceTrackAuth } from "@/services/LiveTLEService";
 import { calculateAlignment } from "@/utils/alignmentEngine";
 import type { CameraPointing } from "@/features/sky-lens/ar/SkyLensProjection";
+import { fetchWithTimeout } from "@/utils/network";
 
 export type DecayThreatLevel = "watch" | "warning" | "critical" | "imminent";
 
@@ -150,7 +151,7 @@ async function fetchLiveTIPData(): Promise<ReEntryObject[] | null> {
     const cookie = getSpaceTrackCookie();
     if (!cookie) return null;
 
-    const res = await fetch(SPACE_TRACK_TIP_URL, {
+    const res = await fetchWithTimeout(SPACE_TRACK_TIP_URL, {
       headers: { Cookie: cookie, Accept: "application/json" },
     });
 

@@ -40,18 +40,30 @@ let _fetchPromise: Promise<void> | null = null;
 /** Fetch TLE data from Celestrak (once, cached for 2h). Call on train mode entry. */
 export async function initStarlinkTrainLive(): Promise<boolean> {
   if (!isSatelliteJsAvailable()) return false;
-  if (_fetchPromise) return _isLive;
+  // A fetch already in flight: await it rather than reporting the stale flag, so a second
+  // caller doesn't see `false` simply because the first request hasn't landed yet.
+  if (_fetchPromise) {
+    await _fetchPromise;
+    return _isLive;
+  }
 
-  _fetchPromise = getLiveStarlinkPositions(TRAIN_NODE_LIMIT)
+  const attempt = getLiveStarlinkPositions(TRAIN_NODE_LIMIT)
     .then(positions => {
       if (positions.length > 0) {
         _livePositions = positions;
         _isLive = true;
       }
     })
-    .catch(() => { _isLive = false; });
+    .catch(() => { _isLive = false; })
+    .finally(() => {
+      // Release the latch unless this attempt actually produced live data. The promise used
+      // to be kept forever, so one failed fetch (offline on mode entry) permanently pinned
+      // the train to mock data — every later entry short-circuited and never retried.
+      if (!_isLive) _fetchPromise = null;
+    });
 
-  await _fetchPromise;
+  _fetchPromise = attempt;
+  await attempt;
   return _isLive;
 }
 

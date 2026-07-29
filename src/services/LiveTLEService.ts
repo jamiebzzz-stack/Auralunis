@@ -15,6 +15,7 @@
 // satellite.js handles all SGP4 propagation on-device — no position data
 // is sent externally. Positions are computed locally from TLE strings.
 
+import { fetchWithTimeout } from "@/utils/network";
 import * as Satellite from "satellite.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -98,7 +99,7 @@ async function fetchCelestrak(key: string, url: string): Promise<TLERecord[]> {
   if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) return cached.records;
 
   try {
-    const res = await fetch(url, { headers: { Accept: "text/plain" } });
+    const res = await fetchWithTimeout(url, { headers: { Accept: "text/plain" } });
     if (!res.ok) throw new Error(`Celestrak ${res.status}`);
     const text = await res.text();
     const records = parseTLEText(text);
@@ -114,7 +115,7 @@ async function fetchCelestrak(key: string, url: string): Promise<TLERecord[]> {
 /** Authenticate with Space-Track and cache the session cookie */
 async function authenticateSpaceTrack(username: string, password: string): Promise<boolean> {
   try {
-    const res = await fetch(SPACE_TRACK.auth, {
+    const res = await fetchWithTimeout(SPACE_TRACK.auth, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: `identity=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`,
@@ -147,7 +148,7 @@ async function fetchSpaceTrackDebris(username: string, password: string): Promis
       if (!authed) return cached?.records ?? [];
     }
 
-    const res = await fetch(SPACE_TRACK.debris, {
+    const res = await fetchWithTimeout(SPACE_TRACK.debris, {
       headers: {
         Cookie: _spaceTrackCookie ?? "",
         Accept: "application/json",

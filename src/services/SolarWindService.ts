@@ -3,6 +3,8 @@
 // Drives the visual aura deformation on the dashboard.
 // Falls back to calm state if network is unavailable.
 
+import { fetchWithTimeout, finiteNumber } from "@/utils/network";
+
 export type AuraIntensity = "calm" | "active" | "storm" | "severe";
 
 export interface SpaceWeatherSnapshot {
@@ -54,8 +56,8 @@ export async function fetchSpaceWeather(): Promise<SpaceWeatherSnapshot> {
 
   try {
     const [kpResp, windResp] = await Promise.all([
-      fetch(KP_URL),
-      fetch(SOLAR_WIND_URL),
+      fetchWithTimeout(KP_URL),
+      fetchWithTimeout(SOLAR_WIND_URL),
     ]);
 
     if (!kpResp.ok || !windResp.ok) throw new Error("NOAA fetch failed");
@@ -63,16 +65,22 @@ export async function fetchSpaceWeather(): Promise<SpaceWeatherSnapshot> {
     const kpData = await kpResp.json() as string[][];
     const windData = await windResp.json() as string[][];
 
+    // NOAA ships these feeds as arrays of string rows, and routinely emits nulls, empty
+    // strings and header-only payloads. Guard the row lookups and coerce every reading to a
+    // finite number: a bare parseFloat yields NaN, and NaN loses every comparison in
+    // kpToIntensity, so a real storm would silently render as "calm".
+    if (!Array.isArray(kpData) || !Array.isArray(windData)) throw new Error("NOAA payload malformed");
+
     // Last row: [time_tag, Kp, Kp_index]
-    const kpRow = kpData[kpData.length - 1];
-    const kp = parseFloat(kpRow[1] ?? "0");
+    const kpRow = kpData[kpData.length - 1] ?? [];
+    const kp = finiteNumber(kpRow[1], FALLBACK.kpIndex);
 
     // Last wind row: [time_tag, bx, by, bz, lon, lat, bt]
-    const windRow = windData[windData.length - 1];
-    const bz = parseFloat(windRow[3] ?? "0");
+    const windRow = windData[windData.length - 1] ?? [];
+    const bz = finiteNumber(windRow[3], FALLBACK.bzNano);
 
     // Approximate solar wind speed from bt (rough heuristic)
-    const bt = parseFloat(windRow[6] ?? "5");
+    const bt = finiteNumber(windRow[6], 5);
     const solarWindSpeed = 350 + bt * 10;
 
     const intensity = kpToIntensity(kp);

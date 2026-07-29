@@ -7,6 +7,7 @@ import type {
 } from "@/features/aura-pro/AuraProUtilityTypes";
 import type { ObserverLocation } from "@/features/sky-lens/accuracy/SkyLensAccuracyTypes";
 import { DEFAULT_OBSERVER } from "@/features/sky-lens/ephemeris/SkyEphemerisService";
+import { fetchWithTimeout } from "@/utils/network";
 
 // Real orbital overlay. We cache the orbital *elements* (TLE sets) per mode and
 // propagate them with SGP4 to the current time on every render, then convert the
@@ -302,7 +303,7 @@ export async function loadSatelliteOverlay(
   }
 
   try {
-    const response = await fetch(buildUrl(mode), { headers: { Accept: "text/plain" } });
+    const response = await fetchWithTimeout(buildUrl(mode), { headers: { Accept: "text/plain" } });
     if (!response.ok) throw new Error(`CelesTrak response ${response.status}`);
 
     const records = parseTle(await response.text()).slice(0, 80);

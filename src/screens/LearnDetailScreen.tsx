@@ -4,7 +4,7 @@
 // "Try in Sky Lens" jump, and a "Next lesson" button. Reuses ScreenShell + the
 // living Starfield so it reads like a beautiful astronomy textbook.
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { ScreenShell } from "@/components/ScreenShell";
 import { Starfield } from "@/components/Starfield";
@@ -38,6 +38,11 @@ export function LearnDetailScreen({
   const { isPremium } = useEntitlement();
   const { addItem } = useAuraLunisVault();
   const [saved, setSaved] = useState(false);
+
+  // "Next lesson" swaps the `topic` prop while this screen stays mounted, so the saved flag
+  // has to follow the lesson. Without the reset the button stayed "✓ Saved to Vault" and
+  // disabled on every subsequent lesson, making them impossible to save.
+  useEffect(() => { setSaved(false); }, [topic.id]);
 
   const saveToVault = () => {
     tapLight();
