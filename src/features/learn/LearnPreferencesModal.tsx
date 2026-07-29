@@ -28,8 +28,6 @@ export function LearnPreferencesModal({ visible, onClose }: Props) {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // Load the last completed save each time the modal opens. Cancel therefore truly discards
-  // any unsaved taps made during the current visit.
   useEffect(() => {
     if (!visible) return;
     let active = true;
@@ -80,7 +78,6 @@ export function LearnPreferencesModal({ visible, onClose }: Props) {
     }
 
     setSaving(false);
-    tapLight();
     onClose();
   }
 
@@ -91,12 +88,7 @@ export function LearnPreferencesModal({ visible, onClose }: Props) {
   }
 
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      presentationStyle="pageSheet"
-      onRequestClose={handleCancel}
-    >
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={handleCancel}>
       <View style={styles.root}>
         <View style={styles.header}>
           <Text style={styles.title}>Learning Preferences</Text>
@@ -120,7 +112,6 @@ export function LearnPreferencesModal({ visible, onClose }: Props) {
                   style={[styles.pill, active && styles.pillActive]}
                   onPress={() => chooseLevel(option.key)}
                   accessibilityRole="button"
-                  accessibilityLabel={`${option.label} skill level`}
                   accessibilityState={{ selected: active }}
                 >
                   <Text style={[styles.pillText, active && styles.pillTextActive]}>{option.label}</Text>
@@ -138,7 +129,6 @@ export function LearnPreferencesModal({ visible, onClose }: Props) {
                 style={styles.checkRow}
                 onPress={() => toggleInterest(interest.key)}
                 accessibilityRole="checkbox"
-                accessibilityLabel={interest.label}
                 accessibilityState={{ checked }}
               >
                 <View style={[styles.checkbox, checked && styles.checkboxOn]}>
@@ -149,18 +139,14 @@ export function LearnPreferencesModal({ visible, onClose }: Props) {
             );
           })}
 
-          <Text style={styles.note}>Your Learn tab updates as soon as this save completes.</Text>
-          {saveError && (
-            <Text style={styles.saveError} accessibilityRole="alert">{saveError}</Text>
-          )}
+          <Text style={styles.note}>Open the Learn tab to see your personalized order.</Text>
+          {saveError && <Text style={styles.saveError} accessibilityRole="alert">{saveError}</Text>}
 
           <Pressable
             style={[styles.saveBtn, saving && styles.saveBtnDisabled]}
             onPress={handleSave}
             disabled={saving}
             accessibilityRole="button"
-            accessibilityLabel="Save learning preferences"
-            accessibilityState={{ disabled: saving }}
           >
             <Text style={styles.saveText}>{saving ? "Saving…" : "Save"}</Text>
           </Pressable>
