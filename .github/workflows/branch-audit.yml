@@ -19,7 +19,7 @@ concurrency:
 jobs:
   audit:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -37,65 +37,17 @@ jobs:
       - name: TypeScript
         run: npm run typecheck
 
-      - name: Static QA
-        run: npm run qa:static
-
-      - name: Sky Lens accuracy QA
-        run: npm run qa:sky
-
-      - name: Whole-app QA
-        run: npm run qa:whole
-
-      - name: Fresh bug regression checks
-        run: npm run qa:fresh-bugs
-
-      - name: RevenueCat preflight
-        run: npm run qa:revenuecat
-
-      - name: Premium feature preflight
-        run: npm run qa:aura-pro
-
-      - name: Ephemeris self-test
-        run: npm run qa:ephemeris
-
-      - name: Satellite self-test
-        run: npm run qa:satellite
-
-      - name: Sky Lens self-test
-        run: npm run qa:skylens
-
-      - name: Sky Lens label-avoidance self-test
-        run: npm run qa:labels
-
-      - name: Planet render self-test
-        run: npm run qa:planets
-
-      - name: Release-config guard (permissions / managed prebuild)
-        run: npm run qa:release-config
-
-      - name: Sky Lens accessibility-controls self-test
-        run: npm run qa:a11y
-
-      - name: Time-zone / DST self-test (9-zone matrix)
-        run: npm run qa:timezone
-
-      - name: Reduced-motion self-test
-        run: npm run qa:reduced-motion
-
-      - name: Release-cleanup self-test (deleted assets/modules stay gone)
-        run: npm run qa:release-cleanup
-
-      - name: Locale-formatting & Southern-Hemisphere-season self-test
-        run: npm run qa:locale-seasons
-
-      - name: Paywall / restore-truthfulness self-test
-        run: npm run qa:paywall-restore
-
-      - name: Release-candidate hardening self-test
-        run: npm run qa:release-candidate
+      # Single source of truth. This includes static/whole-app QA, native-device
+      # preflight, the physical-device regression guard, every premium/free gate,
+      # astronomy checks, accessibility, reduced motion, RevenueCat and release config.
+      - name: Complete feature and regression suite
+        run: npm run qa:all
 
       - name: Expo Doctor
         run: npx expo-doctor
+
+      - name: Production dependency audit
+        run: npm audit --omit=dev --audit-level=critical
 
       - name: Upload QA report
         if: always()
