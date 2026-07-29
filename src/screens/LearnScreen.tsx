@@ -21,11 +21,12 @@ import { LearnDetailScreen } from "@/screens/LearnDetailScreen";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { usePaywallNavigation } from "@/context/PaywallNavigationContext";
 
-const DEEP_SKY_LEVEL_TAB = {
-  beginner: 0,
-  intermediate: 2,
-  advanced: 1
-} as const;
+const DEEP_SKY_TOPIC_TAB: Record<string, number> = {
+  nebulae: 0,
+  galaxies: 1,
+  clusters: 2,
+  remnants: 3
+};
 
 export function LearnScreen() {
   const navigation = useNavigation<any>();
@@ -37,7 +38,10 @@ export function LearnScreen() {
   const { prefs, reload } = useLearnPreferences();
 
   function openLesson(topicId: string) {
-    if (!isLearnLessonFree(topicId) && !isPremium) { openPaywall(); return; }
+    if (!isLearnLessonFree(topicId) && !isPremium) {
+      openPaywall();
+      return;
+    }
     setOpenTopicId(topicId);
   }
 
@@ -57,18 +61,28 @@ export function LearnScreen() {
     return index === -1 ? prefs.interests.length + 1 : index;
   }, [prefs.interests]);
 
-  // Skill level is the primary ordering signal; interests break ties.
-  const orderedCategories = useMemo(() => {
-    return [...learnCategories].sort((a, b) => {
-      const aLevelRank = categoryHasLearnLevel(a.id, prefs.level) ? 0 : 1;
-      const bLevelRank = categoryHasLearnLevel(b.id, prefs.level) ? 0 : 1;
-      if (aLevelRank !== bLevelRank) return aLevelRank - bLevelRank;
-
-      const interestDifference = selectedInterestRank(a.id) - selectedInterestRank(b.id);
+  // This is the visible curriculum deck. Switching Beginner / Intermediate / Advanced
+  // replaces the cards themselves; it does not merely reorder a static category grid.
+  const levelTopics = useMemo(() => {
+    return [...getLearnTopicsForLevel(prefs.level)].sort((a, b) => {
+      const interestDifference = selectedInterestRank(a.categoryId) - selectedInterestRank(b.categoryId);
       if (interestDifference !== 0) return interestDifference;
-      return learnCategories.findIndex((category) => category.id === a.id)
-        - learnCategories.findIndex((category) => category.id === b.id);
+      return learnTopics.findIndex((topic) => topic.id === a.id)
+        - learnTopics.findIndex((topic) => topic.id === b.id);
     });
+  }, [prefs.level, selectedInterestRank]);
+
+  // Only show topic filters that actually contain a lesson at the selected level.
+  // Advanced therefore cannot silently fall back to Beginner cards.
+  const availableCategories = useMemo(() => {
+    return learnCategories
+      .filter((category) => categoryHasLearnLevel(category.id, prefs.level))
+      .sort((a, b) => {
+        const interestDifference = selectedInterestRank(a.id) - selectedInterestRank(b.id);
+        if (interestDifference !== 0) return interestDifference;
+        return learnCategories.findIndex((category) => category.id === a.id)
+          - learnCategories.findIndex((category) => category.id === b.id);
+      });
   }, [prefs.level, selectedInterestRank]);
 
   const appliedPreferenceSignature = useRef("");
@@ -77,39 +91,33 @@ export function LearnScreen() {
     if (appliedPreferenceSignature.current === signature) return;
     appliedPreferenceSignature.current = signature;
 
-    const firstCategory = orderedCategories[0];
+    const firstTopic = levelTopics[0];
+    const firstCategory = availableCategories[0];
     if (firstCategory) setSelectedCategory(firstCategory.id as LearnCategoryId);
-    setDeepSkyTabIndex(DEEP_SKY_LEVEL_TAB[prefs.level]);
-  }, [orderedCategories, prefs.interests, prefs.level]);
-
-  const recommendedTopics = useMemo(() => {
-    const matching = getLearnTopicsForLevel(prefs.level);
-    return [...matching]
-      .sort((a, b) => selectedInterestRank(a.categoryId) - selectedInterestRank(b.categoryId))
-      .slice(0, 3);
-  }, [prefs.level, selectedInterestRank]);
+    if (firstTopic?.categoryId === "deep_sky") {
+      setDeepSkyTabIndex(DEEP_SKY_TOPIC_TAB[firstTopic.id] ?? 0);
+    }
+  }, [availableCategories, levelTopics, prefs.interests, prefs.level]);
 
   const selectedTopics = useMemo(() => {
-    const inCategory = learnTopics.filter((topic) => topic.categoryId === selectedCategory);
-    if (selectedCategory === "deep_sky") {
-      const wantId = ["nebulae", "galaxies", "clusters", "remnants"][deepSkyTabIndex];
-      return inCategory.filter((topic) => topic.id === wantId);
-    }
-    return [...inCategory].sort((a, b) => {
-      const aMatch = a.level === prefs.level ? 0 : 1;
-      const bMatch = b.level === prefs.level ? 0 : 1;
-      return aMatch - bMatch;
-    });
-  }, [selectedCategory, deepSkyTabIndex, prefs.level]);
+    const exactLevelTopics = levelTopics.filter((topic) => topic.categoryId === selectedCategory);
+    if (selectedCategory !== "deep_sky") return exactLevelTopics;
 
-  const selectedMeta = learnCategories.find((category) => category.id === selectedCategory);
+    const wantedId = ["nebulae", "galaxies", "clusters", "remnants"][deepSkyTabIndex];
+    const matchingTab = exactLevelTopics.filter((topic) => topic.id === wantedId);
+    return matchingTab.length > 0 ? matchingTab : exactLevelTopics.slice(0, 1);
+  }, [deepSkyTabIndex, levelTopics, selectedCategory]);
+
+  const selectedMeta = availableCategories.find((category) => category.id === selectedCategory)
+    ?? availableCategories[0];
   const levelLabel = LEARN_LEVEL_LABELS[prefs.level];
 
   if (openTopicId) {
     const index = learnTopics.findIndex((topic) => topic.id === openTopicId);
     const topic = learnTopics[index];
     if (topic) {
-      const next = learnTopics[(index + 1) % learnTopics.length];
+      const nextAtLevel = levelTopics[(levelTopics.findIndex((item) => item.id === topic.id) + 1) % Math.max(1, levelTopics.length)];
+      const next = nextAtLevel ?? learnTopics[(index + 1) % learnTopics.length];
       const categoryTitle = learnCategories.find((category) => category.id === topic.categoryId)?.title ?? "Lesson";
       return (
         <LearnDetailScreen
@@ -117,7 +125,7 @@ export function LearnScreen() {
           categoryTitle={categoryTitle}
           nextTopicTitle={next && next.id !== topic.id ? next.title : null}
           onBack={() => setOpenTopicId(null)}
-          onNext={() => openLesson(next.id)}
+          onNext={() => next && openLesson(next.id)}
           onOpenSkyLens={() => {
             setOpenTopicId(null);
             navigation.navigate("Sky", topic.skyTarget ? { focusTarget: topic.skyTarget } : undefined);
@@ -132,7 +140,7 @@ export function LearnScreen() {
       <View style={styles.hero}>
         <Text style={styles.heroTitle}>A living astronomy guide.</Text>
         <Text style={styles.heroCopy} numberOfLines={2}>
-          Learn planets, constellations, stars, the Moon, nebulae, galaxies, and the Milky Way through live visuals.
+          Choose your level and see a curriculum built specifically for it.
         </Text>
         <Text style={styles.heroFree}>
           {isPremium
@@ -146,76 +154,84 @@ export function LearnScreen() {
           <Text style={styles.preferenceEyebrow}>YOUR LEARNING LEVEL</Text>
           <Text style={styles.preferenceLevel}>{levelLabel}</Text>
         </View>
-        <Text style={styles.preferenceCount}>{getLearnTopicsForLevel(prefs.level).length} lessons</Text>
+        <Text style={styles.preferenceCount}>{levelTopics.length} lessons</Text>
       </View>
 
-      <Text style={styles.sectionLabel}>Recommended for {levelLabel}</Text>
-      <View style={styles.recommendedList}>
-        {recommendedTopics.map((topic) => (
-          <Pressable
-            key={`recommended-${topic.id}`}
-            style={styles.recommendedRow}
-            onPress={() => openLesson(topic.id)}
-            accessibilityRole="button"
-            accessibilityLabel={`Open ${topic.title}`}
-          >
-            <View style={styles.recommendedText}>
-              <Text style={styles.recommendedTitle} numberOfLines={1}>{topic.title}</Text>
-              <Text style={styles.recommendedSummary} numberOfLines={1}>{topic.summary}</Text>
-            </View>
-            <View style={styles.recommendedEnd}>
-              <Text style={styles.recommendedLevel}>{isLearnLessonFree(topic.id) || isPremium ? topic.level : "premium"}</Text>
-              <Text style={styles.recommendedArrow}>›</Text>
-            </View>
-          </Pressable>
-        ))}
-      </View>
-
-      <Text style={styles.sectionLabel}>Choose a learning path</Text>
-      <View style={styles.categoryGrid}>
-        {orderedCategories.map((category) => {
-          const active = selectedCategory === category.id;
-          const matchesLevel = categoryHasLearnLevel(category.id, prefs.level);
+      <Text style={styles.sectionLabel}>{levelLabel} lessons</Text>
+      <View style={styles.levelLessonGrid}>
+        {levelTopics.map((topic) => {
+          const category = learnCategories.find((item) => item.id === topic.categoryId);
+          const unlocked = isLearnLessonFree(topic.id) || isPremium;
           return (
             <Pressable
-              key={category.id}
-              style={[styles.categoryCard, active && styles.categoryCardActive]}
-              onPress={() => setSelectedCategory(category.id as LearnCategoryId)}
+              key={`level-${topic.id}`}
+              style={styles.levelLessonCard}
+              onPress={() => openLesson(topic.id)}
               accessibilityRole="button"
-              accessibilityState={{ selected: active }}
+              accessibilityLabel={`${unlocked ? "Open" : "Unlock"} ${topic.title}`}
             >
-              <View style={styles.categoryTopRow}>
-                <Text style={styles.categoryIcon}>{category.icon}</Text>
-                {matchesLevel && <Text style={styles.levelMatch}>FOR YOU</Text>}
+              <View style={styles.levelLessonTop}>
+                <Text style={styles.levelLessonIcon}>{category?.icon ?? "✦"}</Text>
+                <Text style={styles.levelLessonBadge}>{unlocked ? levelLabel : "Premium"}</Text>
               </View>
-              <Text style={styles.categoryTitle} numberOfLines={1}>{category.title}</Text>
-              <Text style={styles.categoryDescription} numberOfLines={3}>{category.description}</Text>
+              <Text style={styles.levelLessonTitle} numberOfLines={2}>{topic.title}</Text>
+              <Text style={styles.levelLessonSummary} numberOfLines={3}>{topic.summary}</Text>
+              <Text style={styles.levelLessonAction}>{unlocked ? "Open lesson  ›" : "Unlock lesson  ›"}</Text>
             </Pressable>
           );
         })}
       </View>
 
-      <View style={styles.selectedHeader}>
-        <Text style={styles.selectedTitle}>{selectedMeta?.title}</Text>
-        <Text style={styles.selectedCopy}>{selectedMeta?.description}</Text>
+      <Text style={styles.sectionLabel}>Explore {levelLabel.toLowerCase()} topics</Text>
+      <View style={styles.categoryChips}>
+        {availableCategories.map((category) => {
+          const active = selectedCategory === category.id;
+          return (
+            <Pressable
+              key={category.id}
+              style={[styles.categoryChip, active && styles.categoryChipActive]}
+              onPress={() => {
+                setSelectedCategory(category.id as LearnCategoryId);
+                if (category.id === "deep_sky") {
+                  const firstTopic = levelTopics.find((topic) => topic.categoryId === "deep_sky");
+                  setDeepSkyTabIndex(DEEP_SKY_TOPIC_TAB[firstTopic?.id ?? ""] ?? 0);
+                }
+              }}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}
+            >
+              <Text style={styles.categoryChipIcon}>{category.icon}</Text>
+              <Text style={styles.categoryChipText}>{category.title}</Text>
+            </Pressable>
+          );
+        })}
       </View>
 
-      <LearnVisualForCategory
-        categoryId={selectedCategory}
-        deepSkyActiveIndex={deepSkyTabIndex}
-        onDeepSkyTabChange={setDeepSkyTabIndex}
-      />
+      {selectedMeta && (
+        <>
+          <View style={styles.selectedHeader}>
+            <Text style={styles.selectedTitle}>{selectedMeta.title}</Text>
+            <Text style={styles.selectedCopy}>{selectedMeta.description}</Text>
+          </View>
 
-      {selectedTopics.map((topic) => (
-        <FeatureCard
-          key={topic.id}
-          title={topic.title}
-          description={`${topic.summary}\n\nKey facts:\n• ${topic.keyFacts.join("\n• ")}`}
-          actionLabel={isLearnLessonFree(topic.id) || isPremium ? "Open Lesson" : "✦ Unlock Lesson"}
-          onPress={() => openLesson(topic.id)}
-          status={isLearnLessonFree(topic.id) || isPremium ? topic.level : "premium"}
-        />
-      ))}
+          <LearnVisualForCategory
+            categoryId={selectedMeta.id as LearnCategoryId}
+            deepSkyActiveIndex={deepSkyTabIndex}
+            onDeepSkyTabChange={setDeepSkyTabIndex}
+          />
+
+          {selectedTopics.map((topic) => (
+            <FeatureCard
+              key={topic.id}
+              title={topic.title}
+              description={`${topic.summary}\n\nKey facts:\n• ${topic.keyFacts.join("\n• ")}`}
+              actionLabel={isLearnLessonFree(topic.id) || isPremium ? "Open Lesson" : "✦ Unlock Lesson"}
+              onPress={() => openLesson(topic.id)}
+              status={isLearnLessonFree(topic.id) || isPremium ? topic.level : "premium"}
+            />
+          ))}
+        </>
+      )}
     </ScreenShell>
   );
 }
@@ -263,60 +279,74 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     marginTop: 3
   },
-  recommendedList: { marginBottom: 16, gap: 8 },
-  recommendedRow: {
-    minHeight: 64,
-    borderRadius: 17,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.045)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)"
-  },
-  recommendedText: { flex: 1, paddingRight: 10 },
-  recommendedTitle: { color: "#FFF", fontSize: 14, fontWeight: "900" },
-  recommendedSummary: { color: AuraLunisColors.muted, fontSize: 11, marginTop: 4 },
-  recommendedEnd: { flexDirection: "row", alignItems: "center", gap: 8 },
-  recommendedLevel: {
-    color: AuraLunisColors.gold2,
-    fontSize: 9,
-    fontWeight: "800",
-    textTransform: "uppercase",
-    borderWidth: 1,
-    borderColor: "rgba(217,168,78,0.24)",
-    borderRadius: 999,
-    paddingHorizontal: 7,
-    paddingVertical: 4
-  },
-  recommendedArrow: { color: AuraLunisColors.gold2, fontSize: 23, lineHeight: 24 },
-  categoryGrid: {
+  levelLessonGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "space-between",
     rowGap: 10,
     marginBottom: 18
   },
-  categoryCard: {
+  levelLessonCard: {
     width: "48.6%",
-    height: 154,
+    height: 184,
     borderRadius: 20,
     padding: 13,
     overflow: "hidden",
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderWidth: 1,
+    borderColor: "rgba(217,168,78,0.18)"
+  },
+  levelLessonTop: {
+    height: 29,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between"
+  },
+  levelLessonIcon: { color: AuraLunisColors.gold2, fontSize: 22 },
+  levelLessonBadge: {
+    color: AuraLunisColors.gold2,
+    fontSize: 8,
+    fontWeight: "900",
+    textTransform: "uppercase",
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(217,168,78,0.24)",
+    paddingHorizontal: 6,
+    paddingVertical: 3
+  },
+  levelLessonTitle: { color: "#FFF", fontSize: 15, lineHeight: 18, fontWeight: "900", marginTop: 7 },
+  levelLessonSummary: { color: AuraLunisColors.muted, fontSize: 11, lineHeight: 15, marginTop: 6 },
+  levelLessonAction: {
+    color: AuraLunisColors.gold2,
+    fontSize: 10,
+    fontWeight: "900",
+    marginTop: "auto",
+    paddingTop: 8
+  },
+  categoryChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 18
+  },
+  categoryChip: {
+    minHeight: 42,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    borderRadius: 999,
+    paddingHorizontal: 13,
+    paddingVertical: 9,
     backgroundColor: "rgba(255,255,255,0.045)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)"
+    borderColor: "rgba(255,255,255,0.09)"
   },
-  categoryCardActive: {
-    backgroundColor: "rgba(217,168,78,0.12)",
-    borderColor: "rgba(217,168,78,0.42)"
+  categoryChipActive: {
+    backgroundColor: "rgba(217,168,78,0.13)",
+    borderColor: "rgba(217,168,78,0.5)"
   },
-  categoryTopRow: { height: 31, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  categoryIcon: { fontSize: 23, color: AuraLunisColors.gold2 },
-  levelMatch: { color: "#A88BFF", fontSize: 8, fontWeight: "900", letterSpacing: 1.1 },
-  categoryTitle: { color: "#FFF", fontSize: 14, fontWeight: "900", marginTop: 7 },
-  categoryDescription: { color: AuraLunisColors.muted, fontSize: 11, lineHeight: 16, marginTop: 6 },
+  categoryChipIcon: { color: AuraLunisColors.gold2, fontSize: 18 },
+  categoryChipText: { color: "#FFF", fontSize: 12, fontWeight: "800" },
   selectedHeader: { marginTop: 2, marginBottom: 10 },
   selectedTitle: { color: "#FFF", fontSize: 23, fontWeight: "900", letterSpacing: -0.7 },
   selectedCopy: { color: AuraLunisColors.muted, fontSize: 13, lineHeight: 19, marginTop: 4 }
