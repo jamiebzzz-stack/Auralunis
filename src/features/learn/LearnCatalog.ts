@@ -97,9 +97,9 @@ export const learnTopics: LearnTopic[] = [
   {
     id: "galaxies",
     categoryId: "deep_sky",
-    title: "Galaxy Structure and Scale",
+    title: "What are Galaxies?",
     level: "advanced",
-    summary: "Galaxies are vast systems of stars, gas, dust, and dark matter whose structure records billions of years of formation and interaction.",
+    summary: "Galaxies are vast islands of stars — millions to trillions of them — bound by gravity, often spiralling around a bright core.",
     body: "A galaxy is an enormous gravitationally bound system of stars, gas, dust, and dark matter. Spiral galaxies like our Milky Way and the Andromeda Galaxy have flat rotating disks with curving arms; elliptical galaxies are smooth, rounded swarms of older stars; irregular galaxies have no clear shape, often disturbed by past collisions.\n\nThey range from dwarf galaxies of a few million stars to giants holding many trillions. Most lie far beyond our own — the nearest large spiral, Andromeda, is about 2.5 million light-years away, yet on a dark night it shows to the naked eye as a faint elongated smudge. Through a telescope, galaxies reveal cores, arms, and dust lanes.",
     keyFacts: [
       "The Andromeda Galaxy is the nearest large spiral to us.",
@@ -113,7 +113,7 @@ export const learnTopics: LearnTopic[] = [
   {
     id: "clusters",
     categoryId: "deep_sky",
-    title: "Open and Globular Star Clusters",
+    title: "What are Star Clusters?",
     level: "intermediate",
     summary: "Star clusters are groups of stars born together from one cloud — loose open clusters of young stars, or dense globular clusters of ancient ones.",
     body: "Star clusters are families of stars that formed together from a single collapsing cloud of gas, so they share an age and a starting chemistry. Open clusters like the Pleiades are loose, irregular groups of a few hundred young, hot stars scattered along the Milky Way's disk. Globular clusters are tight, spherical swarms of hundreds of thousands of very old stars orbiting in the galaxy's halo.\n\nBecause a cluster's stars are all the same distance and age, astronomers use them to study how stars evolve. The Pleiades, in Taurus, is the most famous open cluster — a small dipper-shaped knot of blue stars easily seen with the naked eye.",
@@ -129,9 +129,9 @@ export const learnTopics: LearnTopic[] = [
   {
     id: "remnants",
     categoryId: "deep_sky",
-    title: "Supernova Remnants and Stellar Death",
+    title: "What are Supernova Remnants?",
     level: "advanced",
-    summary: "Supernova remnants are expanding shells of enriched gas left behind when massive stars end their lives in colossal explosions.",
+    summary: "Supernova remnants are the expanding shells of glowing gas left behind when a massive star ends its life in a colossal explosion.",
     body: "When a massive star runs out of fuel, its core collapses and the star detonates as a supernova, briefly outshining its entire galaxy. The blast hurls the star's outer layers into space at thousands of kilometres per second, sweeping up surrounding gas into a glowing, expanding shell — a supernova remnant.\n\nThese remnants seed the galaxy with the heavy elements forged in the explosion, the raw material for new stars and planets. The Crab Nebula in Taurus is the wreckage of a star seen to explode in the year 1054; at its heart spins a pulsar, the dense neutron-star core left behind.",
     keyFacts: [
       "The Crab Nebula is the remnant of a star seen to explode in 1054.",
@@ -175,30 +175,14 @@ export const learnTopics: LearnTopic[] = [
   }
 ];
 
-export type LearnSkillLevel = LearnTopic["level"];
-
-export const LEARN_LEVEL_LABELS: Record<LearnSkillLevel, string> = {
-  beginner: "Beginner",
-  intermediate: "Intermediate",
-  advanced: "Advanced"
-};
-
-export function getLearnTopicsForLevel(level: LearnSkillLevel): LearnTopic[] {
-  return learnTopics.filter((topic) => topic.level === level);
-}
-
-export function categoryHasLearnLevel(categoryId: LearnTopic["categoryId"], level: LearnSkillLevel): boolean {
-  return learnTopics.some((topic) => topic.categoryId === categoryId && topic.level === level);
-}
-
 // The first N lessons (by catalog order) are the free "starter section" of Learn; every lesson
-// beyond that is premium (the full Learn library). Single source of truth for the split.
+// beyond that is premium ("Advanced Learn content"). Single source of truth for the split.
 export const FREE_LEARN_LESSON_COUNT = 3;
 const freeLearnLessonIds = new Set(
   learnTopics.slice(0, FREE_LEARN_LESSON_COUNT).map((topic) => topic.id)
 );
 
-// True for the free starter lessons; false for premium lessons.
+// True for the free starter lessons; false for premium (advanced) lessons.
 export function isLearnLessonFree(topicId: string): boolean {
   return freeLearnLessonIds.has(topicId);
 }
