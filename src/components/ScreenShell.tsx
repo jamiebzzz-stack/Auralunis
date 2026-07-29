@@ -22,9 +22,9 @@ export function ScreenShell({ title, subtitle, children, background }: Props) {
   return (
     <LinearGradient colors={palette.gradient as unknown as readonly [string, string, ...string[]]} style={styles.root}>
       {background ?? <StarDust count={12} color={AuraLunisColors.gold} opacity={0.18} />}
-      {/* The scroll viewport itself begins below the Dynamic Island. Padding the content
-          alone lets scrolled content slide underneath the status bar, which caused the
-          overlapping lesson headers seen on physical iPhones. */}
+      {/* The SafeAreaView owns insets.top so the whole scroll viewport begins below the
+          Dynamic Island. Do not add insets.top again as content padding: that would double
+          the gap while still allowing a differently structured ScrollView to scroll under it. */}
       <SafeAreaView style={styles.safe} edges={["top"]}>
         <ScrollView
           contentContainerStyle={[styles.content, { paddingBottom: Math.max(36, insets.bottom + 28) }]}
