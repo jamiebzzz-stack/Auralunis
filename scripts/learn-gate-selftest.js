@@ -1,11 +1,9 @@
-// Learn advanced-content premium-gate deterministic self-test.
+// Learn premium-gate + learning-preferences deterministic self-test.
 //
-// Product decision: the first FREE_LEARN_LESSON_COUNT lessons (by catalog order) are the free
-// "starter section"; every lesson beyond that is premium ("Advanced Learn content"). A non-entitled
-// user must not open a premium lesson. Two layers enforce this:
-//   1. Entry gate  — LearnScreen.openLesson() paywalls a non-entitled tap on an advanced lesson.
-//   2. Screen guard — LearnDetailScreen early-returns a premium preview/gate for advanced lessons,
-//                     so the lesson body is unreachable even via "Next".
+// Product decisions:
+// - The first FREE_LEARN_LESSON_COUNT lessons are free; later lessons are premium.
+// - Learning Preferences save level + interests atomically, report failures, and refresh Learn.
+// - Beginner / Intermediate / Advanced are real curriculum levels that alter ordering.
 
 const fs = require("fs");
 const path = require("path");
@@ -22,33 +20,61 @@ const hasnt = (hay, needle, n) => (!hay.includes(needle) ? ok(n) : bad(`${n} —
 const cat = read("src/features/learn/LearnCatalog.ts");
 const ls = read("src/screens/LearnScreen.tsx");
 const ld = read("src/screens/LearnDetailScreen.tsx");
+const prefs = read("src/features/learn/learnPreferences.ts");
+const modal = read("src/features/learn/LearnPreferencesModal.tsx");
 
 console.log("── Tier source of truth: first N lessons free, rest premium ──");
 has(cat, "export const FREE_LEARN_LESSON_COUNT = 3", "FREE_LEARN_LESSON_COUNT = 3 (first 3 lessons free)");
 has(cat, "learnTopics.slice(0, FREE_LEARN_LESSON_COUNT)", "free set is the first N lessons by catalog order");
 has(cat, "export function isLearnLessonFree", "isLearnLessonFree helper exported (single source of truth)");
 
-console.log("\n── Entry gate: non-entitled tap on an advanced lesson → paywall ──");
+console.log("\n── Entry gate: non-entitled tap on a premium lesson → paywall ──");
 has(ls, "useEntitlement()", "LearnScreen reads entitlement via useEntitlement");
-has(ls, "if (!isLearnLessonFree(topicId) && !isPremium) { openPaywall(); return; }", "openLesson paywalls advanced lessons for non-entitled users");
+has(ls, "if (!isLearnLessonFree(topicId) && !isPremium) { openPaywall(); return; }", "openLesson paywalls premium lessons for non-entitled users");
 has(ls, "onPress={() => openLesson(topic.id)}", "lesson card routes through the gated openLesson");
-has(ls, "onNext={() => openLesson(next.id)}", "'Next' navigation also routes through the gated openLesson");
-hasnt(ls, "Every lesson is free.", "the misleading 'Every lesson is free' hero copy is removed");
+has(ls, "onNext={() => openLesson(next.id)}", "Next navigation also routes through the gated openLesson");
+hasnt(ls, "Every lesson is free.", "the misleading Every lesson is free hero copy is removed");
 
-console.log("\n── Screen guard: advanced lesson body unreachable for non-entitled ──");
+console.log("\n── Screen guard: premium lesson body unreachable for non-entitled ──");
 has(ld, "isLearnLessonFree", "LearnDetailScreen knows the lesson tier via isLearnLessonFree");
 const guardIdx = ld.indexOf("if (!lessonIsFree && !isPremium) {");
 eq("LearnDetailScreen has a screen-level premium-lesson guard", guardIdx >= 0, true);
 const mainReturnIdx = ld.lastIndexOf("  return (\n    <ScreenShell title={topic.title}");
-eq("the full lesson has its own (main) return", mainReturnIdx > guardIdx, true);
+eq("the full lesson has its own main return", mainReturnIdx > guardIdx, true);
 const guardBlock = guardIdx >= 0 && mainReturnIdx > guardIdx ? ld.slice(guardIdx, mainReturnIdx) : "";
 has(guardBlock, "PREMIUM LESSON", "guard renders a premium preview/gate");
-has(guardBlock, "openPaywall()", "guard's Unlock Premium opens the existing paywall");
-hasnt(guardBlock, "topic.keyFacts.map", "guard does NOT render the lesson key facts");
-hasnt(guardBlock, "topic.body", "guard does NOT render the lesson body");
-// The lesson body (key facts + body paragraphs) exists ONLY past the guard.
-eq("key facts are only past the guard (premium lesson body)", ld.indexOf("topic.keyFacts.map") > guardIdx, true);
-eq("lesson body is only past the guard (premium lesson body)", ld.indexOf("topic.body") > guardIdx, true);
+has(guardBlock, "openPaywall()", "guard Unlock Premium opens the existing paywall");
+hasnt(guardBlock, "topic.keyFacts.map", "guard does not render lesson key facts");
+hasnt(guardBlock, "topic.body", "guard does not render lesson body");
+eq("key facts are only past the guard", ld.indexOf("topic.keyFacts.map") > guardIdx, true);
+eq("lesson body is only past the guard", ld.indexOf("topic.body") > guardIdx, true);
 
-console.log(`\nLearn advanced-content premium-gate self-test: ${pass} passed, ${fail} failed.`);
+console.log("\n── Learning Preferences: completed save or visible failure ──");
+has(prefs, "AsyncStorage.multiSet", "level and interests persist in one AsyncStorage operation");
+has(prefs, "export async function saveLearnPreferences", "complete preference save helper is exported");
+has(prefs, "publish(normalized)", "successful saves notify mounted Learn consumers");
+has(prefs, "subscribeLearnPreferences", "Learn preference subscription is available");
+has(prefs, "return false;", "storage failure is surfaced to the caller");
+has(modal, "async function handleSave()", "Save handler is asynchronous");
+has(modal, "const saved = await saveLearnPreferences({ level, interests });", "modal waits for storage completion");
+const awaitIdx = modal.indexOf("const saved = await saveLearnPreferences({ level, interests });");
+const closeIdx = modal.indexOf("onClose();", awaitIdx);
+eq("modal closes only after the awaited save", closeIdx > awaitIdx, true);
+has(modal, "if (!saved)", "failed save keeps the modal open");
+has(modal, "Saving…", "button provides in-progress feedback");
+has(modal, "Choose at least one interest before saving.", "empty interest selection is rejected honestly");
+
+console.log("\n── Skill levels materially change Learn ──");
+has(cat, 'level: "beginner"', "catalog contains beginner lessons");
+has(cat, 'level: "intermediate"', "catalog contains intermediate lessons");
+has(cat, 'level: "advanced"', "catalog contains advanced lessons");
+has(cat, "categoryHasLearnLevel", "catalog exposes category-level matching");
+has(cat, "getLearnTopicsForLevel", "catalog exposes exact-level recommendations");
+has(ls, "useFocusEffect", "Learn reloads preferences when its tab receives focus");
+has(ls, "Skill level is the primary ordering signal", "category order prioritizes the saved level");
+has(ls, "DEEP_SKY_LEVEL_TAB", "Deep Sky opens the tab matching the saved level");
+has(ls, "Recommended for {levelLabel}", "Learn visibly presents recommendations for the saved level");
+has(ls, "YOUR LEARNING LEVEL", "Learn visibly confirms the saved level");
+
+console.log(`\nLearn gate + preferences self-test: ${pass} passed, ${fail} failed.`);
 process.exit(fail === 0 ? 0 : 1);
