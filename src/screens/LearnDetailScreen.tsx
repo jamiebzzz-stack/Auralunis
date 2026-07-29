@@ -1,9 +1,3 @@
-// LearnDetailScreen.tsx
-// A full-screen, FREE lesson — opened when a Learn topic card is tapped (no Alert,
-// no paywall). Shows the live visual, gold key-facts, the full lesson body, a
-// "Try in Sky Lens" jump, and a "Next lesson" button. Reuses ScreenShell + the
-// living Starfield so it reads like a beautiful astronomy textbook.
-
 import React, { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { ScreenShell } from "@/components/ScreenShell";
@@ -17,6 +11,13 @@ import { usePaywallNavigation } from "@/context/PaywallNavigationContext";
 import { useAuraLunisVault } from "@/state/AuraLunisVaultContext";
 import { isLearnLessonFree } from "@/features/learn/LearnCatalog";
 import type { LearnTopic } from "@/features/learn/LearnTypes";
+
+const DEEP_SKY_TOPIC_TAB: Record<string, number> = {
+  nebulae: 0,
+  galaxies: 1,
+  clusters: 2,
+  remnants: 3
+};
 
 interface LearnDetailScreenProps {
   topic: LearnTopic;
@@ -37,21 +38,22 @@ export function LearnDetailScreen({
 }: LearnDetailScreenProps) {
   const { isPremium } = useEntitlement();
   const { addItem } = useAuraLunisVault();
+  const { openPaywall } = usePaywallNavigation();
   const [saved, setSaved] = useState(false);
+  const lessonIsFree = isLearnLessonFree(topic.id);
+  const deepSkyActiveIndex = topic.categoryId === "deep_sky" ? (DEEP_SKY_TOPIC_TAB[topic.id] ?? 0) : undefined;
 
   const saveToVault = () => {
     tapLight();
-    // Lesson marks are saved to the (premium) Vault — free users get the paywall instead.
     if (!isPremium) { openPaywall(); return; }
-    addItem({ type: "lesson", title: topic.title, detail: `Observed during "${topic.title}". ${topic.skyLensAction ?? ""}`.trim() });
+    addItem({
+      type: "lesson",
+      title: topic.title,
+      detail: `Observed during "${topic.title}". ${topic.skyLensAction ?? ""}`.trim()
+    });
     setSaved(true);
   };
-  const { openPaywall } = usePaywallNavigation();
-  const lessonIsFree = isLearnLessonFree(topic.id);
 
-  // Screen-level entitlement guard (defense-in-depth): advanced lessons are premium. A non-entitled
-  // user must never read a premium lesson body, even if this screen is reached by another path
-  // (e.g. "Next"). Render a premium preview/gate; "Unlock Premium" opens the existing paywall.
   if (!lessonIsFree && !isPremium) {
     return (
       <ScreenShell title={topic.title} subtitle={categoryTitle} background={<Starfield />}>
@@ -83,7 +85,6 @@ export function LearnDetailScreen({
 
   return (
     <ScreenShell title={topic.title} subtitle={categoryTitle} background={<Starfield />}>
-      {/* Top nav — large, high-contrast back control (>=44pt tap target) */}
       <Pressable
         style={({ pressed }) => [styles.backBtn, pressed && styles.backBtnPressed]}
         onPress={() => { tapLight(); onBack(); }}
@@ -100,12 +101,14 @@ export function LearnDetailScreen({
         <Text style={styles.levelTag}>{topic.level.toUpperCase()}</Text>
       </View>
 
-      {/* Live visual up top */}
       <GlassPanel accent style={styles.visualCard}>
-        <LearnVisualForCategory categoryId={topic.categoryId} />
+        <LearnVisualForCategory
+          categoryId={topic.categoryId}
+          deepSkyActiveIndex={deepSkyActiveIndex}
+          deepSkyInteractive={false}
+        />
       </GlassPanel>
 
-      {/* Key facts as gold bullets */}
       <Text style={styles.sectionLabel}>KEY FACTS</Text>
       <View style={styles.factsCard}>
         {topic.keyFacts.map((fact, i) => (
@@ -116,19 +119,16 @@ export function LearnDetailScreen({
         ))}
       </View>
 
-      {/* Full description */}
       <Text style={styles.sectionLabel}>THE LESSON</Text>
       <Text style={styles.summary}>{topic.summary}</Text>
       {(topic.body ?? "").split("\n\n").filter(Boolean).map((para, i) => (
         <Text key={i} style={styles.bodyPara}>{para}</Text>
       ))}
 
-      {/* Try in Sky Lens */}
       <Pressable style={styles.skyBtn} onPress={() => { tapLight(); onOpenSkyLens(); }}>
         <Text style={styles.skyBtnText}>{topic.skyLensAction ?? "Try in Sky Lens"} →</Text>
       </Pressable>
 
-      {/* Save to Vault — logs this observation so it appears in the Vault tab. */}
       <Pressable
         style={[styles.vaultBtn, saved && styles.vaultBtnSaved]}
         onPress={saveToVault}
@@ -139,7 +139,6 @@ export function LearnDetailScreen({
         <Text style={styles.vaultBtnText}>{saved ? "✓  Saved to Vault" : "Save to Vault"}</Text>
       </Pressable>
 
-      {/* Next lesson */}
       {nextTopicTitle && (
         <Pressable style={styles.nextBtn} onPress={() => { tapLight(); onNext(); }}>
           <Text style={styles.nextLabel}>NEXT LESSON</Text>
@@ -147,8 +146,6 @@ export function LearnDetailScreen({
         </Pressable>
       )}
 
-      {/* Soft Premium nudge — surfaced at the end of the free starter lessons for free users
-          only (never blocks a free lesson's content). */}
       {!isPremium && (
         <View style={styles.nudge}>
           <Text style={styles.nudgeTitle}>✦  Go deeper with Premium</Text>
@@ -184,7 +181,7 @@ const styles = StyleSheet.create({
   backBtnPressed: { backgroundColor: "rgba(217,168,78,0.26)" },
   backArrow: { color: AuraLunisColors.gold, fontSize: 19, fontWeight: "900", marginTop: -1 },
   backText: { color: AuraLunisColors.gold, fontSize: 16, fontWeight: "800", letterSpacing: 0.3 },
-  badgeRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 14 },
+  badgeRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8, marginBottom: 14 },
   freeTag: {
     fontSize: 9, fontWeight: "900", letterSpacing: 1.5, color: AuraLunisColors.cosmicBlack,
     backgroundColor: AuraLunisColors.gold, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, overflow: "hidden",
@@ -194,9 +191,7 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: "rgba(217,168,78,0.35)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, overflow: "hidden",
   },
   visualCard: { marginBottom: 18, paddingVertical: 10 },
-  sectionLabel: {
-    fontSize: 10, fontWeight: "900", letterSpacing: 2, color: AuraLunisColors.gold, marginBottom: 10,
-  },
+  sectionLabel: { fontSize: 10, fontWeight: "900", letterSpacing: 2, color: AuraLunisColors.gold, marginBottom: 10 },
   factsCard: {
     backgroundColor: "rgba(217,168,78,0.06)",
     borderWidth: 1, borderColor: "rgba(217,168,78,0.16)",
@@ -207,10 +202,7 @@ const styles = StyleSheet.create({
   factText: { color: "#FFF", fontSize: 14, lineHeight: 20, flex: 1, fontWeight: "600" },
   summary: { color: AuraLunisColors.gold2, fontSize: 15, lineHeight: 23, fontWeight: "700", marginBottom: 12 },
   bodyPara: { color: AuraLunisColors.silver, fontSize: 14, lineHeight: 23, marginBottom: 14 },
-  skyBtn: {
-    marginTop: 4, marginBottom: 14, borderRadius: 14, paddingVertical: 14, alignItems: "center",
-    backgroundColor: AuraLunisColors.gold,
-  },
+  skyBtn: { marginTop: 4, marginBottom: 14, borderRadius: 14, paddingVertical: 14, alignItems: "center", backgroundColor: AuraLunisColors.gold },
   skyBtnText: { color: AuraLunisColors.cosmicBlack, fontWeight: "900", fontSize: 14, letterSpacing: 0.3 },
   vaultBtn: {
     marginBottom: 14, borderRadius: 14, paddingVertical: 13, alignItems: "center",
