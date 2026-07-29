@@ -13,13 +13,15 @@ const CAPTIONS = [
   "Supernova remnants are the glowing shells flung outward when a massive star explodes."
 ];
 
+const normalizeIndex = (index: number) => Math.max(0, Math.min(LABELS.length - 1, Math.round(index)));
+
 // Seeded star dots for the Cluster illustration (center-dense, deterministic).
 const CLUSTER = (() => {
   let s = 0x2545f491 >>> 0;
   const rng = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 0xffffffff);
   return Array.from({ length: 24 }, () => {
     const a = rng() * Math.PI * 2;
-    const r = Math.pow(rng(), 0.7) * 34; // bias toward the centre
+    const r = Math.pow(rng(), 0.7) * 34;
     return { x: Math.cos(a) * r, y: Math.sin(a) * r * 0.9, rad: 1 + rng() * 1.9, warm: rng() < 0.3 };
   });
 })();
@@ -90,9 +92,23 @@ function DeepSkyShape({ type, cx, cy }: { type: number; cx: number; cy: number }
   );
 }
 
-export function DeepSkyGlowVisual({ onTabChange }: { onTabChange?: (index: number) => void } = {}) {
-  const [active, setActive] = useState(0);
-  // No auto-cycle: the widget starts on Nebula and only changes when the user taps a tab.
+type Props = {
+  /** Controlled tab for category and lesson screens. */
+  activeIndex?: number;
+  onTabChange?: (index: number) => void;
+  /** Lesson details lock the visual to the lesson's actual object type. */
+  interactive?: boolean;
+};
+
+export function DeepSkyGlowVisual({ activeIndex, onTabChange, interactive = true }: Props = {}) {
+  const [internalActive, setInternalActive] = useState(() => normalizeIndex(activeIndex ?? 0));
+  const active = activeIndex === undefined ? internalActive : normalizeIndex(activeIndex);
+
+  const select = (index: number) => {
+    if (!interactive) return;
+    if (activeIndex === undefined) setInternalActive(index);
+    onTabChange?.(index);
+  };
 
   return (
     <View style={styles.card}>
@@ -106,14 +122,12 @@ export function DeepSkyGlowVisual({ onTabChange }: { onTabChange?: (index: numbe
         {LABELS.map((label, index) => (
           <TouchableOpacity
             key={label}
-            onPress={() => {
-              setActive(index);
-              onTabChange?.(index);
-            }}
+            onPress={() => select(index)}
+            disabled={!interactive}
             accessibilityRole="button"
-            accessibilityState={{ selected: active === index }}
-            accessibilityLabel={`Show ${label}`}
-            hitSlop={6}
+            accessibilityState={{ selected: active === index, disabled: !interactive }}
+            accessibilityLabel={`${label}${active === index ? ", selected" : ""}`}
+            hitSlop={interactive ? 6 : undefined}
           >
             <Text style={[styles.pill, active === index && styles.pillActive]}>{label}</Text>
           </TouchableOpacity>
@@ -128,7 +142,7 @@ const styles = StyleSheet.create({
   card: { borderRadius: 28, padding: 16, backgroundColor: "rgba(255,255,255,0.055)", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", marginBottom: 14 },
   label: { color: AuraLunisColors.gold2, fontSize: 11, letterSpacing: 2, fontWeight: "900" },
   canvas: { height: 150, borderRadius: 22, overflow: "hidden", marginTop: 10, backgroundColor: "rgba(3,5,10,0.8)" },
-  row: { flexDirection: "row", gap: 8, marginTop: 12 },
+  row: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 },
   pill: { color: AuraLunisColors.silver, fontSize: 11, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: "rgba(255,255,255,0.08)" },
   pillActive: { color: AuraLunisColors.gold2, borderColor: "rgba(217,168,78,0.28)", backgroundColor: "rgba(217,168,78,0.1)" },
   caption: { color: AuraLunisColors.muted, fontSize: 12, lineHeight: 18, marginTop: 10 }
