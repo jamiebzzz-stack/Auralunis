@@ -1,4 +1,4 @@
-// Static guard for the exact regressions found in the AuraLunis 1.0.1 TestFlight build.
+// Static guard for the exact physical-device regressions found during AuraLunis 1.0.1 testing.
 const fs = require("fs");
 const path = require("path");
 const ROOT = path.resolve(__dirname, "..");
@@ -26,18 +26,24 @@ check("Learn category controls the visual tab", learn.includes("deepSkyActiveInd
 check("shared visual forwards controlled index", visual.includes("activeIndex={deepSkyActiveIndex}"));
 check("deep-sky visual supports controlled selection", deepSky.includes("activeIndex?: number") && deepSky.includes("activeIndex === undefined"));
 
+console.log("\n── Learn layout consistency ──");
+check("learning-path cards use one fixed height", /categoryCard:\s*\{[\s\S]*height:\s*154/.test(learn));
+check("learning-path titles are clamped", learn.includes('style={styles.categoryTitle} numberOfLines={1}'));
+check("learning-path descriptions are clamped", learn.includes('style={styles.categoryDescription} numberOfLines={3}'));
+check("recommendations use compact rows instead of giant FeatureCards", learn.includes("styles.recommendedRow") && !learn.includes('key={`recommended-${topic.id}`}\n          title={topic.title}'));
+
 console.log("\n── Safe layout ──");
 check("ScreenShell uses a top SafeAreaView", shell.includes("<SafeAreaView") && shell.includes('edges={["top"]}'));
 check("ScreenShell no longer relies on top content padding alone", !shell.includes("paddingTop: insets.top + 12"));
 check("normal tab bar is not absolute", !/TAB_BAR_STYLE[\s\S]*position:\s*["']absolute["']/.test(tabs));
 check("tab bar participates in layout", tabs.includes('backgroundColor: "#070A13"'));
 
-console.log("\n── Sky Lens movement budget ──");
-check("pointing state identifies deliberate movement", pointing.includes("moving: boolean") && pointing.includes("SETTLE_DELAY_MS"));
-check("pointing ignores tiny stationary noise", pointing.includes("azDelta >= 0.1") && pointing.includes("altDelta >= 0.08"));
-check("canvas auto-detects a physical pan", canvas.includes("useAutomaticReducedDetail"));
-check("canvas reduces stars during movement", canvas.includes("magnitude <= 2.7") && canvas.includes("lightScene"));
-check("canvas suppresses labels and ambient animation during movement", canvas.includes("const showLabels = !cinematic && !lightScene") && canvas.includes("vg.shootingStars && !lightScene"));
+console.log("\n── Sky Lens visual stability ──");
+check("pointing no longer publishes a visual-quality movement mode", !pointing.includes("moving: boolean") && !pointing.includes("SETTLE_DELAY_MS"));
+check("canvas never swaps to an automatic reduced-detail scene", !canvas.includes("useAutomaticReducedDetail") && !canvas.includes("lightScene"));
+check("labels stay present while panning", canvas.includes("const showLabels = !cinematic"));
+check("full star catalog remains mounted", canvas.includes("stars={sky.stars}"));
+check("ambient sky detail is not removed during movement", canvas.includes("<CosmicDustLayer") && canvas.includes("<HorizonGlowLayer"));
 
 console.log(`\nDevice regression self-test: ${passed} passed, ${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);
