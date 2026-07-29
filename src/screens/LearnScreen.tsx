@@ -22,9 +22,9 @@ import { useEntitlement } from "@/hooks/useEntitlement";
 import { usePaywallNavigation } from "@/context/PaywallNavigationContext";
 
 const DEEP_SKY_LEVEL_TAB = {
-  beginner: 0,     // Nebula
-  intermediate: 2, // Cluster
-  advanced: 1      // Galaxy
+  beginner: 0,
+  intermediate: 2,
+  advanced: 1
 } as const;
 
 export function LearnScreen() {
@@ -34,19 +34,12 @@ export function LearnScreen() {
   const [selectedCategory, setSelectedCategory] = useState<LearnCategoryId>("solar_system");
   const [openTopicId, setOpenTopicId] = useState<string | null>(null);
 
-  // Opening a lesson: the first FREE_LEARN_LESSON_COUNT lessons are free; the rest of
-  // the Learn library is premium. Every route, including Next, passes through this gate.
   function openLesson(topicId: string) {
     if (!isLearnLessonFree(topicId) && !isPremium) { openPaywall(); return; }
     setOpenTopicId(topicId);
   }
 
-  // Which Deep Sky tab is active (Nebula/Galaxy/Cluster/Remnant) — drives which
-  // deep_sky topic is shown beneath the live visual.
   const [deepSkyTabIndex, setDeepSkyTabIndex] = useState(0);
-
-  // Learning Preferences (skill level + interests) personalize ordering. The hook receives
-  // same-session saves immediately; focus reload also catches storage changes after tab travel.
   const { prefs, reload } = useLearnPreferences();
   useFocusEffect(
     useCallback(() => {
@@ -54,22 +47,16 @@ export function LearnScreen() {
     }, [reload])
   );
 
-  // Go full-screen for a lesson: hide the tab bar, restore it on exit (mirrors
-  // the Sky Lens immersive pattern).
   useEffect(() => {
     navigation.setOptions?.({ tabBarStyle: openTopicId ? { display: "none" } : TAB_BAR_STYLE });
   }, [navigation, openTopicId]);
 
-  // If all six interests are selected, treat them as "show me everything" and preserve
-  // catalog order. Once the user narrows the list, selected interests rank ahead of others.
   const selectedInterestRank = useCallback((categoryId: string) => {
     if (prefs.interests.length === LEARN_INTERESTS.length) return 0;
     const index = prefs.interests.indexOf(categoryId as (typeof prefs.interests)[number]);
     return index === -1 ? prefs.interests.length + 1 : index;
   }, [prefs.interests]);
 
-  // Skill level is the primary ordering signal; interests break ties. This makes the level
-  // buttons materially change what the customer sees instead of merely saving a label.
   const orderedCategories = useMemo(() => {
     return [...learnCategories].sort((a, b) => {
       const aLevelRank = categoryHasLearnLevel(a.id, prefs.level) ? 0 : 1;
@@ -83,8 +70,6 @@ export function LearnScreen() {
     });
   }, [prefs.level, selectedInterestRank]);
 
-  // Apply a new preference set once. Saving Advanced, for example, moves Deep Sky first and
-  // opens its Galaxy tab; later manual category/tab taps remain under the customer's control.
   const appliedPreferenceSignature = useRef("");
   useEffect(() => {
     const signature = `${prefs.level}:${prefs.interests.join(",")}`;
@@ -105,12 +90,10 @@ export function LearnScreen() {
 
   const selectedTopics = useMemo(() => {
     const inCategory = learnTopics.filter((topic) => topic.categoryId === selectedCategory);
-    // Deep Sky shows one topic at a time, matched to the active tab in the visual.
     if (selectedCategory === "deep_sky") {
       const wantId = ["nebulae", "galaxies", "clusters", "remnants"][deepSkyTabIndex];
       return inCategory.filter((topic) => topic.id === wantId);
     }
-    // Lessons matching the chosen skill level surface first.
     return [...inCategory].sort((a, b) => {
       const aMatch = a.level === prefs.level ? 0 : 1;
       const bMatch = b.level === prefs.level ? 0 : 1;
@@ -121,14 +104,12 @@ export function LearnScreen() {
   const selectedMeta = learnCategories.find((category) => category.id === selectedCategory);
   const levelLabel = LEARN_LEVEL_LABELS[prefs.level];
 
-  // ── Full-screen lesson ──────────────────────────────────────────────────────
   if (openTopicId) {
     const index = learnTopics.findIndex((topic) => topic.id === openTopicId);
     const topic = learnTopics[index];
     if (topic) {
       const next = learnTopics[(index + 1) % learnTopics.length];
-      const categoryTitle =
-        learnCategories.find((category) => category.id === topic.categoryId)?.title ?? "Lesson";
+      const categoryTitle = learnCategories.find((category) => category.id === topic.categoryId)?.title ?? "Lesson";
       return (
         <LearnDetailScreen
           topic={topic}
@@ -165,9 +146,7 @@ export function LearnScreen() {
           <Text style={styles.preferenceEyebrow}>YOUR LEARNING LEVEL</Text>
           <Text style={styles.preferenceLevel}>{levelLabel}</Text>
         </View>
-        <Text style={styles.preferenceCount}>
-          {getLearnTopicsForLevel(prefs.level).length} matching lessons
-        </Text>
+        <Text style={styles.preferenceCount}>{getLearnTopicsForLevel(prefs.level).length} matching lessons</Text>
       </View>
 
       <Text style={styles.sectionLabel}>Recommended for {levelLabel}</Text>
@@ -211,7 +190,11 @@ export function LearnScreen() {
         <Text style={styles.selectedCopy}>{selectedMeta?.description}</Text>
       </View>
 
-      <LearnVisualForCategory categoryId={selectedCategory} onDeepSkyTabChange={setDeepSkyTabIndex} />
+      <LearnVisualForCategory
+        categoryId={selectedCategory}
+        deepSkyActiveIndex={deepSkyTabIndex}
+        onDeepSkyTabChange={setDeepSkyTabIndex}
+      />
 
       {selectedTopics.map((topic) => (
         <FeatureCard
@@ -236,18 +219,8 @@ const styles = StyleSheet.create({
     borderColor: "rgba(217,168,78,0.18)",
     marginBottom: 16
   },
-  heroTitle: {
-    color: "#FFF",
-    fontSize: 25,
-    fontWeight: "900",
-    letterSpacing: -0.8
-  },
-  heroCopy: {
-    color: AuraLunisColors.silver,
-    fontSize: 14,
-    lineHeight: 21,
-    marginTop: 8
-  },
+  heroTitle: { color: "#FFF", fontSize: 25, fontWeight: "900", letterSpacing: -0.8 },
+  heroCopy: { color: AuraLunisColors.silver, fontSize: 14, lineHeight: 21, marginTop: 8 },
   heroFree: {
     color: AuraLunisColors.gold2,
     fontSize: 11,
@@ -280,12 +253,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     marginTop: 4
   },
-  categoryGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    marginBottom: 16
-  },
+  categoryGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 16 },
   categoryCard: {
     width: "48%",
     minHeight: 132,
@@ -295,19 +263,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.07)"
   },
-  categoryCardActive: {
-    backgroundColor: "rgba(217,168,78,0.12)",
-    borderColor: "rgba(217,168,78,0.28)"
-  },
+  categoryCardActive: { backgroundColor: "rgba(217,168,78,0.12)", borderColor: "rgba(217,168,78,0.28)" },
   categoryTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   categoryIcon: { fontSize: 24, color: AuraLunisColors.gold2 },
   levelMatch: { color: "#A88BFF", fontSize: 8, fontWeight: "900", letterSpacing: 1.2 },
   categoryTitle: { color: "#FFF", fontSize: 14, fontWeight: "900", marginTop: 7 },
   categoryDescription: { color: AuraLunisColors.muted, fontSize: 11, lineHeight: 15, marginTop: 5 },
-  selectedHeader: {
-    marginTop: 4,
-    marginBottom: 10
-  },
+  selectedHeader: { marginTop: 4, marginBottom: 10 },
   selectedTitle: { color: "#FFF", fontSize: 23, fontWeight: "900", letterSpacing: -0.7 },
   selectedCopy: { color: AuraLunisColors.muted, fontSize: 13, lineHeight: 19, marginTop: 4 }
 });
