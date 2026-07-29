@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Accelerometer, Magnetometer } from "expo-sensors";
+import { Accelerometer, Gyroscope, Magnetometer } from "expo-sensors";
 import { pointingFromSensors, type Vec3 } from "./SkyLensOrientation";
 import type { CameraPointing } from "./SkyLensProjection";
 
@@ -8,8 +8,9 @@ interface SensorModule {
   setUpdateInterval: (intervalMs: number) => void;
   addListener: (listener: (reading: SensorReading) => void) => { remove: () => void };
 }
-const Sensors = { Accelerometer, Magnetometer } as unknown as {
+const Sensors = { Accelerometer, Gyroscope, Magnetometer } as unknown as {
   Accelerometer: SensorModule;
+  Gyroscope: SensorModule;
   Magnetometer: SensorModule;
 };
 
@@ -24,10 +25,8 @@ const EMPTY_POINTING: CameraPointing = {
   rollDegrees: 0
 };
 
-const STATIONARY_LOCK_DELAY_MS = 650;
-const STATIONARY_RELEASE_AZIMUTH = 1.8;
-const STATIONARY_RELEASE_ALTITUDE = 1.1;
-const STATIONARY_RELEASE_ROLL = 1.6;
+const STILLNESS_DELAY_MS = 500;
+const GYRO_MOVEMENT_THRESHOLD = 0.075;
 
 const normalizeHeading = (degrees: number) => ((degrees % 360) + 360) % 360;
 const clampAltitude = (degrees: number) => Math.max(-90, Math.min(90, degrees));
@@ -38,17 +37,14 @@ const shortestAngleDelta = (from: number, to: number) => {
   return delta;
 };
 
-const stabilizeAngle = (
+const followAngle = (
   previous: number,
   next: number,
   deadZoneDegrees: number,
-  gentleFollow: number
+  follow: number
 ) => {
   const delta = shortestAngleDelta(previous, next);
-  const magnitude = Math.abs(delta);
-
-  if (magnitude <= deadZoneDegrees) return previous;
-  const follow = magnitude > 8 ? 0.72 : magnitude > 3 ? 0.48 : gentleFollow;
+  if (Math.abs(delta) <= deadZoneDegrees) return previous;
   return previous + delta * follow;
 };
 
@@ -62,23 +58,21 @@ export function useDevicePointing(
     available: false
   });
 
-  // Keep raw sensor samples out of React state. A magnetometer frame publishes one coordinated
-  // pointing update using the latest acceleration instead of rebuilding the sky twice.
   const accelerometerRef = useRef<Vec3>({ x: 0, y: 0, z: 1 });
   const magnetometerRef = useRef<Vec3 | null>(null);
-  const stablePointingRef = useRef<CameraPointing | null>(null);
+  const filteredPointingRef = useRef<CameraPointing | null>(null);
   const lastPublishedRef = useRef<CameraPointing | null>(null);
-  const stationaryAnchorRef = useRef<CameraPointing | null>(null);
-  const lastPublishedMotionAtRef = useRef(Date.now());
+  const lastRealRotationAtRef = useRef(Date.now());
+  const stationaryLockedRef = useRef(false);
   const alphaRef = useRef(smoothingAlpha);
   alphaRef.current = smoothingAlpha;
 
   useEffect(() => {
     Sensors.Accelerometer.setUpdateInterval(updateMs);
     Sensors.Magnetometer.setUpdateInterval(updateMs);
+    Sensors.Gyroscope.setUpdateInterval(Math.min(updateMs, 50));
 
     const ema = (previous: Vec3, next: SensorReading): Vec3 => {
-      // Preserve the App Store build's conservative low-pass ceiling.
       const alpha = Math.min(alphaRef.current, 0.16);
       return {
         x: previous.x + (next.x - previous.x) * alpha,
@@ -91,6 +85,20 @@ export function useDevicePointing(
       const magnetometer = magnetometerRef.current;
       if (!magnetometer) return;
 
+      const now = Date.now();
+      const phoneIsStill = now - lastRealRotationAtRef.current >= STILLNESS_DELAY_MS;
+
+      // Once the gyroscope confirms the phone has stopped rotating, freeze the exact rendered
+      // frame. Magnetometer drift alone is never allowed to unlock or rotate the sky.
+      if (phoneIsStill && lastPublishedRef.current) {
+        stationaryLockedRef.current = true;
+        return;
+      }
+
+      if (stationaryLockedRef.current) {
+        stationaryLockedRef.current = false;
+      }
+
       const measured = pointingFromSensors(
         accelerometerRef.current,
         magnetometer,
@@ -102,79 +110,47 @@ export function useDevicePointing(
         altitudeDegrees: clampAltitude(-measured.altitudeDegrees)
       };
 
-      const previous = stablePointingRef.current;
-      const stable: CameraPointing = previous
+      const previous = filteredPointingRef.current;
+      const filtered: CameraPointing = previous
         ? {
             azimuthDegrees: normalizeHeading(
-              stabilizeAngle(previous.azimuthDegrees, raw.azimuthDegrees, 0.55, 0.24)
+              followAngle(previous.azimuthDegrees, raw.azimuthDegrees, 0.65, 0.42)
             ),
             altitudeDegrees: clampAltitude(
-              stabilizeAngle(previous.altitudeDegrees, raw.altitudeDegrees, 0.4, 0.22)
+              followAngle(previous.altitudeDegrees, raw.altitudeDegrees, 0.45, 0.38)
             ),
             rollDegrees: normalizeHeading(
-              stabilizeAngle(previous.rollDegrees, raw.rollDegrees, 0.65, 0.2)
+              followAngle(previous.rollDegrees, raw.rollDegrees, 0.75, 0.34)
             )
           }
         : raw;
 
-      stablePointingRef.current = stable;
+      filteredPointingRef.current = filtered;
       const last = lastPublishedRef.current;
-      if (!last) {
-        lastPublishedRef.current = stable;
-        lastPublishedMotionAtRef.current = Date.now();
-        setState({ pointing: stable, available: true });
-        return;
+      if (last) {
+        const azimuthDelta = Math.abs(shortestAngleDelta(last.azimuthDegrees, filtered.azimuthDegrees));
+        const altitudeDelta = Math.abs(last.altitudeDegrees - filtered.altitudeDegrees);
+        const rollDelta = Math.abs(shortestAngleDelta(last.rollDegrees, filtered.rollDegrees));
+
+        if (azimuthDelta < 0.35 && altitudeDelta < 0.25 && rollDelta < 0.4) return;
       }
 
-      const now = Date.now();
-      const azimuthDelta = Math.abs(shortestAngleDelta(last.azimuthDegrees, stable.azimuthDegrees));
-      const altitudeDelta = Math.abs(last.altitudeDegrees - stable.altitudeDegrees);
-      const rollDelta = Math.abs(shortestAngleDelta(last.rollDegrees, stable.rollDegrees));
-
-      const anchor = stationaryAnchorRef.current;
-      if (anchor) {
-        const anchorAzimuthDelta = Math.abs(shortestAngleDelta(anchor.azimuthDegrees, stable.azimuthDegrees));
-        const anchorAltitudeDelta = Math.abs(anchor.altitudeDegrees - stable.altitudeDegrees);
-        const anchorRollDelta = Math.abs(shortestAngleDelta(anchor.rollDegrees, stable.rollDegrees));
-
-        if (
-          anchorAzimuthDelta < STATIONARY_RELEASE_AZIMUTH &&
-          anchorAltitudeDelta < STATIONARY_RELEASE_ALTITUDE &&
-          anchorRollDelta < STATIONARY_RELEASE_ROLL
-        ) {
-          // Hold the exact rendered frame while the phone is physically still.
-          return;
-        }
-
-        // Movement has clearly exceeded the stationary window; resume immediately.
-        stationaryAnchorRef.current = null;
-        lastPublishedMotionAtRef.current = now;
-      }
-
-      // Ignore sub-pixel sensor noise so the large SVG scene is not invalidated needlessly.
-      const changed =
-        azimuthDelta >= 0.45 ||
-        altitudeDelta >= 0.3 ||
-        rollDelta >= 0.5;
-
-      if (!changed) {
-        if (
-          !stationaryAnchorRef.current &&
-          now - lastPublishedMotionAtRef.current >= STATIONARY_LOCK_DELAY_MS
-        ) {
-          stationaryAnchorRef.current = last;
-        }
-        return;
-      }
-
-      lastPublishedMotionAtRef.current = now;
-      stationaryAnchorRef.current = null;
-      lastPublishedRef.current = stable;
-      setState({ pointing: stable, available: true });
+      lastPublishedRef.current = filtered;
+      setState({ pointing: filtered, available: true });
     };
 
     const accelerometerSubscription = Sensors.Accelerometer.addListener((reading) => {
       accelerometerRef.current = ema(accelerometerRef.current, reading);
+    });
+
+    const gyroscopeSubscription = Sensors.Gyroscope.addListener((reading) => {
+      const angularSpeed = Math.sqrt(
+        reading.x * reading.x + reading.y * reading.y + reading.z * reading.z
+      );
+      if (angularSpeed >= GYRO_MOVEMENT_THRESHOLD) {
+        lastRealRotationAtRef.current = Date.now();
+        stationaryLockedRef.current = false;
+      }
     });
 
     const magnetometerSubscription = Sensors.Magnetometer.addListener((reading) => {
@@ -186,6 +162,7 @@ export function useDevicePointing(
 
     return () => {
       accelerometerSubscription.remove();
+      gyroscopeSubscription.remove();
       magnetometerSubscription.remove();
     };
   }, [updateMs, magneticDeclinationDegrees]);
