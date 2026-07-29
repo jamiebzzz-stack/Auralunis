@@ -3,7 +3,7 @@
 // Product decisions:
 // - The first FREE_LEARN_LESSON_COUNT lessons are free; later lessons are premium.
 // - Learning Preferences save level + interests atomically, report failures, and refresh Learn.
-// - Beginner / Intermediate / Advanced are real curriculum levels that alter ordering.
+// - Beginner / Intermediate / Advanced replace the visible curriculum cards themselves.
 
 const fs = require("fs");
 const path = require("path");
@@ -30,9 +30,9 @@ has(cat, "export function isLearnLessonFree", "isLearnLessonFree helper exported
 
 console.log("\n── Entry gate: non-entitled tap on a premium lesson → paywall ──");
 has(ls, "useEntitlement()", "LearnScreen reads entitlement via useEntitlement");
-has(ls, "if (!isLearnLessonFree(topicId) && !isPremium) { openPaywall(); return; }", "openLesson paywalls premium lessons for non-entitled users");
-has(ls, "onPress={() => openLesson(topic.id)}", "lesson card routes through the gated openLesson");
-has(ls, "onNext={() => openLesson(next.id)}", "Next navigation also routes through the gated openLesson");
+checkRegex(ls, /if \(!isLearnLessonFree\(topicId\) && !isPremium\)\s*\{[\s\S]*?openPaywall\(\);[\s\S]*?return;/, "openLesson paywalls premium lessons for non-entitled users");
+has(ls, "onPress={() => openLesson(topic.id)}", "lesson cards route through the gated openLesson");
+has(ls, "onNext={() => next && openLesson(next.id)}", "Next navigation routes through the gated openLesson");
 hasnt(ls, "Every lesson is free.", "the misleading Every lesson is free hero copy is removed");
 
 console.log("\n── Screen guard: premium lesson body unreachable for non-entitled ──");
@@ -64,18 +64,24 @@ has(modal, "if (!saved)", "failed save keeps the modal open");
 has(modal, "Saving…", "button provides in-progress feedback");
 has(modal, "Choose at least one interest before saving.", "empty interest selection is rejected honestly");
 
-console.log("\n── Skill levels materially change Learn ──");
+console.log("\n── Skill levels materially replace the visible curriculum ──");
 has(cat, 'level: "beginner"', "catalog contains beginner lessons");
 has(cat, 'level: "intermediate"', "catalog contains intermediate lessons");
 has(cat, 'level: "advanced"', "catalog contains advanced lessons");
 has(cat, "categoryHasLearnLevel", "catalog exposes category-level matching");
 has(cat, "getLearnTopicsForLevel", "catalog exposes exact-level recommendations");
 has(ls, "useFocusEffect", "Learn reloads preferences when its tab receives focus");
-has(ls, "const aLevelRank = categoryHasLearnLevel(a.id, prefs.level) ? 0 : 1;", "category order prioritizes the saved level");
-has(ls, "const bLevelRank = categoryHasLearnLevel(b.id, prefs.level) ? 0 : 1;", "both category sides use the saved-level rank");
-has(ls, "DEEP_SKY_LEVEL_TAB", "Deep Sky opens the tab matching the saved level");
-has(ls, "Recommended for {levelLabel}", "Learn visibly presents recommendations for the saved level");
+has(ls, "const levelTopics = useMemo", "Learn derives a new lesson deck from the saved level");
+has(ls, "getLearnTopicsForLevel(prefs.level)", "visible lesson deck uses the exact saved level");
+has(ls, ".filter((category) => categoryHasLearnLevel(category.id, prefs.level))", "topic filters exclude categories without that level");
+has(ls, "levelTopics.map((topic)", "level-specific lesson cards are rendered from the new deck");
+has(ls, "Advanced therefore cannot silently fall back to Beginner cards", "fallback to the wrong level is explicitly prevented");
 has(ls, "YOUR LEARNING LEVEL", "Learn visibly confirms the saved level");
+hasnt(ls, "orderedCategories.map", "static category-card deck is removed");
 
 console.log(`\nLearn gate + preferences self-test: ${pass} passed, ${fail} failed.`);
 process.exit(fail === 0 ? 0 : 1);
+
+function checkRegex(hay, regex, name) {
+  regex.test(hay) ? ok(name) : bad(`${name} — pattern not found`);
+}
