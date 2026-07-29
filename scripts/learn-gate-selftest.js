@@ -18,6 +18,7 @@ const eq = (n, a, b) => (a === b ? ok(n) : bad(`${n} — got ${JSON.stringify(a)
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), "utf8");
 const has = (hay, needle, n) => (hay.includes(needle) ? ok(n) : bad(`${n} — expected present: ${needle}`));
 const hasnt = (hay, needle, n) => (!hay.includes(needle) ? ok(n) : bad(`${n} — should be absent: ${needle}`));
+const matches = (hay, re, n) => (re.test(hay) ? ok(n) : bad(`${n} — expected to match: ${re}`));
 
 const cat = read("src/features/learn/LearnCatalog.ts");
 const ls = read("src/screens/LearnScreen.tsx");
@@ -32,7 +33,11 @@ console.log("\n── Entry gate: non-entitled tap on an advanced lesson → pay
 has(ls, "useEntitlement()", "LearnScreen reads entitlement via useEntitlement");
 has(ls, "if (!isLearnLessonFree(topicId) && !isPremium) { openPaywall(); return; }", "openLesson paywalls advanced lessons for non-entitled users");
 has(ls, "onPress={() => openLesson(topic.id)}", "lesson card routes through the gated openLesson");
-has(ls, "onNext={() => openLesson(next.id)}", "'Next' navigation also routes through the gated openLesson");
+// What matters is that "Next" routes through the gated openLesson — not how the handler is
+// written. Accept both the terse one-liner and the null-guarded block form
+// (`onNext={() => { if (next) openLesson(next.id); }}`), which is the safer shape.
+matches(ls, /onNext=\{\(\)\s*=>\s*\{?[\s\S]{0,80}?openLesson\(next\.id\)/,
+  "'Next' navigation also routes through the gated openLesson");
 hasnt(ls, "Every lesson is free.", "the misleading 'Every lesson is free' hero copy is removed");
 
 console.log("\n── Screen guard: advanced lesson body unreachable for non-entitled ──");
