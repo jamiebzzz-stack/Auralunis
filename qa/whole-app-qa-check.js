@@ -96,10 +96,6 @@ check("image-backed nebula layer is wired", skyLens.includes("NebulaImageLayer")
 check("aurora curtain visual bands stay disabled", skyLens.includes("visible={false}") && skyLens.includes("intensity={0}"));
 
 const nebulaLayer = read("src/features/sky-lens/layers/NebulaImageLayer.tsx");
-// Nebulae are now PROCEDURAL (an `ART` record of SVG art directions), not PNG assets.
-// The whole project direction moved off image "stickers" to restrained procedural
-// clouds, so the old `${id}: require(...png)` expectation is obsolete. Verify each hero
-// still has an art-direction entry instead.
 for (const id of ["m42", "m8", "m16", "ngc3372", "ngc7000", "m17", "m20", "ngc2237", "m27", "m57", "m1", "ngc6960"]) {
   check(`nebula art mapping: ${id}`, nebulaLayer.includes(`${id}: { scale`));
 }
@@ -116,8 +112,6 @@ check("Birth Sky stores local date and time separately", birthSky.includes("BIRT
 check("Birth Sky labels unknown-time horizon as approximate", birthSky.includes('"Approx. eastern sky"') && birthSky.includes("approximationNote"));
 
 const onboarding = read("src/features/onboarding/OnboardingFlow.tsx");
-// First-run onboarding is now purely informational (no in-flow date-only birth-sky preview);
-// it must stay truthful that an unknown birth time limits the rising sign / time-sensitive detail.
 check("onboarding is truthful that unknown birth time limits time-sensitive detail", onboarding.includes("rising sign") && onboarding.includes("time-sensitive"));
 check("onboarding explains exact birthplace and time are still needed", onboarding.includes("birthplace") && onboarding.includes("birth time"));
 check("onboarding does not advertise removed camera AR", !onboarding.includes("Point your phone at the sky"));
@@ -126,8 +120,6 @@ const monetization = read("src/features/paywall/MonetizationCatalog.ts");
 for (const price of ["$9.99/month", "$49.99/year", "$129.99"]) {
   check(`current price present: ${price}`, monetization.includes(price));
 }
-// A 7-day Apple intro trial may be offered to eligible new subscribers. The claim must be
-// CONDITIONAL (eligibility-gated), never an unconditional "everyone gets a trial".
 check(
   "trial claim is conditional (eligibility-gated)",
   monetization.includes("may be available to eligible new subscribers") &&
@@ -156,9 +148,11 @@ const featureCard = read("src/components/FeatureCard.tsx");
 check("haptics cannot block FeatureCard action", featureCard.includes("selectionAsync().catch") && featureCard.indexOf("selectionAsync().catch") < featureCard.indexOf("onPress?.()"));
 
 const shell = read("src/components/ScreenShell.tsx");
-check("ScreenShell respects safe area", shell.includes("useSafeAreaInsets") && shell.includes("insets.top"));
-// The real usage casts the tuple: `colors={palette.gradient as unknown as ...}`. Match
-// the prefix, not an exact `}`, so the (correct) cast does not fail this check.
+// A top SafeAreaView is stronger than padding the content by insets.top: content cannot
+// scroll underneath the Dynamic Island. Keep the old inset pattern accepted for older branches.
+const topSafeViewport = shell.includes("<SafeAreaView") && shell.includes('edges={["top"]}');
+const legacyTopPadding = shell.includes("useSafeAreaInsets") && shell.includes("insets.top");
+check("ScreenShell respects safe area", topSafeViewport || legacyTopPadding);
 check("theme gradient tuple is preserved", shell.includes("colors={palette.gradient"));
 
 const appConfig = JSON.parse(read("app.json"));
