@@ -1,21 +1,53 @@
-// Sky Lens parallax is intentionally retired from the live render path.
-//
-// The original implementation streamed the gyroscope into React state every 50 ms.
-// Because the offset is passed into SkyLensCanvas, every tiny cosmetic movement forced
-// the full SVG sky (thousands of stars plus labels and atmosphere) to rebuild independently
-// of the real compass/tilt update. That competing render loop caused visible frame pacing
-// stutter while customers moved the phone.
-//
-// Keep the hook and its public type so callers remain source-compatible. A future version
-// can restore depth with a UI-thread transform that does not invalidate the celestial scene.
+import { useEffect, useRef, useState } from "react";
+import { Gyroscope } from "expo-sensors";
+
+// expo-sensors' published types under this resolution only surface
+// isAvailableAsync; the streaming API exists at runtime. Typed locally to match
+// (same pattern as useDevicePointing).
+type SensorReading = { x: number; y: number; z: number };
+interface SensorModule {
+  setUpdateInterval: (intervalMs: number) => void;
+  addListener: (listener: (reading: SensorReading) => void) => { remove: () => void };
+}
+const Gyro = Gyroscope as unknown as SensorModule;
 
 export interface ParallaxOffset {
   x: number;
   y: number;
 }
 
-const ZERO_PARALLAX: ParallaxOffset = Object.freeze({ x: 0, y: 0 });
+// Celestial-dome depth from the released App Store design.
+export function useParallaxOffset(maxPx = 7, updateMs = 50): ParallaxOffset {
+  const [offset, setOffset] = useState<ParallaxOffset>({ x: 0, y: 0 });
+  const ref = useRef<ParallaxOffset>({ x: 0, y: 0 });
 
-export function useParallaxOffset(_maxPx = 7, _updateMs = 50): ParallaxOffset {
-  return ZERO_PARALLAX;
+  useEffect(() => {
+    const GAIN = 0.6;
+    const DECAY = 0.85;
+    const clamp = (value: number) => Math.max(-maxPx, Math.min(maxPx, value));
+
+    Gyro.setUpdateInterval(updateMs);
+    const subscription = Gyro.addListener((reading) => {
+      const nextX = clamp(ref.current.x * DECAY - reading.y * GAIN);
+      const nextY = clamp(ref.current.y * DECAY - reading.x * GAIN);
+      const previous = ref.current;
+      ref.current = { x: nextX, y: nextY };
+
+      const moved = Math.abs(nextX - previous.x) > 0.25 || Math.abs(nextY - previous.y) > 0.25;
+      const settling =
+        (previous.x !== 0 || previous.y !== 0) &&
+        Math.abs(nextX) < 0.25 &&
+        Math.abs(nextY) < 0.25;
+
+      if (moved) setOffset({ x: nextX, y: nextY });
+      else if (settling) {
+        ref.current = { x: 0, y: 0 };
+        setOffset({ x: 0, y: 0 });
+      }
+    });
+
+    return () => subscription.remove();
+  }, [maxPx, updateMs]);
+
+  return offset;
 }
