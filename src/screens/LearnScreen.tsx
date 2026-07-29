@@ -78,11 +78,9 @@ export function LearnScreen() {
     const inCategory = learnTopics.filter((topic) => topic.categoryId === selectedCategory);
     if (selectedCategory === "deep_sky") {
       const wantId = ["nebulae", "galaxies", "clusters", "remnants"][deepSkyTabIndex];
-      return inCategory.filter((topic) => topic.id === wantId);
+      return inCategory.filter((topic) => topic.id === wantId && topic.level === prefs.level);
     }
 
-    // The saved level is a real curriculum filter, not merely a sort hint. 30 Nights is the
-    // deliberate exception because it is explicitly a beginner course.
     if (selectedCategory === "beginner_path") return inCategory;
     return inCategory.filter((topic) => topic.level === prefs.level);
   }, [selectedCategory, deepSkyTabIndex, prefs.level]);
@@ -90,19 +88,27 @@ export function LearnScreen() {
   const selectedMeta = learnCategories.find((category) => category.id === selectedCategory);
 
   if (openTopicId) {
-    const index = learnTopics.findIndex((topic) => topic.id === openTopicId);
-    const topic = learnTopics[index];
+    const topic = learnTopics.find((candidate) => candidate.id === openTopicId);
     if (topic) {
-      const next = learnTopics[(index + 1) % learnTopics.length];
+      // Next Lesson stays in the same curriculum level. This prevents an Advanced learner from
+      // being sent into Beginner or Intermediate material merely because it is next in the file.
+      const levelSequence = learnTopics.filter((candidate) => candidate.level === topic.level);
+      const levelIndex = levelSequence.findIndex((candidate) => candidate.id === topic.id);
+      const next = levelSequence.length > 1
+        ? levelSequence[(levelIndex + 1) % levelSequence.length]
+        : null;
       const categoryTitle =
         learnCategories.find((category) => category.id === topic.categoryId)?.title ?? "Lesson";
+
       return (
         <LearnDetailScreen
           topic={topic}
           categoryTitle={categoryTitle}
-          nextTopicTitle={next && next.id !== topic.id ? next.title : null}
+          nextTopicTitle={next?.title ?? null}
           onBack={() => setOpenTopicId(null)}
-          onNext={() => openLesson(next.id)}
+          onNext={() => {
+            if (next) openLesson(next.id);
+          }}
           onOpenSkyLens={() => {
             setOpenTopicId(null);
             navigation.navigate("Sky", topic.skyTarget ? { focusTarget: topic.skyTarget } : undefined);
@@ -179,18 +185,8 @@ const styles = StyleSheet.create({
     borderColor: "rgba(217,168,78,0.18)",
     marginBottom: 16
   },
-  heroTitle: {
-    color: "#FFF",
-    fontSize: 25,
-    fontWeight: "900",
-    letterSpacing: -0.8
-  },
-  heroCopy: {
-    color: AuraLunisColors.silver,
-    fontSize: 14,
-    lineHeight: 21,
-    marginTop: 8
-  },
+  heroTitle: { color: "#FFF", fontSize: 25, fontWeight: "900", letterSpacing: -0.8 },
+  heroCopy: { color: AuraLunisColors.silver, fontSize: 14, lineHeight: 21, marginTop: 8 },
   heroFree: {
     color: AuraLunisColors.gold2,
     fontSize: 11,
@@ -207,12 +203,7 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     marginBottom: 10
   },
-  categoryGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    marginBottom: 16
-  },
+  categoryGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 16 },
   categoryCard: {
     width: "48%",
     minHeight: 132,
@@ -222,17 +213,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.07)"
   },
-  categoryCardActive: {
-    backgroundColor: "rgba(217,168,78,0.12)",
-    borderColor: "rgba(217,168,78,0.28)"
-  },
+  categoryCardActive: { backgroundColor: "rgba(217,168,78,0.12)", borderColor: "rgba(217,168,78,0.28)" },
   categoryIcon: { fontSize: 24, color: AuraLunisColors.gold2 },
   categoryTitle: { color: "#FFF", fontSize: 14, fontWeight: "900", marginTop: 7 },
   categoryDescription: { color: AuraLunisColors.muted, fontSize: 11, lineHeight: 15, marginTop: 5 },
-  selectedHeader: {
-    marginTop: 4,
-    marginBottom: 10
-  },
+  selectedHeader: { marginTop: 4, marginBottom: 10 },
   selectedTitle: { color: "#FFF", fontSize: 23, fontWeight: "900", letterSpacing: -0.7 },
   selectedCopy: { color: AuraLunisColors.muted, fontSize: 13, lineHeight: 19, marginTop: 4 }
 });
