@@ -8,6 +8,7 @@ import React, { createContext, useCallback, useEffect, useRef, useState, type Re
 import { AppState, type AppStateStatus } from "react-native";
 import { RevenueCatIds } from "@/features/paywall/MonetizationCatalog";
 import { classifyAuraLunisMembership, type MembershipKind } from "@/features/paywall/entitlementStatus";
+import { configureRevenueCat } from "@/services/RevenueCatService";
 
 let Purchases: {
   getCustomerInfo: () => Promise<{ entitlements: { active: Record<string, unknown> }; activeSubscriptions?: string[] }>;
@@ -45,12 +46,19 @@ async function fetchMembership(): Promise<{ isPremium: boolean; kind: Membership
   // App Store app unlocked. Flip ALLOW_DEV_PREMIUM to false to exercise the paywall.
   if (devPremium() || FORCE_PREMIUM) return { isPremium: true, kind: "subscription" }; // dev/preview demo shows the full subscriber UI
   if (!Purchases) return { isPremium: false, kind: "none" }; // RevenueCat unavailable in a release build
+
   try {
+    // The provider's first effect may run before App.tsx's initialization effect. Make
+    // this function independently safe: never query CustomerInfo until the native SDK
+    // has completed its idempotent configuration.
+    const configuration = await configureRevenueCat();
+    if (configuration.status !== "configured") return { isPremium: false, kind: "none" };
+
     const info = await Purchases.getCustomerInfo();
     const isPremium = Boolean(info.entitlements.active[RevenueCatIds.entitlement]);
     return { isPremium, kind: classifyAuraLunisMembership(info) };
   } catch {
-    return { isPremium: false, kind: "none" }; // RC configured but errored — fail CLOSED in production
+    return { isPremium: false, kind: "none" }; // RC unavailable/errored — fail CLOSED in production
   }
 }
 
