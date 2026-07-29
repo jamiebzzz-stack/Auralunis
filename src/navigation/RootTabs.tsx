@@ -9,26 +9,23 @@ import { LearnScreen } from "@/screens/LearnScreen";
 import { VaultScreen } from "@/screens/VaultScreen";
 import { SettingsScreen } from "@/screens/SettingsScreen";
 
-// Blur component for tab bar background (Liquid Glass)
 let BlurTab: React.ComponentType<{ intensity?: number; tint?: string; style?: object; children?: React.ReactNode }> | null = null;
 try {
   const ExpoBlur = require("expo-blur") as { BlurView: typeof BlurTab };
   if (Platform.OS === "ios") BlurTab = ExpoBlur.BlurView;
 } catch { /* fallback */ }
 
-// A dark tint UNDER the blur so bright scroll content (e.g. the gold "Golden Dusk"
-// banner) can't bleed through the tab labels — the blur alone is too weak in Expo Go.
 function TabBarBackground() {
   const fill = { position: "absolute" as const, left: 0, right: 0, top: 0, bottom: 0 };
   if (BlurTab) {
     return (
-      <View style={[fill, { overflow: "hidden" }]}>
-        <BlurTab intensity={36} tint="dark" style={fill} />
-        <View style={[fill, { backgroundColor: "rgba(7,10,19,0.82)" }]} />
+      <View style={[fill, { overflow: "hidden", backgroundColor: "#070A13" }]}>
+        <BlurTab intensity={42} tint="dark" style={fill} />
+        <View style={[fill, { backgroundColor: "rgba(7,10,19,0.92)" }]} />
       </View>
     );
   }
-  return <View style={[fill, { backgroundColor: "rgba(7,10,19,0.96)" }]} />;
+  return <View style={[fill, { backgroundColor: "rgba(7,10,19,0.98)" }]} />;
 }
 
 export type RootTabParamList = {
@@ -41,15 +38,15 @@ export type RootTabParamList = {
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
 
-// Exported so screens that go full-screen immersive (e.g. Sky Lens) can hide the
-// tab bar and then restore this exact style on exit.
+// The bar participates in layout instead of floating over the ScrollView. Full-screen
+// experiences still hide it explicitly, but normal screens never lose content beneath it.
 export const TAB_BAR_STYLE = {
-  backgroundColor: "transparent",
+  backgroundColor: "#070A13",
   borderTopColor: "rgba(217,168,78,0.18)",
   height: 82,
   paddingBottom: 18,
   paddingTop: 8,
-  position: "absolute" as const
+  overflow: "hidden" as const
 };
 
 const icons: Record<keyof RootTabParamList, keyof typeof Ionicons.glyphMap> = {
@@ -67,6 +64,7 @@ export function RootTabs() {
         headerShown: false,
         tabBarAccessibilityLabel: `${route.name} tab`,
         tabBarStyle: TAB_BAR_STYLE,
+        tabBarHideOnKeyboard: true,
         tabBarBackground: () => <TabBarBackground />,
         tabBarActiveTintColor: AuraLunisColors.gold2,
         tabBarInactiveTintColor: AuraLunisColors.muted,
