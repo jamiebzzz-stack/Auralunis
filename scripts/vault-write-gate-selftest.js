@@ -20,7 +20,7 @@ function guardedWrite(rel, writeMarker, label) {
   const writeIdx = src.indexOf(writeMarker);
   if (writeIdx < 0) { bad(`${label}: write call found (${writeMarker})`); return; }
   ok(`${label}: write call found`);
-  const before = src.slice(Math.max(0, writeIdx - 260), writeIdx);
+  const before = src.slice(Math.max(0, writeIdx - 320), writeIdx);
   if (before.includes(GUARD)) ok(`${label}: write is premium-gated (paywall before write)`);
   else bad(`${label}: write is NOT premium-gated — expected the guard before it`);
 }
@@ -28,7 +28,8 @@ function guardedWrite(rel, writeMarker, label) {
 console.log("── Every Vault write surface is premium-gated ──");
 guardedWrite("src/screens/SkyScreen.tsx", 'addItem({ type: "archive", title: object.name, detail: object.summary });', "Sky deep-sky 'Save + Find'");
 guardedWrite("src/screens/HomeScreen.tsx", "addNote(trimmed);", "Home Cosmic Notes");
-guardedWrite("src/screens/LearnDetailScreen.tsx", 'addItem({ type: "lesson"', "Learn lesson mark 'Save'");
+// Match the semantic object field rather than one exact one-line formatting style.
+guardedWrite("src/screens/LearnDetailScreen.tsx", 'type: "lesson",', "Learn lesson mark 'Save'");
 guardedWrite("src/features/sky-lens/SkyLensScreen.tsx", 'addItem({\n        type: "archive",', "Sky Lens object save");
 
 console.log(`\nVault write-path premium-gate self-test: ${pass} passed, ${fail} failed.`);
