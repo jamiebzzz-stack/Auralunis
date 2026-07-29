@@ -33,14 +33,14 @@ export function LearnScreen() {
   const { openPaywall } = usePaywallNavigation();
   const [selectedCategory, setSelectedCategory] = useState<LearnCategoryId>("solar_system");
   const [openTopicId, setOpenTopicId] = useState<string | null>(null);
+  const [deepSkyTabIndex, setDeepSkyTabIndex] = useState(0);
+  const { prefs, reload } = useLearnPreferences();
 
   function openLesson(topicId: string) {
     if (!isLearnLessonFree(topicId) && !isPremium) { openPaywall(); return; }
     setOpenTopicId(topicId);
   }
 
-  const [deepSkyTabIndex, setDeepSkyTabIndex] = useState(0);
-  const { prefs, reload } = useLearnPreferences();
   useFocusEffect(
     useCallback(() => {
       void reload();
@@ -57,6 +57,7 @@ export function LearnScreen() {
     return index === -1 ? prefs.interests.length + 1 : index;
   }, [prefs.interests]);
 
+  // Skill level is the primary ordering signal; interests break ties.
   const orderedCategories = useMemo(() => {
     return [...learnCategories].sort((a, b) => {
       const aLevelRank = categoryHasLearnLevel(a.id, prefs.level) ? 0 : 1;
@@ -130,9 +131,8 @@ export function LearnScreen() {
     <ScreenShell title="Learn the Cosmos" subtitle="Education">
       <View style={styles.hero}>
         <Text style={styles.heroTitle}>A living astronomy guide.</Text>
-        <Text style={styles.heroCopy}>
-          Learn planets, constellations, stars, the Moon, nebulae, galaxies, and the Milky Way
-          through real live visuals instead of static blocks alone.
+        <Text style={styles.heroCopy} numberOfLines={2}>
+          Learn planets, constellations, stars, the Moon, nebulae, galaxies, and the Milky Way through live visuals.
         </Text>
         <Text style={styles.heroFree}>
           {isPremium
@@ -146,20 +146,30 @@ export function LearnScreen() {
           <Text style={styles.preferenceEyebrow}>YOUR LEARNING LEVEL</Text>
           <Text style={styles.preferenceLevel}>{levelLabel}</Text>
         </View>
-        <Text style={styles.preferenceCount}>{getLearnTopicsForLevel(prefs.level).length} matching lessons</Text>
+        <Text style={styles.preferenceCount}>{getLearnTopicsForLevel(prefs.level).length} lessons</Text>
       </View>
 
       <Text style={styles.sectionLabel}>Recommended for {levelLabel}</Text>
-      {recommendedTopics.map((topic) => (
-        <FeatureCard
-          key={`recommended-${topic.id}`}
-          title={topic.title}
-          description={topic.summary}
-          actionLabel={isLearnLessonFree(topic.id) || isPremium ? "Open Lesson" : "✦ Unlock Lesson"}
-          onPress={() => openLesson(topic.id)}
-          status={isLearnLessonFree(topic.id) || isPremium ? topic.level : "premium"}
-        />
-      ))}
+      <View style={styles.recommendedList}>
+        {recommendedTopics.map((topic) => (
+          <Pressable
+            key={`recommended-${topic.id}`}
+            style={styles.recommendedRow}
+            onPress={() => openLesson(topic.id)}
+            accessibilityRole="button"
+            accessibilityLabel={`Open ${topic.title}`}
+          >
+            <View style={styles.recommendedText}>
+              <Text style={styles.recommendedTitle} numberOfLines={1}>{topic.title}</Text>
+              <Text style={styles.recommendedSummary} numberOfLines={1}>{topic.summary}</Text>
+            </View>
+            <View style={styles.recommendedEnd}>
+              <Text style={styles.recommendedLevel}>{isLearnLessonFree(topic.id) || isPremium ? topic.level : "premium"}</Text>
+              <Text style={styles.recommendedArrow}>›</Text>
+            </View>
+          </Pressable>
+        ))}
+      </View>
 
       <Text style={styles.sectionLabel}>Choose a learning path</Text>
       <View style={styles.categoryGrid}>
@@ -178,8 +188,8 @@ export function LearnScreen() {
                 <Text style={styles.categoryIcon}>{category.icon}</Text>
                 {matchesLevel && <Text style={styles.levelMatch}>FOR YOU</Text>}
               </View>
-              <Text style={styles.categoryTitle}>{category.title}</Text>
-              <Text style={styles.categoryDescription}>{category.description}</Text>
+              <Text style={styles.categoryTitle} numberOfLines={1}>{category.title}</Text>
+              <Text style={styles.categoryDescription} numberOfLines={3}>{category.description}</Text>
             </Pressable>
           );
         })}
@@ -212,37 +222,37 @@ export function LearnScreen() {
 
 const styles = StyleSheet.create({
   hero: {
-    borderRadius: 28,
-    padding: 18,
-    backgroundColor: "rgba(217,168,78,0.08)",
-    borderWidth: 1,
-    borderColor: "rgba(217,168,78,0.18)",
-    marginBottom: 16
+    paddingHorizontal: 2,
+    paddingBottom: 14,
+    marginBottom: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(217,168,78,0.18)"
   },
-  heroTitle: { color: "#FFF", fontSize: 25, fontWeight: "900", letterSpacing: -0.8 },
-  heroCopy: { color: AuraLunisColors.silver, fontSize: 14, lineHeight: 21, marginTop: 8 },
+  heroTitle: { color: "#FFF", fontSize: 23, fontWeight: "900", letterSpacing: -0.7 },
+  heroCopy: { color: AuraLunisColors.silver, fontSize: 13, lineHeight: 19, marginTop: 6 },
   heroFree: {
     color: AuraLunisColors.gold2,
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "800",
-    letterSpacing: 1.5,
+    letterSpacing: 1.35,
     textTransform: "uppercase",
-    marginTop: 10
+    marginTop: 9
   },
   preferenceCard: {
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 13,
+    minHeight: 66,
+    borderRadius: 18,
+    paddingHorizontal: 15,
+    paddingVertical: 11,
     marginBottom: 16,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "rgba(123,92,246,0.08)",
+    backgroundColor: "rgba(123,92,246,0.07)",
     borderWidth: 1,
     borderColor: "rgba(123,92,246,0.2)"
   },
   preferenceEyebrow: { color: "#A88BFF", fontSize: 9, fontWeight: "900", letterSpacing: 1.7 },
-  preferenceLevel: { color: "#FFF", fontSize: 18, fontWeight: "900", marginTop: 3 },
+  preferenceLevel: { color: "#FFF", fontSize: 17, fontWeight: "900", marginTop: 2 },
   preferenceCount: { color: AuraLunisColors.silver, fontSize: 11, fontWeight: "700" },
   sectionLabel: {
     color: AuraLunisColors.gold2,
@@ -251,25 +261,63 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     fontWeight: "900",
     marginBottom: 10,
-    marginTop: 4
+    marginTop: 3
   },
-  categoryGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 16 },
-  categoryCard: {
-    width: "48%",
-    minHeight: 132,
-    borderRadius: 22,
-    padding: 13,
+  recommendedList: { marginBottom: 16, gap: 8 },
+  recommendedRow: {
+    minHeight: 64,
+    borderRadius: 17,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: "rgba(255,255,255,0.045)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.07)"
+    borderColor: "rgba(255,255,255,0.08)"
   },
-  categoryCardActive: { backgroundColor: "rgba(217,168,78,0.12)", borderColor: "rgba(217,168,78,0.28)" },
-  categoryTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  categoryIcon: { fontSize: 24, color: AuraLunisColors.gold2 },
-  levelMatch: { color: "#A88BFF", fontSize: 8, fontWeight: "900", letterSpacing: 1.2 },
+  recommendedText: { flex: 1, paddingRight: 10 },
+  recommendedTitle: { color: "#FFF", fontSize: 14, fontWeight: "900" },
+  recommendedSummary: { color: AuraLunisColors.muted, fontSize: 11, marginTop: 4 },
+  recommendedEnd: { flexDirection: "row", alignItems: "center", gap: 8 },
+  recommendedLevel: {
+    color: AuraLunisColors.gold2,
+    fontSize: 9,
+    fontWeight: "800",
+    textTransform: "uppercase",
+    borderWidth: 1,
+    borderColor: "rgba(217,168,78,0.24)",
+    borderRadius: 999,
+    paddingHorizontal: 7,
+    paddingVertical: 4
+  },
+  recommendedArrow: { color: AuraLunisColors.gold2, fontSize: 23, lineHeight: 24 },
+  categoryGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    rowGap: 10,
+    marginBottom: 18
+  },
+  categoryCard: {
+    width: "48.6%",
+    height: 154,
+    borderRadius: 20,
+    padding: 13,
+    overflow: "hidden",
+    backgroundColor: "rgba(255,255,255,0.045)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)"
+  },
+  categoryCardActive: {
+    backgroundColor: "rgba(217,168,78,0.12)",
+    borderColor: "rgba(217,168,78,0.42)"
+  },
+  categoryTopRow: { height: 31, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  categoryIcon: { fontSize: 23, color: AuraLunisColors.gold2 },
+  levelMatch: { color: "#A88BFF", fontSize: 8, fontWeight: "900", letterSpacing: 1.1 },
   categoryTitle: { color: "#FFF", fontSize: 14, fontWeight: "900", marginTop: 7 },
-  categoryDescription: { color: AuraLunisColors.muted, fontSize: 11, lineHeight: 15, marginTop: 5 },
-  selectedHeader: { marginTop: 4, marginBottom: 10 },
+  categoryDescription: { color: AuraLunisColors.muted, fontSize: 11, lineHeight: 16, marginTop: 6 },
+  selectedHeader: { marginTop: 2, marginBottom: 10 },
   selectedTitle: { color: "#FFF", fontSize: 23, fontWeight: "900", letterSpacing: -0.7 },
   selectedCopy: { color: AuraLunisColors.muted, fontSize: 13, lineHeight: 19, marginTop: 4 }
 });
