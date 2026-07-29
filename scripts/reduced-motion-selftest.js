@@ -1,8 +1,9 @@
 // Reduced-motion self-test.
 //
-// Ambient decorative Sky Lens motion (twinkle, breathing, bloom, god-ray/aurora drift,
+// Active ambient decorative Sky Lens motion (twinkle, bloom, god-ray/aurora drift,
 // shooting stars) must respect the system "Reduce Motion" setting via useReducedMotion.
-// Static source guard, matching the other qa:* scripts.
+// Retired animation layers must remain inert. Static source guard, matching the other
+// qa:* scripts.
 
 const fs = require("fs");
 const path = require("path");
@@ -23,10 +24,9 @@ check("hook subscribes to reduceMotionChanged", /addEventListener\(\s*["']reduce
 check("hook removes the subscription on unmount", /\.remove\(\)/.test(hook) && hook.includes("return () =>"));
 check("hook guards the async initial read against unmount", hook.includes("mounted"));
 
-// ── Five Reanimated ambient layers: gated with a static branch + cancelAnimation ──
+// ── Active Reanimated ambient layers: static branch + cancelAnimation ─────────────
 const REANIMATED = {
   TwinkleOverlay: "src/features/sky-lens/TwinkleOverlay.tsx",
-  AstralBreathingLayer: "src/features/sky-lens/layers/AstralBreathingLayer.tsx",
   PremiumSkyBloomLayer: "src/features/sky-lens/layers/PremiumSkyBloomLayer.tsx",
   LunarGodRayLayer: "src/features/sky-lens/layers/LunarGodRayLayer.tsx",
   AuroraCurtainLayer: "src/features/sky-lens/layers/AuroraCurtainLayer.tsx"
@@ -39,6 +39,18 @@ for (const [name, rel] of Object.entries(REANIMATED)) {
   check(`${name} preserves the normal withRepeat loop`, src.includes("withRepeat"));
   check(`${name} adds no debug/console copy`, !/console\.(log|debug)/.test(src));
 }
+
+// ── Retired breathing layer: must remain a true no-op ─────────────────────────────
+const breathing = read("src/features/sky-lens/layers/AstralBreathingLayer.tsx");
+check("AstralBreathingLayer stays retired (returns null)", /return null;/.test(breathing));
+check(
+  "AstralBreathingLayer has no perpetual animation machinery",
+  !breathing.includes("withRepeat") &&
+    !breathing.includes("withTiming") &&
+    !breathing.includes("useSharedValue") &&
+    !breathing.includes("useAnimatedStyle")
+);
+check("AstralBreathingLayer adds no debug/console copy", !/console\.(log|debug)/.test(breathing));
 
 // ── ShootingStarLayer: suppressed entirely under reduced motion ───────────────────
 const shoot = read("src/features/sky-lens/layers/ShootingStarLayer.tsx");
@@ -71,5 +83,5 @@ if (failed) {
   process.exit(1);
 }
 console.log(
-  "Reduced-motion self-test passed: hook lifecycle correct; all ambient layers gated with a static frame + cancelAnimation; shooting stars suppressed; interaction feedback untouched."
+  "Reduced-motion self-test passed: hook lifecycle correct; active ambient layers are gated; retired breathing layer is inert; shooting stars suppressed; interaction feedback untouched."
 );
