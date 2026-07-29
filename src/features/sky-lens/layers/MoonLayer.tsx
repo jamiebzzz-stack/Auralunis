@@ -17,19 +17,10 @@ type Props = {
   onSelect: (object: SelectedObject) => void;
 };
 
-// The Moon remains the visual anchor, but it should not overpower nearby stars,
-// planets, or constellation figures at the default Sky Lens field of view.
-//
-// 20 → 16.5 (−17.5%) after device review: at 20 it read as a cartoon sticker rather than
-// the Moon. Every piece of the Moon's artwork — bloom, maria, craters, terminator, limb,
-// earthshine flare — is expressed as a multiple of R, so this single number scales the
-// whole rendering coherently. Its POSITION is untouched.
 export const MOON_RADIUS = 16.5;
 const R = MOON_RADIUS;
 
 export function MoonLayer({ moon, illuminationPercent, project, palette, nightMode, showLabels = true, heroMode = true, fullSphere = false, placeLabel, onSelect }: Props) {
-  // Sky Lens now represents the observable sky only. Keep the prop for caller
-  // compatibility, but never render the Moon below the physical horizon.
   void fullSphere;
   if (!moon || !moon.aboveHorizon) return null;
 
@@ -92,9 +83,7 @@ export function MoonLayer({ moon, illuminationPercent, project, palette, nightMo
       </Defs>
 
       {heroMode && <Circle cx={cx} cy={cy} r={R * 3.2} fill="url(#skylens-moon-scatter)" />}
-      {heroMode && low > 0.02 && (
-        <Circle cx={cx} cy={cy + R * 0.5} r={R * 2.8} fill="url(#skylens-moon-horizon)" />
-      )}
+      {heroMode && low > 0.02 && <Circle cx={cx} cy={cy + R * 0.5} r={R * 2.8} fill="url(#skylens-moon-horizon)" />}
       {heroMode && <Circle cx={cx} cy={cy} r={R * 1.65} fill="url(#skylens-moon-bloom)" />}
 
       <Circle cx={cx} cy={cy} r={R} fill={heroMode ? "url(#skylens-moon-surface)" : (nightMode ? palette.moon : "#EDEFF5")} />
@@ -117,17 +106,14 @@ export function MoonLayer({ moon, illuminationPercent, project, palette, nightMo
       </G>
 
       <Circle cx={cx} cy={cy} r={R} fill="none" stroke={palette.moon} strokeOpacity={0.45} strokeWidth={0.6} />
-      {heroMode && flare > 0.05 && (
-        <Circle cx={cx} cy={cy} r={R * 1.16} fill="none" stroke="#BFD8FF" strokeOpacity={0.09 * flare} strokeWidth={0.8} />
-      )}
-      {heroMode && flare > 0.05 && (
-        <Ellipse cx={cx} cy={cy} rx={R * 3.2} ry={R * 0.075} fill="#DCEBFF" opacity={0.065 * flare} />
-      )}
+      {heroMode && flare > 0.05 && <Circle cx={cx} cy={cy} r={R * 1.16} fill="none" stroke="#BFD8FF" strokeOpacity={0.09 * flare} strokeWidth={0.8} />}
+      {heroMode && flare > 0.05 && <Ellipse cx={cx} cy={cy} rx={R * 3.2} ry={R * 0.075} fill="#DCEBFF" opacity={0.065 * flare} />}
 
+      {/* Large invisible target so the Moon remains selectable after the sky settles. */}
       <Circle
         cx={cx}
         cy={cy}
-        r={R + 12}
+        r={48}
         fill="transparent"
         onPress={() =>
           onSelect({
@@ -143,16 +129,12 @@ export function MoonLayer({ moon, illuminationPercent, project, palette, nightMo
           })
         }
       />
+
       {showLabels && (() => {
-        // The Moon's label was the one label in the whole scene that bypassed the shared
-        // placer — it was hardcoded to the Moon's right, so it happily sat on top of a
-        // planet label or a bright star. It now claims its artwork and orbits like the
-        // rest. (Reserved at R*1.2, not the full bloom, so it doesn't shove the sky away.)
         if (placeLabel) placeLabel.reserveCircle(cx, cy, R * 1.2);
         const avoid = { x: cx, y: cy, r: R * 1.35 };
         const fallbackX = cx + R * 1.35 + 6;
         const placed = placeLabel ? placeLabel(fallbackX, cy + 4, "Moon", 17, avoid) : null;
-        // PRIORITY 1, with the planets. Never dropped.
         const lp = placed && Number.isFinite(placed.x) ? placed : { x: fallbackX, y: cy + 4 };
         return (
           <G>

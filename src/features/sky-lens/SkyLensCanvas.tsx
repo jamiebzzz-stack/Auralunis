@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useRef } from "react";
-import Svg, { Circle, Defs, G, Line, RadialGradient, Stop } from "react-native-svg";
+import React, { useCallback, useMemo } from "react";
+import Svg, { Circle, Defs, G, RadialGradient, Stop } from "react-native-svg";
 import { StyleSheet } from "react-native";
 import { projectTarget, DEFAULT_FOV, type CameraPointing, type CameraFov } from "./ar/SkyLensProjection";
 import { GridLayer } from "./layers/GridLayer";
@@ -53,22 +53,6 @@ type Props = {
   onSelect: (object: SelectedObject) => void;
 };
 
-const RETICLE_RADIUS = 24;
-const RETICLE_CAPTURE_RADIUS = 34;
-const RETICLE_DWELL_MS = 420;
-
-const PLANET_DESCRIPTIONS: Record<string, string> = {
-  sun: "The star at the center of our Solar System.",
-  mercury: "The smallest planet and the closest to the Sun.",
-  venus: "The brightest planet, often called the morning or evening star.",
-  mars: "The red planet, shaped by volcanoes, canyons, and ancient water.",
-  jupiter: "The largest planet in our Solar System.",
-  saturn: "The ringed giant, surrounded by an intricate system of icy rings.",
-  uranus: "An ice giant rotating almost on its side.",
-  neptune: "A distant blue ice giant with extremely fast winds.",
-  moon: "Earth's natural satellite and the main driver of ocean tides."
-};
-
 // Composes the enabled celestial layers over the cinematic sky. The presentation may
 // look like a planetarium, but normal viewing remains horizon-correct: objects beneath
 // the observer are never painted into the visible sky.
@@ -107,132 +91,6 @@ export function SkyLensCanvas({ box, pointing, sky, fov, activeLayers, nightMode
   if (moonOnScreen && moonProj) {
     placeLabel.reserveCircle(moonProj.x, moonProj.y, MOON_RADIUS * 1.2);
   }
-
-  // Center-reticle discovery. It uses the exact same projection as the rendered layers,
-  // waits briefly before locking, and remembers the last object so nearby labels do not flicker.
-  const centeredCandidate = useMemo<{ object: SelectedObject; distance: number } | null>(() => {
-    if (cinematic || box.width <= 0 || box.height <= 0) return null;
-    const cx = box.width / 2;
-    const cy = box.height / 2;
-    let closest: { object: SelectedObject; distance: number } | null = null;
-
-    const consider = (object: SelectedObject, azimuthDegrees: number, altitudeDegrees: number) => {
-      const p = projectTarget(pointing, azimuthDegrees, altitudeDegrees, fov, box);
-      if (!p.onScreen || p.behind) return;
-      const distance = Math.hypot(p.x - cx, p.y - cy);
-      if (distance > RETICLE_CAPTURE_RADIUS) return;
-      if (!closest || distance < closest.distance) closest = { object, distance };
-    };
-
-    if (activeLayers.has("planets")) {
-      for (const body of sky.bodies) {
-        if (!body.aboveHorizon) continue;
-        consider(
-          {
-            kind: body.id === "moon" ? "moon" : "planet",
-            id: body.id,
-            name: body.name,
-            subtitle: body.id === "moon" ? "Earth's Moon" : body.id === "sun" ? "Star" : "Planet",
-            description: PLANET_DESCRIPTIONS[body.id],
-            facts: [
-              ...(body.magnitude !== undefined ? [{ label: "Magnitude", value: body.magnitude.toFixed(1) }] : []),
-              { label: "Altitude", value: `${Math.round(body.altitudeDegrees)}°` },
-              { label: "Azimuth", value: `${Math.round(body.azimuthDegrees)}°` }
-            ]
-          },
-          body.azimuthDegrees,
-          body.altitudeDegrees
-        );
-      }
-    }
-
-    if (activeLayers.has("stars")) {
-      for (const star of sky.stars) {
-        if (!star.aboveHorizon || star.magnitude >= 1.8) continue;
-        consider(
-          {
-            kind: "star",
-            id: star.id,
-            name: star.name || star.id,
-            subtitle: `Magnitude ${star.magnitude.toFixed(1)}`,
-            description: "A bright star currently crossing the center of Sky Lens.",
-            facts: [
-              { label: "Magnitude", value: star.magnitude.toFixed(1) },
-              { label: "Altitude", value: `${Math.round(star.altitudeDegrees)}°` },
-              { label: "Azimuth", value: `${Math.round(star.azimuthDegrees)}°` }
-            ]
-          },
-          star.azimuthDegrees,
-          star.altitudeDegrees
-        );
-      }
-    }
-
-    if (activeLayers.has("constellations") && !closest) {
-      for (const constellation of sky.constellations) {
-        const center = constellation.centroid;
-        if (!center.aboveHorizon) continue;
-        consider(
-          {
-            kind: "constellation",
-            id: constellation.id,
-            name: constellation.name || constellation.id,
-            subtitle: "Constellation",
-            description: "A recognized constellation centered in Sky Lens.",
-            facts: [
-              { label: "Altitude", value: `${Math.round(center.altitudeDegrees)}°` },
-              { label: "Azimuth", value: `${Math.round(center.azimuthDegrees)}°` }
-            ]
-          },
-          center.azimuthDegrees,
-          center.altitudeDegrees
-        );
-      }
-    }
-
-    return closest;
-  }, [activeLayers, box, cinematic, fov, pointing, sky.bodies, sky.constellations, sky.stars]);
-
-  const dwellTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingIdRef = useRef<string | null>(null);
-  const identifiedIdRef = useRef<string | null>(null);
-  const onSelectRef = useRef(onSelect);
-  onSelectRef.current = onSelect;
-
-  useEffect(() => {
-    const candidate = centeredCandidate?.object ?? null;
-    if (!candidate) {
-      pendingIdRef.current = null;
-      identifiedIdRef.current = null;
-      if (dwellTimerRef.current) clearTimeout(dwellTimerRef.current);
-      dwellTimerRef.current = null;
-      return;
-    }
-
-    if (identifiedIdRef.current === candidate.id || pendingIdRef.current === candidate.id) return;
-    if (dwellTimerRef.current) clearTimeout(dwellTimerRef.current);
-    pendingIdRef.current = candidate.id;
-    dwellTimerRef.current = setTimeout(() => {
-      if (pendingIdRef.current !== candidate.id) return;
-      identifiedIdRef.current = candidate.id;
-      pendingIdRef.current = null;
-      onSelectRef.current(candidate);
-    }, RETICLE_DWELL_MS);
-
-    return () => {
-      if (dwellTimerRef.current) clearTimeout(dwellTimerRef.current);
-      dwellTimerRef.current = null;
-    };
-  }, [centeredCandidate?.object]);
-
-  useEffect(() => () => {
-    if (dwellTimerRef.current) clearTimeout(dwellTimerRef.current);
-  }, []);
-
-  const reticleColor = nightMode ? "#FF6B5F" : "#D9A84E";
-  const reticleActive = !!centeredCandidate;
-  const reticleX = box.width / 2;
-  const reticleY = box.height / 2;
 
   return (
     <Svg style={StyleSheet.absoluteFillObject} pointerEvents="box-none">
@@ -382,24 +240,6 @@ export function SkyLensCanvas({ box, pointing, sky, fov, activeLayers, nightMode
         fullSphere={horizonCorrect}
         onSelect={onSelect}
       />
-
-      {!cinematic && (
-        <G opacity={reticleActive ? 0.95 : 0.55} pointerEvents="none">
-          <Circle
-            cx={reticleX}
-            cy={reticleY}
-            r={RETICLE_RADIUS}
-            fill="rgba(3,8,22,0.18)"
-            stroke={reticleColor}
-            strokeWidth={reticleActive ? 2.2 : 1.4}
-          />
-          <Circle cx={reticleX} cy={reticleY} r={2.6} fill={reticleColor} />
-          <Line x1={reticleX - 36} y1={reticleY} x2={reticleX - 27} y2={reticleY} stroke={reticleColor} strokeWidth={1.5} />
-          <Line x1={reticleX + 27} y1={reticleY} x2={reticleX + 36} y2={reticleY} stroke={reticleColor} strokeWidth={1.5} />
-          <Line x1={reticleX} y1={reticleY - 36} x2={reticleX} y2={reticleY - 27} stroke={reticleColor} strokeWidth={1.5} />
-          <Line x1={reticleX} y1={reticleY + 27} x2={reticleX} y2={reticleY + 36} stroke={reticleColor} strokeWidth={1.5} />
-        </G>
-      )}
     </Svg>
   );
 }
