@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { useNavigation } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { ScreenShell } from "@/components/ScreenShell";
 import { FeatureCard } from "@/components/FeatureCard";
 import { AuraLunisColors } from "@/theme/tokens";
@@ -12,6 +12,12 @@ import { useLearnPreferences } from "@/features/learn/learnPreferences";
 import { LearnDetailScreen } from "@/screens/LearnDetailScreen";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { usePaywallNavigation } from "@/context/PaywallNavigationContext";
+
+const DEEP_SKY_LEVEL_TAB = {
+  beginner: 0,
+  intermediate: 2,
+  advanced: 1
+} as const;
 
 export function LearnScreen() {
   const navigation = useNavigation<any>();
@@ -26,11 +32,18 @@ export function LearnScreen() {
     if (!isLearnLessonFree(topicId) && !isPremium) { openPaywall(); return; }
     setOpenTopicId(topicId);
   }
+
   // Which Deep Sky tab is active (Nebula/Galaxy/Cluster/Remnant) — drives which
   // deep_sky topic is shown beneath the live visual.
   const [deepSkyTabIndex, setDeepSkyTabIndex] = useState(0);
-  // Learning Preferences (skill level + interests) personalize ordering.
-  const { prefs } = useLearnPreferences();
+
+  // Learning Preferences (skill level + interests) personalize the original cards.
+  const { prefs, reload } = useLearnPreferences();
+  useFocusEffect(
+    useCallback(() => {
+      void reload();
+    }, [reload])
+  );
 
   // Go full-screen for a lesson: hide the tab bar, restore it on exit (mirrors
   // the Sky Lens immersive pattern).
@@ -38,28 +51,42 @@ export function LearnScreen() {
     navigation.setOptions?.({ tabBarStyle: openTopicId ? { display: "none" } : TAB_BAR_STYLE });
   }, [navigation, openTopicId]);
 
-  // Order categories so the user's interests come first (rest keep catalog order).
-  const orderedCategories = useMemo(() => {
-    if (!prefs.interests.length) return learnCategories;
-    const rank = (id: string) => {
-      const i = prefs.interests.indexOf(id as (typeof prefs.interests)[number]);
-      return i === -1 ? prefs.interests.length + 1 : i;
-    };
-    return [...learnCategories].sort((a, b) => rank(a.id) - rank(b.id));
-  }, [prefs.interests]);
+  const categoryMatchesLevel = useCallback((categoryId: string) => {
+    return learnTopics.some((topic) => topic.categoryId === categoryId && topic.level === prefs.level);
+  }, [prefs.level]);
 
-  // On first load, default the selected category to the top interest (once — never
-  // overrides a category the user later taps).
-  const appliedDefault = useRef(false);
+  // Keep the exact App Store card grid. Only its order changes: categories containing a
+  // lesson at the selected level come first, then the user's chosen interests break ties.
+  const orderedCategories = useMemo(() => {
+    const interestRank = (id: string) => {
+      const index = prefs.interests.indexOf(id as (typeof prefs.interests)[number]);
+      return index === -1 ? prefs.interests.length + 1 : index;
+    };
+
+    return [...learnCategories].sort((a, b) => {
+      const aLevelRank = categoryMatchesLevel(a.id) ? 0 : 1;
+      const bLevelRank = categoryMatchesLevel(b.id) ? 0 : 1;
+      if (aLevelRank !== bLevelRank) return aLevelRank - bLevelRank;
+
+      const interestDifference = interestRank(a.id) - interestRank(b.id);
+      if (interestDifference !== 0) return interestDifference;
+      return learnCategories.findIndex((category) => category.id === a.id)
+        - learnCategories.findIndex((category) => category.id === b.id);
+    });
+  }, [categoryMatchesLevel, prefs.interests]);
+
+  // Apply each newly saved preference set once. This refreshes the original cards instead of
+  // adding any new panels or replacing the App Store layout.
+  const appliedPreferenceSignature = useRef("");
   useEffect(() => {
-    if (!appliedDefault.current && prefs.interests.length > 0) {
-      appliedDefault.current = true;
-      const top = prefs.interests[0];
-      // Only default to it if it's a real category (guards against a future interest key
-      // that doesn't map to a LearnCategoryId → blank screen).
-      if (learnCategories.some((c) => c.id === top)) setSelectedCategory(top as LearnCategoryId);
-    }
-  }, [prefs.interests]);
+    const signature = `${prefs.level}:${prefs.interests.join(",")}`;
+    if (appliedPreferenceSignature.current === signature) return;
+    appliedPreferenceSignature.current = signature;
+
+    const firstCategory = orderedCategories[0];
+    if (firstCategory) setSelectedCategory(firstCategory.id as LearnCategoryId);
+    setDeepSkyTabIndex(DEEP_SKY_LEVEL_TAB[prefs.level]);
+  }, [orderedCategories, prefs.interests, prefs.level]);
 
   const selectedTopics = useMemo(() => {
     const inCategory = learnTopics.filter((topic) => topic.categoryId === selectedCategory);
@@ -69,11 +96,10 @@ export function LearnScreen() {
       return inCategory.filter((topic) => topic.id === wantId);
     }
     // Lessons matching the chosen skill level surface first.
-    if (!prefs.level) return inCategory;
     return [...inCategory].sort((a, b) => {
-      const am = a.level === prefs.level ? 0 : 1;
-      const bm = b.level === prefs.level ? 0 : 1;
-      return am - bm;
+      const aMatch = a.level === prefs.level ? 0 : 1;
+      const bMatch = b.level === prefs.level ? 0 : 1;
+      return aMatch - bMatch;
     });
   }, [selectedCategory, deepSkyTabIndex, prefs.level]);
 
@@ -81,12 +107,12 @@ export function LearnScreen() {
 
   // ── Full-screen lesson ──────────────────────────────────────────────────────
   if (openTopicId) {
-    const idx = learnTopics.findIndex((t) => t.id === openTopicId);
-    const topic = learnTopics[idx];
+    const index = learnTopics.findIndex((topic) => topic.id === openTopicId);
+    const topic = learnTopics[index];
     if (topic) {
-      const next = learnTopics[(idx + 1) % learnTopics.length];
+      const next = learnTopics[(index + 1) % learnTopics.length];
       const categoryTitle =
-        learnCategories.find((c) => c.id === topic.categoryId)?.title ?? "Lesson";
+        learnCategories.find((category) => category.id === topic.categoryId)?.title ?? "Lesson";
       return (
         <LearnDetailScreen
           topic={topic}
