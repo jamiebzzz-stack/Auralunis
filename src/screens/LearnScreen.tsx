@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { ScreenShell } from "@/components/ScreenShell";
@@ -26,27 +26,20 @@ export function LearnScreen() {
   const [selectedCategory, setSelectedCategory] = useState<LearnCategoryId>("solar_system");
   const [openTopicId, setOpenTopicId] = useState<string | null>(null);
 
-  // Opening a lesson: the first FREE_LEARN_LESSON_COUNT lessons are free; advanced lessons are
-  // premium. A non-entitled tap on an advanced lesson opens the paywall instead of the lesson.
   function openLesson(topicId: string) {
     if (!isLearnLessonFree(topicId) && !isPremium) { openPaywall(); return; }
     setOpenTopicId(topicId);
   }
 
-  // Which Deep Sky tab is active (Nebula/Galaxy/Cluster/Remnant) — drives which
-  // deep_sky topic is shown beneath the live visual.
   const [deepSkyTabIndex, setDeepSkyTabIndex] = useState(0);
 
-  // Learning Preferences (skill level + interests) personalize the original cards.
-  const { prefs, reload } = useLearnPreferences();
+  const { prefs, reload, lastSaveRevision } = useLearnPreferences();
   useFocusEffect(
     useCallback(() => {
       void reload();
     }, [reload])
   );
 
-  // Go full-screen for a lesson: hide the tab bar, restore it on exit (mirrors
-  // the Sky Lens immersive pattern).
   useEffect(() => {
     navigation.setOptions?.({ tabBarStyle: openTopicId ? { display: "none" } : TAB_BAR_STYLE });
   }, [navigation, openTopicId]);
@@ -55,8 +48,6 @@ export function LearnScreen() {
     return learnTopics.some((topic) => topic.categoryId === categoryId && topic.level === prefs.level);
   }, [prefs.level]);
 
-  // Keep the exact App Store card grid. Only its order changes: categories containing a
-  // lesson at the selected level come first, then the user's chosen interests break ties.
   const orderedCategories = useMemo(() => {
     const interestRank = (id: string) => {
       const index = prefs.interests.indexOf(id as (typeof prefs.interests)[number]);
@@ -75,27 +66,22 @@ export function LearnScreen() {
     });
   }, [categoryMatchesLevel, prefs.interests]);
 
-  // Apply each newly saved preference set once. This refreshes the original cards instead of
-  // adding any new panels or replacing the App Store layout.
-  const appliedPreferenceSignature = useRef("");
+  // Every completed Save deliberately re-opens the first existing category that actually has
+  // a lesson at the selected level. This fixes stale cards without adding or redesigning UI.
   useEffect(() => {
-    const signature = `${prefs.level}:${prefs.interests.join(",")}`;
-    if (appliedPreferenceSignature.current === signature) return;
-    appliedPreferenceSignature.current = signature;
-
-    const firstCategory = orderedCategories[0];
-    if (firstCategory) setSelectedCategory(firstCategory.id as LearnCategoryId);
+    const exactLevelCategory = orderedCategories.find((category) => categoryMatchesLevel(category.id));
+    if (exactLevelCategory) {
+      setSelectedCategory(exactLevelCategory.id as LearnCategoryId);
+    }
     setDeepSkyTabIndex(DEEP_SKY_LEVEL_TAB[prefs.level]);
-  }, [orderedCategories, prefs.interests, prefs.level]);
+  }, [categoryMatchesLevel, lastSaveRevision, orderedCategories, prefs.level]);
 
   const selectedTopics = useMemo(() => {
     const inCategory = learnTopics.filter((topic) => topic.categoryId === selectedCategory);
-    // Deep Sky shows one topic at a time, matched to the active tab in the visual.
     if (selectedCategory === "deep_sky") {
       const wantId = ["nebulae", "galaxies", "clusters", "remnants"][deepSkyTabIndex];
       return inCategory.filter((topic) => topic.id === wantId);
     }
-    // Lessons matching the chosen skill level surface first.
     return [...inCategory].sort((a, b) => {
       const aMatch = a.level === prefs.level ? 0 : 1;
       const bMatch = b.level === prefs.level ? 0 : 1;
@@ -105,7 +91,6 @@ export function LearnScreen() {
 
   const selectedMeta = learnCategories.find((category) => category.id === selectedCategory);
 
-  // ── Full-screen lesson ──────────────────────────────────────────────────────
   if (openTopicId) {
     const index = learnTopics.findIndex((topic) => topic.id === openTopicId);
     const topic = learnTopics[index];
