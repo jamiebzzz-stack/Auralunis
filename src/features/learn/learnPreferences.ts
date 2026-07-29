@@ -8,7 +8,6 @@ export const LEARN_LEVEL_KEY = "learn_level";
 export const LEARN_INTERESTS_KEY = "learn_interests";
 
 export type LearnLevel = "beginner" | "intermediate" | "advanced";
-// Interest keys are exactly the LearnCategoryId values they map to.
 export type LearnInterest = "planets" | "stars" | "constellations" | "deep_sky" | "moon" | "milky_way";
 
 export const LEARN_LEVELS: { key: LearnLevel; label: string }[] = [
@@ -37,8 +36,9 @@ export const DEFAULT_LEARN_PREFERENCES: LearnPreferences = {
   interests: [...ALL_INTERESTS]
 };
 
-type LearnPreferencesListener = (preferences: LearnPreferences) => void;
+type LearnPreferencesListener = (preferences: LearnPreferences, saveRevision: number) => void;
 const listeners = new Set<LearnPreferencesListener>();
+let saveRevision = 0;
 
 function normalizeInterests(value: unknown): LearnInterest[] {
   if (!Array.isArray(value)) return [];
@@ -50,7 +50,8 @@ function normalizeInterests(value: unknown): LearnInterest[] {
 }
 
 function publish(preferences: LearnPreferences) {
-  for (const listener of listeners) listener(preferences);
+  saveRevision += 1;
+  for (const listener of listeners) listener(preferences, saveRevision);
 }
 
 export function subscribeLearnPreferences(listener: LearnPreferencesListener): () => void {
@@ -90,8 +91,6 @@ export async function loadLearnPreferences(): Promise<LearnPreferences> {
   }
 }
 
-// Save the complete preference object in one storage operation. Returning false lets the
-// modal stay open and report a failure instead of closing before storage has finished.
 export async function saveLearnPreferences(preferences: LearnPreferences): Promise<boolean> {
   const interests = normalizeInterests(preferences.interests);
   if (!VALID_LEVELS.has(preferences.level) || interests.length === 0) return false;
@@ -109,7 +108,6 @@ export async function saveLearnPreferences(preferences: LearnPreferences): Promi
   }
 }
 
-// Compatibility helpers for older call sites.
 export async function saveLearnLevel(level: LearnLevel): Promise<boolean> {
   const current = await loadLearnPreferences();
   return saveLearnPreferences({ ...current, level });
@@ -120,13 +118,12 @@ export async function saveLearnInterests(interests: LearnInterest[]): Promise<bo
   return saveLearnPreferences({ ...current, interests });
 }
 
-// Loads preferences, receives successful same-session saves immediately, and exposes a
-// reload for screen-focus refreshes or storage changes made outside this module.
 export function useLearnPreferences() {
   const [prefs, setPrefs] = useState<LearnPreferences>({
     level: DEFAULT_LEARN_PREFERENCES.level,
     interests: [...DEFAULT_LEARN_PREFERENCES.interests]
   });
+  const [lastSaveRevision, setLastSaveRevision] = useState(0);
 
   const reload = useCallback(async () => {
     const next = await loadLearnPreferences();
@@ -139,8 +136,10 @@ export function useLearnPreferences() {
     void loadLearnPreferences().then((next) => {
       if (active) setPrefs(next);
     });
-    const unsubscribe = subscribeLearnPreferences((next) => {
-      if (active) setPrefs(next);
+    const unsubscribe = subscribeLearnPreferences((next, revision) => {
+      if (!active) return;
+      setPrefs(next);
+      setLastSaveRevision(revision);
     });
     return () => {
       active = false;
@@ -148,5 +147,5 @@ export function useLearnPreferences() {
     };
   }, []);
 
-  return { prefs, reload };
+  return { prefs, reload, lastSaveRevision };
 }
