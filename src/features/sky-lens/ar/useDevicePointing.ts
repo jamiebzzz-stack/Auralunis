@@ -21,13 +21,13 @@ export interface DevicePointingState {
 const EMPTY_POINTING: CameraPointing = {
   azimuthDegrees: 0,
   altitudeDegrees: 0,
-  rollDegrees: 0,
+  rollDegrees: 0
 };
 
-// Keep live pointing responsive even if an older caller requests a slow interval.
-// 40 ms targets 25 updates/sec: smooth enough for phone movement without asking the
-// React/SVG scene to rebuild at an unnecessarily expensive 60 Hz.
-const MAX_LIVE_INTERVAL_MS = 40;
+const STATIONARY_LOCK_DELAY_MS = 650;
+const STATIONARY_RELEASE_AZIMUTH = 1.8;
+const STATIONARY_RELEASE_ALTITUDE = 1.1;
+const STATIONARY_RELEASE_ROLL = 1.6;
 
 const normalizeHeading = (degrees: number) => ((degrees % 360) + 360) % 360;
 const clampAltitude = (degrees: number) => Math.max(-90, Math.min(90, degrees));
@@ -48,51 +48,42 @@ const stabilizeAngle = (
   const magnitude = Math.abs(delta);
 
   if (magnitude <= deadZoneDegrees) return previous;
-
-  // Large intentional turns should follow immediately. Small hand tremors still get
-  // damped, with extra damping supplied by the zoom-aware sensor EMA below.
-  const follow =
-    magnitude > 15 ? 0.95 :
-    magnitude > 5 ? 0.82 :
-    magnitude > 1.5 ? 0.68 :
-    gentleFollow;
+  const follow = magnitude > 8 ? 0.72 : magnitude > 3 ? 0.48 : gentleFollow;
   return previous + delta * follow;
 };
 
 export function useDevicePointing(
-  updateMs = 40,
+  updateMs = 120,
   magneticDeclinationDegrees = 0,
   smoothingAlpha = 0.3
 ): DevicePointingState {
   const [state, setState] = useState<DevicePointingState>({
     pointing: EMPTY_POINTING,
-    available: false,
+    available: false
   });
 
-  // Raw sensor samples stay in refs. The previous implementation stored the
-  // accelerometer and magnetometer in separate React states, so one physical sensor
-  // tick could rebuild the entire Sky Lens twice. We now publish one coordinated
-  // pointing update from the magnetometer callback using the latest acceleration.
+  // Preserve the App Store rendering path while coordinating the two sensors so one physical
+  // sample produces only one useful sky update.
   const accelerometerRef = useRef<Vec3>({ x: 0, y: 0, z: 1 });
   const magnetometerRef = useRef<Vec3 | null>(null);
   const stablePointingRef = useRef<CameraPointing | null>(null);
   const lastPublishedRef = useRef<CameraPointing | null>(null);
+  const stationaryAnchorRef = useRef<CameraPointing | null>(null);
+  const lastPublishedMotionAtRef = useRef(Date.now());
   const alphaRef = useRef(smoothingAlpha);
   alphaRef.current = smoothingAlpha;
 
   useEffect(() => {
-    const cadenceMs = Math.max(16, Math.min(updateMs, MAX_LIVE_INTERVAL_MS));
-    Sensors.Accelerometer.setUpdateInterval(cadenceMs);
-    Sensors.Magnetometer.setUpdateInterval(cadenceMs);
+    Sensors.Accelerometer.setUpdateInterval(updateMs);
+    Sensors.Magnetometer.setUpdateInterval(updateMs);
 
-    const ema = (prev: Vec3, next: SensorReading): Vec3 => {
-      // Honor the caller's zoom-aware curve instead of permanently capping it at 0.16.
-      // At 1x the scene follows quickly; high zoom naturally receives stronger damping.
-      const a = Math.max(0.1, Math.min(0.36, alphaRef.current));
+    const ema = (previous: Vec3, next: SensorReading): Vec3 => {
+      // Keep the conservative smoothing ceiling used by the released App Store build.
+      const alpha = Math.min(alphaRef.current, 0.16);
       return {
-        x: prev.x + (next.x - prev.x) * a,
-        y: prev.y + (next.y - prev.y) * a,
-        z: prev.z + (next.z - prev.z) * a,
+        x: previous.x + (next.x - previous.x) * alpha,
+        y: previous.y + (next.y - previous.y) * alpha,
+        z: previous.z + (next.z - previous.z) * alpha
       };
     };
 
@@ -100,55 +91,92 @@ export function useDevicePointing(
       const magnetometer = magnetometerRef.current;
       if (!magnetometer) return;
 
-      const p = pointingFromSensors(
+      const measured = pointingFromSensors(
         accelerometerRef.current,
         magnetometer,
         magneticDeclinationDegrees
       );
       const raw: CameraPointing = {
-        ...p,
-        azimuthDegrees: normalizeHeading(p.azimuthDegrees),
-        altitudeDegrees: clampAltitude(-p.altitudeDegrees),
+        ...measured,
+        azimuthDegrees: normalizeHeading(measured.azimuthDegrees),
+        altitudeDegrees: clampAltitude(-measured.altitudeDegrees)
       };
 
       const previous = stablePointingRef.current;
-      const alpha = Math.max(0.1, Math.min(0.36, alphaRef.current));
-      const gentleFollow = Math.max(0.4, Math.min(0.72, alpha * 2.2));
       const stable: CameraPointing = previous
         ? {
             azimuthDegrees: normalizeHeading(
-              stabilizeAngle(previous.azimuthDegrees, raw.azimuthDegrees, 0.18, gentleFollow)
+              stabilizeAngle(previous.azimuthDegrees, raw.azimuthDegrees, 0.55, 0.24)
             ),
             altitudeDegrees: clampAltitude(
-              stabilizeAngle(previous.altitudeDegrees, raw.altitudeDegrees, 0.14, gentleFollow)
+              stabilizeAngle(previous.altitudeDegrees, raw.altitudeDegrees, 0.4, 0.22)
             ),
             rollDegrees: normalizeHeading(
-              stabilizeAngle(previous.rollDegrees, raw.rollDegrees, 0.22, gentleFollow * 0.9)
-            ),
+              stabilizeAngle(previous.rollDegrees, raw.rollDegrees, 0.65, 0.2)
+            )
           }
         : raw;
 
       stablePointingRef.current = stable;
-
-      // Do not rebuild the large SVG scene for imperceptible sensor noise while the
-      // phone is still. One state write now represents one useful visual frame.
       const last = lastPublishedRef.current;
-      const changed =
-        !last ||
-        Math.abs(shortestAngleDelta(last.azimuthDegrees, stable.azimuthDegrees)) >= 0.035 ||
-        Math.abs(last.altitudeDegrees - stable.altitudeDegrees) >= 0.035 ||
-        Math.abs(shortestAngleDelta(last.rollDegrees, stable.rollDegrees)) >= 0.05;
+      if (!last) {
+        lastPublishedRef.current = stable;
+        lastPublishedMotionAtRef.current = Date.now();
+        setState({ pointing: stable, available: true });
+        return;
+      }
 
-      if (!changed) return;
+      const now = Date.now();
+      const azimuthDelta = Math.abs(shortestAngleDelta(last.azimuthDegrees, stable.azimuthDegrees));
+      const altitudeDelta = Math.abs(last.altitudeDegrees - stable.altitudeDegrees);
+      const rollDelta = Math.abs(shortestAngleDelta(last.rollDegrees, stable.rollDegrees));
+
+      const anchor = stationaryAnchorRef.current;
+      if (anchor) {
+        const anchorAzimuthDelta = Math.abs(shortestAngleDelta(anchor.azimuthDegrees, stable.azimuthDegrees));
+        const anchorAltitudeDelta = Math.abs(anchor.altitudeDegrees - stable.altitudeDegrees);
+        const anchorRollDelta = Math.abs(shortestAngleDelta(anchor.rollDegrees, stable.rollDegrees));
+
+        if (
+          anchorAzimuthDelta < STATIONARY_RELEASE_AZIMUTH &&
+          anchorAltitudeDelta < STATIONARY_RELEASE_ALTITUDE &&
+          anchorRollDelta < STATIONARY_RELEASE_ROLL
+        ) {
+          // Keep the exact rendered frame while the phone is still instead of following
+          // normal magnetometer drift.
+          return;
+        }
+
+        stationaryAnchorRef.current = null;
+        lastPublishedMotionAtRef.current = now;
+      }
+
+      const changed =
+        azimuthDelta >= 0.45 ||
+        altitudeDelta >= 0.3 ||
+        rollDelta >= 0.5;
+
+      if (!changed) {
+        if (
+          !stationaryAnchorRef.current &&
+          now - lastPublishedMotionAtRef.current >= STATIONARY_LOCK_DELAY_MS
+        ) {
+          stationaryAnchorRef.current = last;
+        }
+        return;
+      }
+
+      lastPublishedMotionAtRef.current = now;
+      stationaryAnchorRef.current = null;
       lastPublishedRef.current = stable;
       setState({ pointing: stable, available: true });
     };
 
-    const accelSub = Sensors.Accelerometer.addListener((reading) => {
+    const accelerometerSubscription = Sensors.Accelerometer.addListener((reading) => {
       accelerometerRef.current = ema(accelerometerRef.current, reading);
     });
 
-    const magSub = Sensors.Magnetometer.addListener((reading) => {
+    const magnetometerSubscription = Sensors.Magnetometer.addListener((reading) => {
       magnetometerRef.current = magnetometerRef.current
         ? ema(magnetometerRef.current, reading)
         : reading;
@@ -156,8 +184,8 @@ export function useDevicePointing(
     });
 
     return () => {
-      accelSub.remove();
-      magSub.remove();
+      accelerometerSubscription.remove();
+      magnetometerSubscription.remove();
     };
   }, [updateMs, magneticDeclinationDegrees]);
 
