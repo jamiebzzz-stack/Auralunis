@@ -3,6 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { decryptVault, encryptVault, isEncrypted } from "@/services/VaultEncryption";
 
 const VAULT_STORAGE_KEY = "auralunis.vault.prototype.v2";
+const VAULT_RECOVERY_STORAGE_KEY = "auralunis.vault.recovery.v1";
 
 export type VaultItemType = "note" | "lifesky" | "capture" | "seal" | "lesson" | "archive";
 
@@ -54,13 +55,26 @@ function sanitizeVaultItems(value: unknown): VaultItem[] {
 export function AuraLunisVaultProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = useState<VaultItem[]>([]);
   const [hydrated, setHydrated] = useState(false);
-  // True when stored data existed but couldn't be decrypted/parsed. While this is set
-  // AND the in-memory Vault is empty, we must NOT auto-persist — encrypting [] would
-  // clobber the (possibly recoverable) ciphertext on disk. A real user add clears it.
+  // When stored data could not be fully recovered, automatic persistence is blocked
+  // until the original blob has been copied to a recovery slot.
   const loadFailedRef = useRef(false);
+  const recoveryPreservedRef = useRef(false);
+  const writeChainRef = useRef<Promise<void>>(Promise.resolve());
+  const revisionRef = useRef(0);
 
   useEffect(() => {
     let active = true;
+
+    async function preserveRecovery(saved: string): Promise<boolean> {
+      try {
+        await AsyncStorage.setItem(VAULT_RECOVERY_STORAGE_KEY, saved);
+        recoveryPreservedRef.current = true;
+        return true;
+      } catch {
+        recoveryPreservedRef.current = false;
+        return false;
+      }
+    }
 
     async function hydrate() {
       try {
@@ -69,22 +83,37 @@ export function AuraLunisVaultProvider({ children }: { children: React.ReactNode
         if (active && saved) {
           const decrypted = await decryptVault(saved);
           if (decrypted) {
-            const parsed = sanitizeVaultItems(JSON.parse(decrypted));
-            setItems(parsed);
+            const raw = JSON.parse(decrypted) as unknown;
+            const parsed = sanitizeVaultItems(raw);
+            const droppedEntries = Array.isArray(raw) && parsed.length !== raw.length;
 
-            // Seamless migration: re-encrypt any unencrypted legacy data.
-            if (!isEncrypted(saved)) {
+            if (droppedEntries) {
+              // Keep the exact original blob available for recovery before exposing the
+              // sanitized subset. Never silently erase older-schema or malformed entries.
+              const preserved = await preserveRecovery(saved);
+              loadFailedRef.current = !preserved;
+            }
+
+            if (active) setItems(parsed);
+
+            // Seamless migration for valid legacy data only. If sanitization removed
+            // anything, retain the original main blob; a later intentional user save can
+            // replace it only after the recovery copy exists.
+            if (!isEncrypted(saved) && !droppedEntries) {
               const encrypted = await encryptVault(JSON.stringify(parsed));
               await AsyncStorage.setItem(VAULT_STORAGE_KEY, encrypted);
             }
           } else {
-            // Stored data exists but decrypt/parse failed — protect it from being
-            // overwritten by the empty in-memory Vault.
+            // Preserve unreadable ciphertext before blocking writes. This protects the
+            // original data while allowing a future recovery path or app update.
+            const preserved = await preserveRecovery(saved);
             loadFailedRef.current = true;
+            recoveryPreservedRef.current = preserved;
           }
         }
       } catch {
-        // Corrupt/unavailable storage — keep a blank local Vault but guard existing data.
+        // Storage/decryption/parse failure: keep the current blob untouched. We cannot
+        // safely persist replacement data unless a recovery copy was already made.
         loadFailedRef.current = true;
       } finally {
         if (active) setHydrated(true);
@@ -100,19 +129,36 @@ export function AuraLunisVaultProvider({ children }: { children: React.ReactNode
 
   useEffect(() => {
     if (!hydrated) return;
-    // Never persist an empty Vault over data we failed to load (silent data loss).
+    if (loadFailedRef.current && !recoveryPreservedRef.current) return;
     if (loadFailedRef.current && items.length === 0) return;
 
-    encryptVault(JSON.stringify(items))
-      .then((encrypted) => AsyncStorage.setItem(VAULT_STORAGE_KEY, encrypted))
+    const revision = ++revisionRef.current;
+    const snapshot = JSON.stringify(items);
+
+    // Recover from any unexpected prior rejection, then serialize writes. Revision
+    // checks prevent an older snapshot from landing after a newer user action.
+    writeChainRef.current = writeChainRef.current
+      .catch(() => {})
+      .then(async () => {
+        if (revision !== revisionRef.current) return;
+        const encrypted = await encryptVault(snapshot);
+        if (revision !== revisionRef.current) return;
+        await AsyncStorage.setItem(VAULT_STORAGE_KEY, encrypted);
+        if (revision === revisionRef.current) loadFailedRef.current = false;
+      })
       .catch(() => {
-        // No-op in preview/test environments.
+        // Encryption, Keychain, or storage failure: leave the existing ciphertext intact.
       });
   }, [hydrated, items]);
 
   const value = useMemo<VaultContextValue>(() => {
     const addItem = (item: Omit<VaultItem, "id" | "createdAtISO">) => {
       const now = new Date().toISOString();
+
+      // A genuine user add may start a new main Vault only after the previous blob has
+      // been preserved. If preservation failed, state remains usable for this session but
+      // the persistence effect stays blocked rather than destroying recoverable data.
+      if (recoveryPreservedRef.current) loadFailedRef.current = false;
 
       setItems((previous) => [
         {
@@ -135,8 +181,11 @@ export function AuraLunisVaultProvider({ children }: { children: React.ReactNode
           detail
         }),
       clearPrototypeVault: async () => {
+        revisionRef.current += 1;
         setItems([]);
-        await AsyncStorage.removeItem(VAULT_STORAGE_KEY);
+        loadFailedRef.current = false;
+        recoveryPreservedRef.current = false;
+        await AsyncStorage.multiRemove([VAULT_STORAGE_KEY, VAULT_RECOVERY_STORAGE_KEY]);
       }
     };
   }, [hydrated, items]);
