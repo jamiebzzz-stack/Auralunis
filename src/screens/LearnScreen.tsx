@@ -80,11 +80,11 @@ export function LearnScreen() {
       const wantId = ["nebulae", "galaxies", "clusters", "remnants"][deepSkyTabIndex];
       return inCategory.filter((topic) => topic.id === wantId);
     }
-    return [...inCategory].sort((a, b) => {
-      const aMatch = a.level === prefs.level ? 0 : 1;
-      const bMatch = b.level === prefs.level ? 0 : 1;
-      return aMatch - bMatch;
-    });
+
+    // The saved level is a real curriculum filter, not merely a sort hint. 30 Nights is the
+    // deliberate exception because it is explicitly a beginner course.
+    if (selectedCategory === "beginner_path") return inCategory;
+    return inCategory.filter((topic) => topic.level === prefs.level);
   }, [selectedCategory, deepSkyTabIndex, prefs.level]);
 
   const selectedMeta = learnCategories.find((category) => category.id === selectedCategory);
