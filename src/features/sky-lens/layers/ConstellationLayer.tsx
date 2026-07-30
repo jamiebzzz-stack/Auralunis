@@ -12,6 +12,40 @@ const GOLD = "#D9A84E";
 // sits back into the sky instead of sitting on top of it.
 const CON_LABEL_GOLD = "#C9A468";
 
+/**
+ * The patterns a beginner is most likely to be looking for. These are drawn at full strength;
+ * everything else in the catalogue is dimmed so the sky does not read as a wall of equal
+ * names. Membership is about recognisability, not importance — it only controls emphasis.
+ */
+const PRIMARY_CONSTELLATIONS = new Set([
+  "ursa-major",
+  "ursa-minor",
+  "orion",
+  "cassiopeia",
+  "leo",
+  "gemini",
+  "taurus",
+  "scorpius",
+  "sagittarius",
+  "cygnus",
+  "lyra",
+  "aquila"
+]);
+
+// Primary names carry; secondary names recede. The dark backing is what keeps either
+// legible where a label crosses a bright star or the Milky Way band.
+const PRIMARY_FONT_SIZE = 14;
+const SECONDARY_FONT_SIZE = 11.5;
+const PRIMARY_OPACITY = 0.94;
+const SECONDARY_OPACITY = 0.52;
+
+/**
+ * How far collision avoidance may move a name from its pattern's centroid before the name is
+ * dropped instead. A label nudged clear across the screen is worse than no label: it reads as
+ * belonging to whatever it landed on.
+ */
+const MAX_LABEL_DETACHMENT_PX = 78;
+
 type Props = {
   constellations: HorizontalConstellation[];
   project: ProjectFn;
@@ -69,11 +103,18 @@ export function ConstellationLayer({
 
     // Asterisms carry both names: the one people use, and the constellation it sits inside.
     const label = (c.familiarName ? `${c.familiarName} · ${c.name}` : c.name).toUpperCase();
+    const isPrimary = PRIMARY_CONSTELLATIONS.has(c.id);
+    const fontSize = isPrimary ? PRIMARY_FONT_SIZE : SECONDARY_FONT_SIZE;
+    const labelOpacity = isPrimary ? PRIMARY_OPACITY : SECONDARY_OPACITY;
     const position = placeLabel
-      ? placeLabel(centroid.x, centroid.y, label, 13, undefined, true, { weight: 500, letterSpacing: 1.6 })
+      ? placeLabel(centroid.x, centroid.y, label, fontSize, undefined, true, { weight: 600, letterSpacing: 1.4 })
       : { x: centroid.x, y: centroid.y };
     // No clean slot → dropped (priority 3, below planets and named stars).
     if (!Number.isFinite(position.x)) return null;
+    // Nudged so far it no longer reads as this pattern's name → drop it too.
+    if (Math.hypot(position.x - centroid.x, position.y - centroid.y) > MAX_LABEL_DETACHMENT_PX) {
+      return null;
+    }
 
     // A named anchor star (Polaris) gets its own small label, so the pattern teaches the sky
     // rather than just naming itself. Rendered only when that star is above the horizon.
@@ -94,30 +135,75 @@ export function ConstellationLayer({
     return (
       <G key={`${c.id}-label`}>
         {anchorVisible && c.anchorStarName && (
-          <SvgText
-            x={anchorProjected.x + 10}
-            y={anchorProjected.y - 8}
-            fill={nightMode ? palette.conLabel : CON_LABEL_GOLD}
-            fontSize={11}
-            fontWeight="600"
-            letterSpacing={0.8}
-            opacity={0.72}
-          >
-            {c.anchorStarName}
-          </SvgText>
+          <G>
+            <SvgText
+              x={anchorProjected.x + 10}
+              y={anchorProjected.y - 8}
+              fill="none"
+              stroke="#05070F"
+              strokeWidth={3}
+              strokeOpacity={0.8}
+              strokeLinejoin="round"
+              fontSize={12}
+              fontWeight="700"
+              letterSpacing={0.8}
+            >
+              {c.anchorStarName}
+            </SvgText>
+            <SvgText
+              x={anchorProjected.x + 10}
+              y={anchorProjected.y - 8}
+              fill={nightMode ? palette.conLabel : CON_LABEL_GOLD}
+              fontSize={12}
+              fontWeight="700"
+              letterSpacing={0.8}
+              opacity={0.95}
+            >
+              {c.anchorStarName}
+            </SvgText>
+          </G>
         )}
-        {/* Dark outline keeps the brass name legible over the bright band. */}
-        <SvgText x={position.x} y={position.y} fill="none" stroke="#05070F" strokeWidth={1.6} strokeOpacity={0.45} fontSize={13} fontWeight="500" letterSpacing={1.6} textAnchor="middle">
+        {/* Two-pass dark backing: a soft wide halo to lift the name off the sky, then a
+            tighter outline for crisp edges. This is what makes a label readable where it
+            crosses a bright star or the Milky Way, without adding a solid UI plate. */}
+        <SvgText
+          x={position.x}
+          y={position.y}
+          fill="none"
+          stroke="#05070F"
+          strokeWidth={isPrimary ? 5 : 4}
+          strokeOpacity={isPrimary ? 0.5 : 0.4}
+          strokeLinejoin="round"
+          fontSize={fontSize}
+          fontWeight="600"
+          letterSpacing={1.4}
+          textAnchor="middle"
+        >
+          {label}
+        </SvgText>
+        <SvgText
+          x={position.x}
+          y={position.y}
+          fill="none"
+          stroke="#05070F"
+          strokeWidth={2}
+          strokeOpacity={0.85}
+          strokeLinejoin="round"
+          fontSize={fontSize}
+          fontWeight="600"
+          letterSpacing={1.4}
+          textAnchor="middle"
+        >
           {label}
         </SvgText>
         <SvgText
           x={position.x}
           y={position.y}
           fill={nightMode ? palette.conLabel : CON_LABEL_GOLD}
-          fontSize={13}
-          fontWeight="500"
-          letterSpacing={1.6}
-          opacity={0.55}
+          fontSize={fontSize}
+          fontWeight="600"
+          letterSpacing={1.4}
+          opacity={labelOpacity}
           textAnchor="middle"
         >
           {label}

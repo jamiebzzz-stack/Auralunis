@@ -1114,6 +1114,7 @@ console.log("");
   const catSrc = fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/data/constellationLines.ts"), "utf8");
   const layerSrc = fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/layers/ConstellationLayer.tsx"), "utf8");
   const starSrc = fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/ephemeris/StarPositions.ts"), "utf8");
+  const screenSrcForTaps = fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/SkyLensScreen.tsx"), "utf8");
   console.log("");
 
   assert("Ursa Major carries the familiar name Big Dipper",
@@ -1148,6 +1149,54 @@ console.log("");
   assert("Little Dipper label reads 'LITTLE DIPPER · URSA MINOR'",
     label("Little Dipper", "Ursa Minor") === "LITTLE DIPPER · URSA MINOR");
   assert("a normal constellation is unchanged", label(undefined, "Orion") === "ORION");
+
+  // ── Readability ──
+  assert("primary constellations are emphasised over the rest",
+    layerSrc.includes("const PRIMARY_CONSTELLATIONS = new Set([") &&
+    /PRIMARY_OPACITY = 0\.9\d/.test(layerSrc) &&
+    /SECONDARY_OPACITY = 0\.\d/.test(layerSrc));
+  assert("primary names are larger than secondary names", (() => {
+    const p = Number(/PRIMARY_FONT_SIZE = ([\d.]+)/.exec(layerSrc)[1]);
+    const q = Number(/SECONDARY_FONT_SIZE = ([\d.]+)/.exec(layerSrc)[1]);
+    return p > q && p >= 14;
+  })());
+  assert("labels have a dark backing so they stay legible over bright stars",
+    (layerSrc.match(/stroke="#05070F"/g) || []).length >= 3);
+  assert("the backing is drawn behind the fill, not over it", (() => {
+    const firstStroke = layerSrc.indexOf('stroke="#05070F"');
+    const fill = layerSrc.indexOf("fill={nightMode ? palette.conLabel : CON_LABEL_GOLD}");
+    return firstStroke > 0 && fill > firstStroke;
+  })());
+  assert("every requested constellation is in the primary set", (() => {
+    const want = ["ursa-major", "ursa-minor", "orion", "cassiopeia", "leo", "gemini",
+      "taurus", "scorpius", "sagittarius", "cygnus", "lyra", "aquila"];
+    const block = /PRIMARY_CONSTELLATIONS = new Set\(\[([\s\S]*?)\]\)/.exec(layerSrc)[1];
+    return want.every((id) => block.includes(`"${id}"`));
+  })());
+  assert("every requested constellation exists in the dataset", (() => {
+    const want = ["ursa-major", "ursa-minor", "orion", "cassiopeia", "leo", "gemini",
+      "taurus", "scorpius", "sagittarius", "cygnus", "lyra", "aquila"];
+    return want.every((id) => catSrc.includes(`id: "${id}"`));
+  })());
+
+  // ── Clutter control ──
+  assert("a label nudged too far from its pattern is dropped, not shown detached",
+    layerSrc.includes("MAX_LABEL_DETACHMENT_PX") &&
+    layerSrc.includes("> MAX_LABEL_DETACHMENT_PX"));
+  assert("the detachment leash is tighter than half the short screen edge", (() => {
+    const px = Number(/MAX_LABEL_DETACHMENT_PX = (\d+)/.exec(layerSrc)[1]);
+    return px > 0 && px < 430 / 2;
+  })());
+
+  // ── Labels must never take a tap from a planet or the Moon ──
+  assert("tap hit-testing considers only bodies and stars, so labels cannot steal a tap",
+    screenSrcForTaps.includes("for (const body of sky.bodies)") &&
+    screenSrcForTaps.includes("for (const star of sky.stars)") &&
+    !/for \(const c of sky\.constellations\)[\s\S]{0,400}?setSelected/.test(screenSrcForTaps));
+  assert("planets are hit-tested before stars and win ties",
+    screenSrcForTaps.indexOf("for (const body of sky.bodies)") <
+    screenSrcForTaps.indexOf("for (const star of sky.stars)") &&
+    screenSrcForTaps.includes("const planetLocked = closest !== null && closest.dist < 40;"));
 }
 
 console.log("");
