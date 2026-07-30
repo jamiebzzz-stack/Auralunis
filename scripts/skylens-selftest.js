@@ -251,6 +251,28 @@ assert("a 2° nudge uses the small factor", motion.baseFollowFactor(2) === motio
 assert("a 12° turn uses the medium factor", motion.baseFollowFactor(12) === motion.FOLLOW_FACTOR_MEDIUM);
 assert("a 40° sweep uses the large factor", motion.baseFollowFactor(40) === motion.FOLLOW_FACTOR_LARGE);
 
+// Exact band boundaries. The thresholds are strict (>), so a delta sitting exactly ON a
+// threshold belongs to the SLOWER band — the safer side. These pin the comparison operator:
+// flipping > to >= would move a whole band and this would catch it.
+const EPS = 1e-9;
+assert("zero movement uses the small factor", motion.baseFollowFactor(0) === motion.FOLLOW_FACTOR_SMALL);
+assert("exactly at the medium threshold stays small",
+  motion.baseFollowFactor(motion.MEDIUM_MOVEMENT_DEGREES) === motion.FOLLOW_FACTOR_SMALL,
+  `${motion.MEDIUM_MOVEMENT_DEGREES}° → small`);
+assert("just past the medium threshold becomes medium",
+  motion.baseFollowFactor(motion.MEDIUM_MOVEMENT_DEGREES + EPS) === motion.FOLLOW_FACTOR_MEDIUM);
+assert("exactly at the large threshold stays medium",
+  motion.baseFollowFactor(motion.LARGE_MOVEMENT_DEGREES) === motion.FOLLOW_FACTOR_MEDIUM,
+  `${motion.LARGE_MOVEMENT_DEGREES}° → medium`);
+assert("just past the large threshold becomes large",
+  motion.baseFollowFactor(motion.LARGE_MOVEMENT_DEGREES + EPS) === motion.FOLLOW_FACTOR_LARGE);
+assert("band thresholds are ordered and positive",
+  motion.MEDIUM_MOVEMENT_DEGREES > 0 &&
+  motion.LARGE_MOVEMENT_DEGREES > motion.MEDIUM_MOVEMENT_DEGREES);
+assert("the banding is monotonic across the whole range",
+  [0, 3, 7, 7.5, 12, 18, 18.5, 40, 180].every((d, i, a) =>
+    i === 0 || motion.baseFollowFactor(d) >= motion.baseFollowFactor(a[i - 1])));
+
 // Zoom damping: stronger as zoom climbs, never zero, never above 1.
 assert("no extra damping at 1× zoom", motion.zoomDampingMultiplier(1) === 1);
 assert("damping increases with zoom",
@@ -281,8 +303,32 @@ assert("roll never exceeds the pointing follow factor",
   })));
 
 // The stillness freeze must survive this change untouched.
+//
+// The hook itself cannot be required under Node (it imports expo-sensors), so the freeze is
+// asserted against its source. Presence alone is not enough — ORDER is what makes it a
+// freeze: the early return must sit before the dead-zone test and before any follow
+// computation, or a still phone would still publish drift.
 assert("gyro stillness freeze is still present",
   motionSrc.includes("if (!movingRef.current) return;"));
+{
+  const freezeAt = motionSrc.indexOf("if (!movingRef.current) return;");
+  const deadZoneAt = motionSrc.indexOf("azimuthDelta < AZIMUTH_DEAD_ZONE");
+  const followAt = motionSrc.indexOf("resolveFollowFactors(");
+  const publishAt = motionSrc.lastIndexOf("publishedRef.current = next;");
+  assert("the freeze returns before the dead-zone check", freezeAt > 0 && freezeAt < deadZoneAt);
+  assert("the freeze returns before any follow factor is resolved",
+    freezeAt > 0 && freezeAt < followAt);
+  assert("the freeze returns before the pointing is published",
+    freezeAt > 0 && freezeAt < publishAt);
+  // Only the gyroscope may clear the freeze — magnetometer drift must not unlock it.
+  const gyroBlock = motionSrc.slice(
+    motionSrc.indexOf("Sensors.Gyroscope.addListener"),
+    motionSrc.indexOf("Sensors.Magnetometer.addListener")
+  );
+  assert("only the gyroscope listener clears the moving flag",
+    /movingRef\.current = false/.test(gyroBlock) &&
+    !/movingRef\.current = (true|false)/.test(motionSrc.slice(motionSrc.indexOf("Sensors.Magnetometer.addListener"))));
+}
 assert("stillness is confirmed over a dwell window",
   /STILLNESS_CONFIRM_MS\s*=\s*\d+/.test(motionSrc) &&
   motionSrc.includes("now - lastMotionAtRef.current >= STILLNESS_CONFIRM_MS"));
