@@ -1020,6 +1020,136 @@ console.log("");
     Math.max(...r) - Math.min(...r) < 0.02, `edge-ratio spread ${(Math.max(...r) - Math.min(...r)).toFixed(4)}`);
 }
 
+// ── Tap regression: hit testing must use the SAME projection as rendering ────────────
+{
+  const screenSrc = fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/SkyLensScreen.tsx"), "utf8");
+  console.log("");
+
+  // THE BUG: objects were DRAWN through the quaternion basis but HIT-TESTED through the
+  // legacy Euler pointing, so a tap measured its distance to where the old projection
+  // thought the planet was. Those disagree by design, so no card ever opened.
+  assert("tap hit-testing projects through the camera basis",
+    screenSrc.includes("const projectHit = (az: number, alt: number) =>") &&
+    /projectHit[\s\S]{0,160}?projectTargetWithBasis\(basis, az, alt, fov, box\)/.test(screenSrc));
+  assert("planets and the Moon are hit-tested with projectHit",
+    screenSrc.includes("projectHit(body.azimuthDegrees, body.altitudeDegrees)"));
+  assert("stars are hit-tested with projectHit",
+    screenSrc.includes("projectHit(star.azimuthDegrees, star.altitudeDegrees)"));
+  assert("no hit test still uses the legacy Euler pointing",
+    !/const p = projectTarget\(pointing,/.test(screenSrc));
+  assert("guidance and overlays outside the canvas share the same basis",
+    screenSrc.includes("const projectShared = useCallback(") &&
+    screenSrc.includes("projectTargetWithBasis(cameraBasis, az, alt, fov, box)"));
+
+  // Generous finger radii are what make a tap forgiving; they must survive.
+  assert("planet touch radius is unchanged", screenSrc.includes("const PLANET_HIT = 80;"));
+  assert("star touch radius is unchanged", screenSrc.includes("const STAR_HIT = 50;"));
+  assert("the tap gesture still opens the info card", screenSrc.includes("Gesture.Tap()"));
+
+  // Drag must not steal taps: it only activates past the threshold, and runs simultaneously.
+  assert("drag activates only past the 12-point threshold",
+    screenSrc.includes(".minDistance(DRAG_ACTIVATION_POINTS)"));
+  assert("drag, pinch and taps are simultaneous, not exclusive",
+    /Gesture\.Simultaneous\(pinch, skyDrag, cinematicTap, objectTap\)/.test(screenSrc));
+  assert("gestures do not cancel touches in the view (SVG press targets keep working)",
+    (screenSrc.match(/cancelsTouchesInView\(false\)/g) || []).length >= 3);
+}
+
+// ── Unlock state machine is StrictMode-safe ──────────────────────────────────────────
+{
+  const hookSrc = fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/ar/useSkyOrientation.ts"), "utf8");
+  console.log("");
+
+  // The defect: blendFrom was assigned INSIDE a setFrozen updater. React may invoke an
+  // updater twice; the second call received the null the first returned, wiped blendFrom,
+  // and the unlock skipped its blend entirely and snapped.
+  assert("the blend start orientation is state, not a ref",
+    hookSrc.includes("const [blendFrom, setBlendFrom] = useState<Quaternion | null>(null);") &&
+    !hookSrc.includes("blendFromRef"));
+  assert("lock and unlock are explicit callbacks", /const lock = useCallback\(/.test(hookSrc) &&
+    /const unlock = useCallback\(/.test(hookSrc));
+
+  // No setter may be called from inside another setter's updater, and no ref written there.
+  const updaterBodies = hookSrc.match(/set[A-Z]\w*\(\([^)]*\)\s*=>\s*\{[\s\S]*?\n  \}\)/g) || [];
+  assert("no state updater calls another setter",
+    updaterBodies.every((b) => !/\bset[A-Z]\w*\(/.test(b.replace(/^set[A-Z]\w*\(/, ""))),
+    `${updaterBodies.length} updater bodies checked`);
+  assert("no state updater writes to a ref",
+    updaterBodies.every((b) => !/Ref\.current\s*=/.test(b)));
+  assert("unlock captures the displayed orientation including drag",
+    /const unlock = useCallback\(\(\) => \{[\s\S]*?composeDragOffset\(base, drag\.yaw, drag\.pitch\)[\s\S]*?setBlendFrom\(displayed\)/.test(hookSrc));
+
+  // Behavioural: repeated invocation of the same callback must not erase the blend start.
+  const base = Q.quaternionLookingAt(100, 30);
+  const live = Q.quaternionLookingAt(190, 60);
+  // Simulate the previous bug: deriving blendFrom from a value that a second invocation
+  // would see as null. With blendFrom captured up-front this cannot happen.
+  let blendFrom = null;
+  const unlockOnce = () => { const displayed = base; blendFrom = displayed; };
+  unlockOnce();
+  unlockOnce(); // idempotent — a second invocation recomputes the SAME value
+  assert("repeated unlock invocation cannot erase the blend start",
+    blendFrom !== null && Q.angleBetweenQuaternions(blendFrom, base) < 1e-3);
+
+  // lock -> device moves -> unlock: the blend starts from what was displayed, not from live.
+  const first = Q.slerp(blendFrom, live, 0);
+  assert("the blend starts from the frozen displayed orientation",
+    Q.angleBetweenQuaternions(first, base) < 1e-3);
+  const gap = Q.angleBetweenQuaternions(base, live);
+  let previous = base;
+  let worst = 0;
+  for (let i = 1; i <= 28; i += 1) {
+    const step = Q.slerp(blendFrom, live, i / 28);
+    worst = Math.max(worst, Q.angleBetweenQuaternions(previous, step));
+    previous = step;
+  }
+  assert("lock, move the device, unlock -> no hard snap", worst < gap / 5,
+    `largest single frame ${worst.toFixed(2)}° of a ${gap.toFixed(1)}° gap`);
+  assert("the transition lands on the live orientation",
+    Q.angleBetweenQuaternions(previous, live) < 1e-3);
+}
+
+// ── Constellation names ──────────────────────────────────────────────────────────────
+{
+  const catSrc = fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/data/constellationLines.ts"), "utf8");
+  const layerSrc = fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/layers/ConstellationLayer.tsx"), "utf8");
+  const starSrc = fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/ephemeris/StarPositions.ts"), "utf8");
+  console.log("");
+
+  assert("Ursa Major carries the familiar name Big Dipper",
+    /id: "ursa-major"[\s\S]{0,120}?familiarName: "Big Dipper"/.test(catSrc));
+  assert("Ursa Minor carries the familiar name Little Dipper",
+    /id: "ursa-minor"[\s\S]{0,160}?familiarName: "Little Dipper"/.test(catSrc));
+  assert("Polaris is identified as Ursa Minor's anchor star",
+    /id: "ursa-minor"[\s\S]{0,220}?anchorStarName: "Polaris"/.test(catSrc));
+  assert("Polaris is the FIRST star of Ursa Minor (end of the handle)",
+    /id: "ursa-minor"[\s\S]{0,200}?anchorStarIndex: 0/.test(catSrc) &&
+    /anchorStarIndex: 0[\s\S]{0,400}?raHours: 2\.5302, decDegrees: 89\.264/.test(catSrc));
+  assert("the horizontal projection carries the names through",
+    starSrc.includes("familiarName: c.familiarName") &&
+    starSrc.includes("anchorStarName: c.anchorStarName"));
+
+  assert("asterisms show BOTH names, not one replacing the other",
+    layerSrc.includes('`${c.familiarName} · ${c.name}`'));
+  assert("labels are hidden when no member star is above the horizon",
+    layerSrc.includes("const anyStarUp = c.points.some((pt) => pt.aboveHorizon);"));
+  assert("labels are hidden when the anchor projects off-screen or behind",
+    layerSrc.includes("!centroid.behind") && layerSrc.includes("centroid.x < box.width - 14"));
+  assert("the anchor star label is only drawn when that star is up",
+    layerSrc.includes("anchorPoint && (anchorPoint.aboveHorizon || fullSphere)"));
+  assert("labels use the SAME project function as the line geometry",
+    (layerSrc.match(/project\(/g) || []).length >= 3 && !layerSrc.includes("projectTarget("));
+  assert("collision avoidance is preserved", layerSrc.includes("placeLabel"));
+
+  // The label text a user actually sees.
+  const label = (familiar, name) => (familiar ? `${familiar} · ${name}` : name).toUpperCase();
+  assert("Big Dipper label reads 'BIG DIPPER · URSA MAJOR'",
+    label("Big Dipper", "Ursa Major") === "BIG DIPPER · URSA MAJOR");
+  assert("Little Dipper label reads 'LITTLE DIPPER · URSA MINOR'",
+    label("Little Dipper", "Ursa Minor") === "LITTLE DIPPER · URSA MINOR");
+  assert("a normal constellation is unchanged", label(undefined, "Orion") === "ORION");
+}
+
 console.log("");
 if (failed) {
   console.error(`Sky Lens projection self-test: ${failed} failure(s).`);

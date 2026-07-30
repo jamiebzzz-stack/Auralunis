@@ -59,41 +59,59 @@ export function useSkyOrientation(enabled: boolean = true): SkyOrientationState 
   const [frozen, setFrozen] = useState<Quaternion | null>(null);
   const [drag, setDrag] = useState({ yaw: 0, pitch: 0 });
 
-  // Unlock blend state. `from` is the orientation at the moment of unlocking.
-  const blendFromRef = useRef<Quaternion | null>(null);
+  // Unlock blend timing. The blend START orientation is state (see below), not a ref.
   const blendStartRef = useRef(0);
   const [blendProgress, setBlendProgress] = useState(1);
 
+  // Lock / unlock are plain callbacks that compute their next state from values already in
+  // scope. NOTHING is written to a ref and no other setter is called from inside a state
+  // updater: React may invoke an updater more than once, and the previous version assigned
+  // blendFrom inside a setFrozen updater. A second invocation received the null that the
+  // first had returned, wiped blendFrom, and the unlock skipped its blend and snapped.
+  //
+  // blendFrom is now STATE, set once from the value already displayed, so repeated renders
+  // and StrictMode double-invocation cannot erase it.
+  const [blendFrom, setBlendFrom] = useState<Quaternion | null>(null);
+
+  const lock = useCallback(() => {
+    // Capture exactly what is displayed, including any drag already applied.
+    const base = frozen ?? readLiveOrientation();
+    const displayed = drag.yaw !== 0 || drag.pitch !== 0
+      ? composeDragOffset(base, drag.yaw, drag.pitch)
+      : base;
+    setFrozen(displayed);
+    setDrag({ yaw: 0, pitch: 0 });
+    setBlendFrom(null);
+    setBlendProgress(1);
+    setIsLocked(true);
+  }, [frozen, drag.yaw, drag.pitch, readLiveOrientation]);
+
+  const unlock = useCallback(() => {
+    // The displayed orientation at this instant becomes the blend start. Computed here,
+    // from current values, and stored as state — never derived inside an updater.
+    const base = frozen ?? readLiveOrientation();
+    const displayed = drag.yaw !== 0 || drag.pitch !== 0
+      ? composeDragOffset(base, drag.yaw, drag.pitch)
+      : base;
+    setBlendFrom(displayed);
+    blendStartRef.current = Date.now();
+    setBlendProgress(0);
+    setFrozen(null);
+    setDrag({ yaw: 0, pitch: 0 });
+    setIsLocked(false);
+  }, [frozen, drag.yaw, drag.pitch, readLiveOrientation]);
+
   const toggleLock = useCallback(() => {
-    setIsLocked((wasLocked) => {
-      if (!wasLocked) {
-        // Locking: capture exactly what is on screen right now, including any drag already
-        // applied, so the transition into the locked state is invisible.
-        setFrozen((current) => {
-          const base = current ?? readLiveOrientation();
-          return composeDragOffset(base, drag.yaw, drag.pitch);
-        });
-        setDrag({ yaw: 0, pitch: 0 });
-        return true;
-      }
-      // Unlocking: blend from what is displayed toward the live attitude.
-      setFrozen((current) => {
-        blendFromRef.current = current ? composeDragOffset(current, drag.yaw, drag.pitch) : null;
-        return null;
-      });
-      setDrag({ yaw: 0, pitch: 0 });
-      blendStartRef.current = Date.now();
-      setBlendProgress(0);
-      return false;
-    });
-  }, [drag.yaw, drag.pitch, readLiveOrientation]);
+    if (isLocked) unlock();
+    else lock();
+  }, [isLocked, lock, unlock]);
 
   const applyDrag = useCallback(
     (deltaXPoints: number, deltaYPoints: number) => {
       if (!isLocked) return; // drag-to-pan is a locked-only affordance
       if (!Number.isFinite(deltaXPoints) || !Number.isFinite(deltaYPoints)) return;
       setDrag((previous) => ({
-        // Dragging right should sweep the sky left, matching direct manipulation.
+        // Pure state derivation — no refs written, no other setters called.
         yaw: previous.yaw + deltaXPoints * DRAG_DEGREES_PER_POINT,
         pitch: previous.pitch - deltaYPoints * DRAG_DEGREES_PER_POINT
       }));
@@ -103,18 +121,15 @@ export function useSkyOrientation(enabled: boolean = true): SkyOrientationState 
 
   // Drive the unlock blend to completion.
   useEffect(() => {
-    if (blendProgress >= 1 || !blendFromRef.current) return;
+    if (blendProgress >= 1 || !blendFrom) return;
     const id = setInterval(() => {
       const elapsed = Date.now() - blendStartRef.current;
       const t = Math.min(1, elapsed / UNLOCK_BLEND_MS);
       setBlendProgress(t);
-      if (t >= 1) {
-        blendFromRef.current = null;
-        clearInterval(id);
-      }
+      if (t >= 1) clearInterval(id);
     }, 16);
     return () => clearInterval(id);
-  }, [blendProgress]);
+  }, [blendProgress, blendFrom]);
 
   // Resolve the orientation to render. Exactly one value per render, used by every layer.
   let orientation: Quaternion;
@@ -123,8 +138,10 @@ export function useSkyOrientation(enabled: boolean = true): SkyOrientationState 
     const dragged = drag.yaw !== 0 || drag.pitch !== 0;
     orientation = dragged ? composeDragOffset(frozen, drag.yaw, drag.pitch) : frozen;
     source = dragged ? "drag" : "locked";
-  } else if (blendFromRef.current && blendProgress < 1) {
-    orientation = slerp(blendFromRef.current, live, blendProgress);
+  } else if (blendFrom && blendProgress < 1) {
+    // Slerp toward the CURRENT live orientation each frame, so the blend converges even if
+    // the device keeps moving during the transition.
+    orientation = slerp(blendFrom, live, blendProgress);
     source = "unlock-blend";
   } else {
     orientation = live;

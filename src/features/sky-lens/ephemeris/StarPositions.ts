@@ -22,6 +22,11 @@ export interface HorizontalStar {
 }
 
 export interface HorizontalConstellation {
+  /** Everyday name of the pattern, when it differs from the constellation (asterisms). */
+  familiarName?: string;
+  /** Index into `points` of a star worth naming (e.g. Polaris in Ursa Minor). */
+  anchorStarIndex?: number;
+  anchorStarName?: string;
   id: string;
   name: string;
   season: string;
@@ -88,6 +93,17 @@ export function computeConstellationPositions(
     const meanRa = c.stars.reduce((sum, s) => sum + s.raHours, 0) / c.stars.length;
     const meanDec = c.stars.reduce((sum, s) => sum + s.decDegrees, 0) / c.stars.length;
     const centroid = equatorialToHorizontal(observer, when, meanRa, meanDec);
-    return { id: c.id, name: c.name, season: c.season, myth: c.myth, points, lines: c.lines, centroid };
+    return {
+      id: c.id,
+      name: c.name,
+      familiarName: c.familiarName,
+      anchorStarIndex: c.anchorStarIndex,
+      anchorStarName: c.anchorStarName,
+      season: c.season,
+      myth: c.myth,
+      points,
+      lines: c.lines,
+      centroid
+    };
   });
 }

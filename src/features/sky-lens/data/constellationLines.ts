@@ -15,6 +15,17 @@ export interface ConstellationStar {
 export interface ConstellationLine {
   id: string;
   name: string;
+  /**
+   * The name most people actually use, when it differs from the official constellation.
+   * The Big Dipper and Little Dipper are ASTERISMS — recognisable star patterns inside a
+   * larger constellation, not constellations themselves — so both names are shown together
+   * rather than the familiar one replacing the formal one.
+   */
+  familiarName?: string;
+  /** Index into `stars` of a star worth naming in its own right (e.g. Polaris). */
+  anchorStarIndex?: number;
+  /** Name of that anchor star. */
+  anchorStarName?: string;
   season: string;
   myth: string;
   stars: ConstellationStar[];
@@ -42,6 +53,7 @@ export const CONSTELLATION_LINES: ReadonlyArray<ConstellationLine> = [
   {
     id: "ursa-major",
     name: "Ursa Major",
+    familiarName: "Big Dipper",
     season: "Spring",
     myth: "The Great Bear; its tail forms the Big Dipper that points to Polaris.",
     stars: [
@@ -58,6 +70,9 @@ export const CONSTELLATION_LINES: ReadonlyArray<ConstellationLine> = [
   {
     id: "ursa-minor",
     name: "Ursa Minor",
+    familiarName: "Little Dipper",
+    anchorStarIndex: 0,
+    anchorStarName: "Polaris",
     season: "Year-round (N)",
     myth: "The Little Bear; Polaris marks the end of its handle and true north.",
     stars: [

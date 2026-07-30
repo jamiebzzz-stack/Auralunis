@@ -66,7 +66,7 @@ import { TargetPulse } from "./TargetPulse";
 import { SelectionRing } from "./SelectionRing";
 import { HeroSpotlight } from "./HeroSpotlight";
 import { DEFAULT_ACTIVE_LAYERS, SKY_LENS_LAYERS, type LayerDef, type LayerKey } from "./SkyLensLayerCatalog";
-import { projectTarget, DEFAULT_FOV, type CameraPointing } from "./ar/SkyLensProjection";
+import { projectTarget, projectTargetWithBasis, DEFAULT_FOV, type CameraPointing } from "./ar/SkyLensProjection";
 import { skyGradient, starColor, type SelectedObject, type FocusZone } from "./SkyLensVisual";
 import { getVisualGate } from "./PremiumVisualGating";
 
@@ -243,6 +243,10 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
       quaternionLookingAt(pointing.azimuthDegrees, pointing.altitudeDegrees, 0)
     );
   }, [reviewMode, skyOrientation.basis, pointing.azimuthDegrees, pointing.altitudeDegrees]);
+  // Gesture callbacks are created once, so they read the current snapshot through a ref.
+  const cameraBasisRef = useRef(cameraBasis);
+  cameraBasisRef.current = cameraBasis;
+
 
   // Photo capture — captureScreen grabs the full rendered screen including SVG
   const sceneRef = useRef<View>(null);
@@ -425,6 +429,13 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
     }),
     [zoom]
   );
+  // The ONE projection used outside the canvas — guidance banners, twinkle targets, reticle
+  // proximity and constellation anchors. Sharing the camera basis keeps every one of them
+  // agreeing with what is actually drawn.
+  const projectShared = useCallback(
+    (az: number, alt: number) => projectTargetWithBasis(cameraBasis, az, alt, fov, box),
+    [cameraBasis, fov, box]
+  );
 
   // Tap-to-select. SVG onPress does NOT fire inside an RNGH GestureDetector on iOS, so we
   // hit-test the tap point against projected object positions ourselves and open the info
@@ -447,6 +458,16 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
           const pointing = pointingRef.current;
           const fov = fovRef.current;
           const box = boxRef.current;
+          // HIT TESTING MUST USE THE SAME PROJECTION AS RENDERING.
+          // This previously called projectTarget(pointing, ...) — the legacy Euler path —
+          // while the scene was already drawn through the quaternion basis. Objects were
+          // therefore drawn in one place and hit-tested in another, so taps missed every
+          // planet and the Moon entirely and no card opened.
+          const basis = cameraBasisRef.current;
+          const projectHit = (az: number, alt: number) =>
+            basis
+              ? projectTargetWithBasis(basis, az, alt, fov, box)
+              : projectTarget(pointing, az, alt, fov, box);
           const PLANET_DESCRIPTIONS: Record<string, string> = {
             mercury: "The smallest planet, closest to the Sun.",
             venus: "The brightest planet, often called the evening or morning star.",
@@ -463,7 +484,7 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
           // bodies except the Sun — never miss one that's actually up.
           for (const body of sky.bodies) {
             if (!body.aboveHorizon || body.id === "sun") continue;
-            const p = projectTarget(pointing, body.azimuthDegrees, body.altitudeDegrees, fov, box);
+            const p = projectHit(body.azimuthDegrees, body.altitudeDegrees);
             if (!p.onScreen) continue;
             const dist = Math.hypot(p.x - e.x, p.y - e.y);
             if (dist < PLANET_HIT && (!closest || dist < closest.dist)) {
@@ -490,7 +511,7 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
           // Then the ~20–30 brightest stars only (mag < 2) — scanning every star is slow.
           if (!planetLocked) for (const star of sky.stars) {
             if (!star.aboveHorizon || star.magnitude >= 2.0) continue;
-            const p = projectTarget(pointing, star.azimuthDegrees, star.altitudeDegrees, fov, box);
+            const p = projectHit(star.azimuthDegrees, star.altitudeDegrees);
             if (!p.onScreen) continue;
             const dist = Math.hypot(p.x - e.x, p.y - e.y);
             if (dist < STAR_HIT && (!closest || dist < closest.dist)) {
@@ -673,7 +694,7 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
     // Below the horizon → say nothing. A permanent "the Moon is below the horizon" banner
     // is a nag, not guidance: there is no action the user can take.
     if (!moon.aboveHorizon) return null;
-    const p = projectTarget(pointing, moon.azimuthDegrees, moon.altitudeDegrees, fov, box);
+    const p = projectShared(moon.azimuthDegrees, moon.altitudeDegrees);
     if (p.onScreen) return null; // it's in view — no need to point you to it
     return p.behind ? "☾  Turn around for the Moon ↻" : `☾  Pan ${arrowFor(p.bearingDegrees)} to the Moon`;
   }, [sky.bodies, pointing, box, fov]);
@@ -733,7 +754,7 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
     const out: TwinkleTarget[] = [];
     for (const s of sky.stars) {
       if (!s.aboveHorizon || s.magnitude > 3.0) continue;
-      const p = projectTarget(pointing, s.azimuthDegrees, s.altitudeDegrees, fov, box);
+      const p = projectShared(s.azimuthDegrees, s.altitudeDegrees);
       if (!p.onScreen) continue;
       out.push({
         id: s.id,
@@ -831,9 +852,9 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
 
   const focusProj = useMemo(() => {
     if (!focusAzAlt) return null;
-    const p = projectTarget(pointing, focusAzAlt.az, focusAzAlt.alt, fov, box);
+    const p = projectShared(focusAzAlt.az, focusAzAlt.alt);
     return p.behind ? null : p;
-  }, [focusAzAlt, pointing, fov, box]);
+  }, [focusAzAlt, projectShared]);
 
   // Focus zone handed to the canvas layers: the selected object's on-screen point +
   // a boost radius. Layers swell/brighten nebulae and stars that fall inside it, so
@@ -860,7 +881,7 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
     for (const hero of HERO_REGIONS) {
       const n = sky.nebulae.find((x) => x.id === hero.id);
       if (!n || !n.aboveHorizon) continue;
-      const sp = projectTarget(pointing, n.azimuthDegrees, n.altitudeDegrees, fov, box);
+      const sp = projectShared(n.azimuthDegrees, n.altitudeDegrees);
       if (sp.behind || !sp.onScreen) continue;
       return { x: sp.x, y: sp.y, r: Math.min(box.width, box.height) * hero.r };
     }
@@ -878,7 +899,7 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
   const moonProj = useMemo(() => {
     const m = sky.bodies.find((b) => b.id === "moon");
     if (!m || !m.aboveHorizon) return null;
-    const mp = projectTarget(pointing, m.azimuthDegrees, m.altitudeDegrees, fov, box);
+    const mp = projectShared(m.azimuthDegrees, m.altitudeDegrees);
     return mp.behind ? null : mp;
   }, [sky.bodies, pointing, fov, box]);
 
@@ -892,7 +913,7 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
     if (selected?.kind !== "constellation") return;
     const c = sky.constellations.find((x) => x.id === selected.id);
     if (!c) return;
-    const proj = c.points.map((pt) => projectTarget(pointing, pt.azimuthDegrees, pt.altitudeDegrees, fov, box));
+    const proj = c.points.map((pt) => projectShared(pt.azimuthDegrees, pt.altitudeDegrees));
     const points: ForgePoint[] = proj.filter((q) => !q.behind).map((q) => ({ x: q.x, y: q.y }));
     const segments: ForgeSegment[] = c.lines
       .filter(([i, j]) => proj[i] && proj[j] && !proj[i].behind && !proj[j].behind)
@@ -917,7 +938,7 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
     const rad = Math.min(box.width, box.height) * 0.22; // ≈ the centre 30° of the view
     const now = new Set<string>();
     const check = (id: string, az: number, alt: number) => {
-      const p = projectTarget(pointing, az, alt, fov, box);
+      const p = projectShared(az, alt);
       if (p.behind || !p.onScreen) return;
       if (Math.hypot(p.x - cx, p.y - cy) <= rad) {
         now.add(id);

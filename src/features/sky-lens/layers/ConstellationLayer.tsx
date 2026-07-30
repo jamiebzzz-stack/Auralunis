@@ -62,15 +62,50 @@ export function ConstellationLayer({
 
     // A REGION name, not an object name — so it sits BELOW star and planet labels. Because
     // `centered` = true, the placer treats x as the CENTRE (matches textAnchor="middle").
-    const label = c.name.toUpperCase();
+    // Only label a pattern that is actually up. A centroid can project on-screen while the
+    // figure itself is below the horizon, so require at least one visible member star.
+    const anyStarUp = c.points.some((pt) => pt.aboveHorizon);
+    if (!anyStarUp && !fullSphere) return null;
+
+    // Asterisms carry both names: the one people use, and the constellation it sits inside.
+    const label = (c.familiarName ? `${c.familiarName} · ${c.name}` : c.name).toUpperCase();
     const position = placeLabel
       ? placeLabel(centroid.x, centroid.y, label, 13, undefined, true, { weight: 500, letterSpacing: 1.6 })
       : { x: centroid.x, y: centroid.y };
     // No clean slot → dropped (priority 3, below planets and named stars).
     if (!Number.isFinite(position.x)) return null;
 
+    // A named anchor star (Polaris) gets its own small label, so the pattern teaches the sky
+    // rather than just naming itself. Rendered only when that star is above the horizon.
+    const anchorIndex = c.anchorStarIndex;
+    const anchorPoint = anchorIndex !== undefined ? c.points[anchorIndex] : undefined;
+    const anchorProjected =
+      anchorPoint && (anchorPoint.aboveHorizon || fullSphere)
+        ? project(anchorPoint.azimuthDegrees, anchorPoint.altitudeDegrees)
+        : null;
+    const anchorVisible =
+      anchorProjected &&
+      !anchorProjected.behind &&
+      anchorProjected.x > 14 &&
+      anchorProjected.x < box.width - 14 &&
+      anchorProjected.y > 38 &&
+      anchorProjected.y < box.height - 110;
+
     return (
       <G key={`${c.id}-label`}>
+        {anchorVisible && c.anchorStarName && (
+          <SvgText
+            x={anchorProjected.x + 10}
+            y={anchorProjected.y - 8}
+            fill={nightMode ? palette.conLabel : CON_LABEL_GOLD}
+            fontSize={11}
+            fontWeight="600"
+            letterSpacing={0.8}
+            opacity={0.72}
+          >
+            {c.anchorStarName}
+          </SvgText>
+        )}
         {/* Dark outline keeps the brass name legible over the bright band. */}
         <SvgText x={position.x} y={position.y} fill="none" stroke="#05070F" strokeWidth={1.6} strokeOpacity={0.45} fontSize={13} fontWeight="500" letterSpacing={1.6} textAnchor="middle">
           {label}
