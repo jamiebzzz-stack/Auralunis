@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Accelerometer, Gyroscope, Magnetometer } from "expo-sensors";
-import { pointingFromSensors, type Vec3 } from "./SkyLensOrientation";
+import { pointingFromSensors, headingConditioning, type Vec3 } from "./SkyLensOrientation";
 import type { CameraPointing } from "./SkyLensProjection";
 // Follow-factor math lives in a pure module (no React / no expo-sensors) so the shipping
 // values are directly assertable by the Sky Lens self-test.
 import { resolveFollowFactors } from "./pointingFollow";
+// Heading fusion: gyro for short-term motion, magnetometer as a slow bounded correction.
+import { correctHeading, gyroHeadingDelta, normalizeHeading as normalizeFused } from "./orientationFusion";
 
 type SensorReading = { x: number; y: number; z: number };
 interface SensorModule {
@@ -76,6 +78,11 @@ export function useDevicePointing(
   // and re-subscribing the sensor listeners (which would drop the stillness state).
   const zoomRef = useRef(zoomLevel);
   zoomRef.current = zoomLevel;
+  // Fused heading. Seeded once from the magnetometer, then driven by gyro motion and only
+  // nudged back toward magnetic north within bounds — never recomputed absolutely.
+  const fusedHeadingRef = useRef<number | null>(null);
+  const gyroSpeedRef = useRef(0);
+  const lastGyroAtRef = useRef(0);
 
   useEffect(() => {
     Sensors.Accelerometer.setUpdateInterval(SENSOR_INTERVAL_MS);
@@ -95,6 +102,7 @@ export function useDevicePointing(
     const gyroscopeSubscription = Sensors.Gyroscope.addListener((reading) => {
       const speed = Math.hypot(reading.x, reading.y, reading.z);
       const now = Date.now();
+      gyroSpeedRef.current = speed;
 
       if (speed >= GYRO_START_THRESHOLD) {
         movingRef.current = true;
@@ -106,6 +114,17 @@ export function useDevicePointing(
       ) {
         movingRef.current = false;
       }
+
+      // Integrate yaw ONLY while gyro-confirmed movement is in progress. A frozen scene
+      // stays frozen: no integration, so no creep from bias while the phone rests.
+      const previousAt = lastGyroAtRef.current;
+      lastGyroAtRef.current = now;
+      if (!movingRef.current || !previousAt || fusedHeadingRef.current === null) return;
+      const dt = Math.min(0.25, (now - previousAt) / 1000);
+      if (dt <= 0) return;
+      fusedHeadingRef.current = normalizeFused(
+        fusedHeadingRef.current + gyroHeadingDelta(reading, accelerometerRef.current, dt)
+      );
     });
 
     const magnetometerSubscription = Sensors.Magnetometer.addListener((reading) => {
@@ -121,8 +140,24 @@ export function useDevicePointing(
         magnetometer,
         magneticDeclinationDegrees
       );
+      // Tilt comes straight from gravity — unambiguous and low-noise, no fusion needed.
+      // Heading does NOT: it is the fused value, nudged toward the magnetometer within
+      // strict bounds rather than recomputed from scratch on every sample.
+      if (fusedHeadingRef.current === null) {
+        fusedHeadingRef.current = normalizeHeading(measured.azimuthDegrees);
+      } else {
+        const correction = correctHeading({
+          currentHeading: fusedHeadingRef.current,
+          measuredHeading: normalizeHeading(measured.azimuthDegrees),
+          conditioning: headingConditioning(accelerometerRef.current, magnetometer),
+          gyroSpeed: gyroSpeedRef.current,
+          isMoving: movingRef.current
+        });
+        fusedHeadingRef.current = correction.heading;
+      }
+
       const raw: CameraPointing = {
-        azimuthDegrees: normalizeHeading(measured.azimuthDegrees),
+        azimuthDegrees: fusedHeadingRef.current,
         altitudeDegrees: clampAltitude(-measured.altitudeDegrees),
         rollDegrees: normalizeHeading(measured.rollDegrees)
       };

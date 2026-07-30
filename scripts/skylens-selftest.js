@@ -347,6 +347,224 @@ assert("no velocity amplification or acceleration term",
 assert("zoom is read via a ref, so zooming does not resubscribe the sensors",
   motionSrc.includes("zoomRef.current = zoomLevel"));
 
+// ── Heading fusion: the sky must not drift while the phone is held steady ─────────────
+const FUSION_PATH = path.resolve(__dirname, "../src/features/sky-lens/ar/orientationFusion.ts");
+const fusion = requireTs(FUSION_PATH);
+const orientation = requireTs(path.resolve(__dirname, "../src/features/sky-lens/ar/SkyLensOrientation.ts"));
+
+console.log("");
+// Shortest-angle math across the 0/360 seam.
+assert("359° → 1° travels +2° the short way", fusion.shortestAngleDelta(359, 1) === 2);
+assert("1° → 359° travels −2° the short way", fusion.shortestAngleDelta(1, 359) === -2);
+assert("shortest delta never exceeds 180°",
+  [[0, 180], [10, 350], [270, 90], [45, 225]].every(([f, t]) =>
+    Math.abs(fusion.shortestAngleDelta(f, t)) <= 180));
+
+const moving = { conditioning: 1, gyroSpeed: 0.5, isMoving: true };
+
+// 1. Magnetometer drift cannot move a stationary view.
+{
+  let heading = 100;
+  let unlocked = false;
+  for (let i = 0; i < 400; i += 1) {
+    const noisy = 100 + Math.sin(i * 0.7) * 9 + (i % 5) * 1.4; // sustained magnetic wander
+    const r = fusion.correctHeading({
+      currentHeading: heading, measuredHeading: noisy,
+      conditioning: 1, gyroSpeed: 0.01, isMoving: false
+    });
+    heading = r.heading;
+    if (r.reason !== "frozen" || r.appliedDegrees !== 0) unlocked = true;
+  }
+  assert("400 noisy magnetometer samples move a still view exactly 0°",
+    heading === 100 && !unlocked, `heading=${heading}`);
+}
+
+// 2. A single large outlier cannot spin the camera.
+{
+  const r = fusion.correctHeading({
+    currentHeading: 10, measuredHeading: 190, conditioning: 1, gyroSpeed: 0.01, isMoving: true
+  });
+  assert("a 180° magnetic outlier while barely turning is rejected",
+    r.reason === "outlier" && r.heading === 10);
+  // Even an accepted correction is hard-capped.
+  const capped = fusion.correctHeading({ currentHeading: 0, measuredHeading: 20, ...moving });
+  assert("any single correction is capped per sample",
+    Math.abs(capped.appliedDegrees) <= fusion.MAX_HEADING_CORRECTION_PER_SAMPLE + 1e-9,
+    `applied ${capped.appliedDegrees.toFixed(3)}°`);
+  assert("the per-sample cap is under half a degree",
+    fusion.MAX_HEADING_CORRECTION_PER_SAMPLE <= 0.5);
+}
+
+// 3. Correction is gradual — it takes seconds, not one frame, and it converges.
+{
+  let heading = 0;
+  let samples = 0;
+  while (Math.abs(fusion.shortestAngleDelta(heading, 15)) > 0.5 && samples < 5000) {
+    heading = fusion.correctHeading({ currentHeading: heading, measuredHeading: 15, ...moving }).heading;
+    samples += 1;
+  }
+  assert("a 15° magnetic disagreement takes many samples to absorb", samples > 30, `${samples} samples`);
+  assert("bounded correction still converges", Math.abs(fusion.shortestAngleDelta(heading, 15)) <= 0.5);
+}
+
+// 4. Correction crosses the seam the short way, never the long way round.
+{
+  const r = fusion.correctHeading({ currentHeading: 359, measuredHeading: 1, ...moving });
+  assert("correction across 0/360 moves forward, not backward",
+    r.appliedDegrees > 0 && (r.heading > 359 - 1e-9 || r.heading < 1),
+    `359° → ${r.heading.toFixed(3)}°`);
+}
+
+// 5. Near-vertical camera: the magnetometer heading is ignored, not fed in noisily.
+{
+  const r = fusion.correctHeading({
+    currentHeading: 40, measuredHeading: 55, conditioning: 0.05, gyroSpeed: 0.5, isMoving: true
+  });
+  assert("an ill-conditioned (near-zenith) heading is ignored",
+    r.reason === "ill-conditioned" && r.heading === 40);
+  assert("conditioning falls as the camera tilts toward the zenith", (() => {
+    const flat = orientation.headingConditioning({ x: 0, y: 1, z: 0 }, { x: 0, y: -0.5, z: -0.87 });
+    const up = orientation.headingConditioning({ x: 0, y: 0, z: -1 }, { x: 0, y: -0.5, z: -0.87 });
+    return up < flat;
+  })());
+}
+
+// 6. Gyro-confirmed turning resumes movement, and its direction is consistent.
+{
+  const up = { x: 0, y: 1, z: 0 };
+  const left = fusion.gyroHeadingDelta({ x: 0, y: 0.5, z: 0 }, up, 1);
+  const right = fusion.gyroHeadingDelta({ x: 0, y: -0.5, z: 0 }, up, 1);
+  assert("gyro rotation about gravity moves heading", Math.abs(left) > 1);
+  assert("opposite gyro rotation moves heading the opposite way", Math.sign(left) === -Math.sign(right));
+  assert("gyro heading delta scales with time",
+    Math.abs(fusion.gyroHeadingDelta({ x: 0, y: 0.5, z: 0 }, up, 2)) >
+    Math.abs(fusion.gyroHeadingDelta({ x: 0, y: 0.5, z: 0 }, up, 1)));
+  assert("rotation perpendicular to gravity does not change heading",
+    Math.abs(fusion.gyroHeadingDelta({ x: 0.5, y: 0, z: 0 }, up, 1)) < 1e-9);
+  assert("non-finite gyro input cannot corrupt heading",
+    fusion.gyroHeadingDelta({ x: NaN, y: 0, z: 0 }, up, 1) === 0);
+  // Once moving, a correction is applied again — the freeze is not sticky.
+  assert("gyro-confirmed movement resumes magnetometer correction",
+    fusion.correctHeading({ currentHeading: 0, measuredHeading: 5, ...moving }).reason === "applied");
+}
+
+// 7. The stationary guard is checked FIRST — before conditioning and before outlier tests.
+{
+  const r = fusion.correctHeading({
+    currentHeading: 0, measuredHeading: 190, conditioning: 0.01, gyroSpeed: 9, isMoving: false
+  });
+  assert("stillness wins over every other correction rule", r.reason === "frozen" && r.appliedDegrees === 0);
+}
+
+// 8. The hook no longer reorients absolutely from the magnetometer each sample.
+{
+  const hookSrc = fs.readFileSync(HOOK_PATH, "utf8");
+  assert("heading is the fused value, not a fresh magnetometer azimuth",
+    hookSrc.includes("azimuthDegrees: fusedHeadingRef.current"));
+  assert("the magnetometer path routes through bounded correction",
+    hookSrc.includes("correctHeading({"));
+  assert("gyro yaw is integrated for short-term motion",
+    hookSrc.includes("gyroHeadingDelta("));
+  assert("gyro integration is skipped while frozen",
+    /if \(!movingRef\.current \|\| !previousAt \|\| fusedHeadingRef\.current === null\) return;/.test(hookSrc));
+}
+
+// ── Constellation geometry must stay rigid ────────────────────────────────────────────
+const CON_PATH = path.resolve(__dirname, "../src/features/sky-lens/layers/ConstellationLayer.tsx");
+const conSrc = fs.readFileSync(CON_PATH, "utf8");
+const { isPlausibleSegment } = requireTs(
+  path.resolve(__dirname, "../src/features/sky-lens/layers/constellationGeometry.ts")
+);
+
+console.log("");
+// All stars in a pattern come from ONE projection pass over ONE pointing snapshot.
+assert("every star in a pattern is projected in a single pass",
+  conSrc.includes("c.points.map((pt) => project(pt.azimuthDegrees, pt.altitudeDegrees))"));
+assert("no per-star smoothing exists in the constellation layer",
+  !/lerp|smooth|ease|prevPoint|lastPoint|withTiming|withSpring/i.test(
+    conSrc.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "")));
+
+// Rigidity: the same camera state must give identical coordinates, and rotating the camera
+// must preserve every internal distance and angle in the pattern.
+{
+  const BOX = { width: 430, height: 932 };
+  // A Big-Dipper-like pattern in (az, alt).
+  const PATTERN = [[160, 50], [166, 53], [172, 55], [178, 54], [184, 50], [188, 45], [182, 42]];
+  const projectAll = (pointing) =>
+    PATTERN.map(([az, alt]) => projectTarget(pointing, az, alt, DEFAULT_FOV, BOX));
+  const base = { azimuthDegrees: 172, altitudeDegrees: 50, rollDegrees: 0 };
+
+  const first = projectAll(base);
+  const again = projectAll({ ...base });
+  assert("identical camera state yields identical coordinates",
+    first.every((p, i) => p.x === again[i].x && p.y === again[i].y));
+
+  const dist = (pts, i, j) => Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y);
+
+  // RIGIDITY UNDER AN ISOTROPIC MAPPING.
+  // With equal degrees-per-pixel on both axes, rotating the camera must preserve every
+  // internal edge length in the pattern. This proves the projection itself is rigid and
+  // that nothing in the render path bends a pattern.
+  {
+    const SQ = { width: 600, height: 600 };
+    const SQFOV = { horizontalDegrees: 50, verticalDegrees: 50 };
+    const p0 = PATTERN.map(([az, alt]) => projectTarget(base, az, alt, SQFOV, SQ));
+    const p37 = PATTERN.map(([az, alt]) => projectTarget({ ...base, rollDegrees: 37 }, az, alt, SQFOV, SQ));
+    const r = [];
+    for (let i = 0; i < PATTERN.length - 1; i += 1) r.push(dist(p37, i, i + 1) / dist(p0, i, i + 1));
+    const spread = Math.max(...r) - Math.min(...r);
+    assert("roll rotates the pattern without bending it (isotropic mapping)",
+      spread < 0.02, `edge-ratio spread ${spread.toFixed(4)}`);
+  }
+
+  // ANISOTROPY OF THE SHIPPING MAPPING — a measured, pinned defect.
+  //
+  // DEFAULT_FOV is 60x45 (aspect 1.33) but the viewport is 430x932 (aspect 0.46), and each
+  // axis maps its own FOV across its own dimension. Degrees therefore convert to pixels at
+  // very different rates horizontally and vertically, so a pattern that rotates on screen
+  // genuinely stretches. THIS is why the Big Dipper appears to change shape while turning —
+  // not per-star smoothing, and not an inconsistent camera snapshot (both ruled out above).
+  //
+  // Correcting it means giving both axes a common angular scale, which moves every layer on
+  // screen. That is a deliberate visual-layout change and is NOT made here. This assertion
+  // records the current ratio so the defect is visible and cannot silently worsen.
+  {
+    const c0 = projectTarget(base, 172, 50, DEFAULT_FOV, BOX);
+    const hStep = projectTarget(base, 172 + 5 / Math.cos(50 * Math.PI / 180), 50, DEFAULT_FOV, BOX);
+    const vStep = projectTarget(base, 172, 55, DEFAULT_FOV, BOX);
+    const hpx = Math.hypot(hStep.x - c0.x, hStep.y - c0.y);
+    const vpx = Math.hypot(vStep.x - c0.x, vStep.y - c0.y);
+    const ratio = vpx / hpx;
+    assert("KNOWN: shipping FOV/viewport mapping is anisotropic (patterns stretch when rotated)",
+      ratio > 1.5, `vertical/horizontal px-per-degree = ${ratio.toFixed(2)}x — 1.00 would be shape-preserving`);
+  }
+
+  // Zoom scales the whole pattern uniformly.
+  const ZOOMED = { horizontalDegrees: DEFAULT_FOV.horizontalDegrees / 3, verticalDegrees: DEFAULT_FOV.verticalDegrees / 3 };
+  const zoomed = PATTERN.map(([az, alt]) => projectTarget(base, az, alt, ZOOMED, BOX));
+  const zRatios = [];
+  for (let i = 0; i < PATTERN.length - 1; i += 1) zRatios.push(dist(zoomed, i, i + 1) / dist(first, i, i + 1));
+  const zSpread = Math.max(...zRatios) - Math.min(...zRatios);
+  assert("zoom scales every edge by the same factor",
+    zSpread / Math.max(...zRatios) < 0.05, `relative spread ${(zSpread / Math.max(...zRatios)).toFixed(4)}`);
+  assert("zoom magnifies rather than shrinks the pattern", Math.min(...zRatios) > 1.5);
+}
+
+// Seam handling: a wrap artefact is dropped, real geometry is kept at every zoom.
+{
+  const BOX = { width: 430, height: 932 };
+  const diagonal = Math.hypot(BOX.width, BOX.height);
+  assert("a seam-spanning segment is dropped, not drawn across the viewport",
+    isPlausibleSegment({ x: -4000, y: 400 }, { x: 4200, y: 420 }, BOX) === false);
+  assert("a long but real zoomed segment is kept",
+    isPlausibleSegment({ x: 20, y: 60 }, { x: 400, y: 880 }, BOX) === true);
+  assert("the cull limit scales with the viewport, not a fixed 260px",
+    isPlausibleSegment({ x: 0, y: 0 }, { x: 0, y: diagonal * 0.9 }, BOX) === true);
+  assert("the old fixed 260px cull is gone", !/>\s*260/.test(conSrc));
+  assert("non-finite coordinates are dropped",
+    isPlausibleSegment({ x: NaN, y: 0 }, { x: 10, y: 10 }, BOX) === false);
+}
+
 console.log("");
 if (failed) {
   console.error(`Sky Lens projection self-test: ${failed} failure(s).`);

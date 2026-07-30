@@ -3,6 +3,8 @@ import { Circle, G, Line, Text as SvgText } from "react-native-svg";
 import type { HorizontalConstellation } from "../ephemeris/StarPositions";
 import { type ProjectFn, type SkyPalette, type SelectedObject } from "../SkyLensVisual";
 import type { LabelPlacer } from "../labelLayout";
+// Pure geometry rules (no SVG import) so they are testable under Node.
+import { isPlausibleSegment } from "./constellationGeometry";
 
 const GOLD = "#D9A84E";
 // Constellation NAMES get a softer, warmer gold than the line work. The saturated
@@ -128,7 +130,16 @@ export function ConstellationLayer({
             const margin = 70;
             if (a.x < -margin || a.x > box.width + margin || a.y < -margin || a.y > box.height + margin) return false;
             if (b.x < -margin || b.x > box.width + margin || b.y < -margin || b.y > box.height + margin) return false;
-            if (Math.hypot(b.x - a.x, b.y - a.y) > 260) return false;
+            // Drop only segments that are IMPLAUSIBLY long — a wrap artefact where the two
+            // endpoints landed on opposite sides of the projection seam and the line would
+            // be drawn straight across the viewport.
+            //
+            // This used to be a flat 260px. That is smaller than the screen, so zooming in
+            // (which legitimately spreads a pattern out) silently culled real segments and
+            // the Big Dipper lost arms as you zoomed — the pattern appeared to change shape.
+            // Scale the limit with the viewport instead, so genuine geometry always survives
+            // and only true wrap artefacts are removed.
+            if (!isPlausibleSegment(a, b, box)) return false;
             return true;
           })
           .map(([i, j], idx) => {
