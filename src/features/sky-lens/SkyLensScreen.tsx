@@ -101,13 +101,11 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
   const [zoom, setZoom] = useState(1);
   const zoomRef = useRef(1);
   zoomRef.current = zoom;
-  // Ramp EMA smoothing DOWN (steadier, more damped) as zoom climbs, because a
-  // narrow FOV amplifies hand-shake: ~0.32 at 1× → 0.10 at 12×.
-  // Requested EMA smoothing: less at low zoom, more as you zoom in. NOTE: useDevicePointing
-  // caps this at 0.16 (a stability ceiling), so values above 0.16 (roughly zoom 1×–9×)
-  // resolve to 0.16 in practice — see the cap comment there. Kept as a request, not a lie.
-  const smoothAlpha = Math.max(0.1, 0.32 - (zoom - 1) * 0.02);
-  const { pointing: sensorPointing, available } = useDevicePointing(120, 0, smoothAlpha);
+  // Zoom is passed straight through: a narrow field of view magnifies hand movement, so
+  // useDevicePointing damps its follow factor further as zoom climbs (see
+  // zoomDampingMultiplier there). This replaces a `smoothAlpha` value that was computed
+  // here and passed in, but which the hook never actually read.
+  const { pointing: sensorPointing, available } = useDevicePointing(120, 0, zoom);
   const parallax = useParallaxOffset();
   // Time Scrub: when the scrub bar is dragged, freeze the sky to the offset instant.
   const [timeOffsetMin, setTimeOffsetMin] = useState(0);

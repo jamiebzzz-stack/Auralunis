@@ -215,11 +215,97 @@ function pointingFromSensors(accel, mag) {
   assert("vertical facing north -> azimuth ~ 0", Math.abs(signed(north.azimuthDegrees)) < 1);
 }
 
+// ── Pointing follow factors + stillness freeze ───────────────────────────────────────
+//
+// Sky Lens must feel deliberate: the sky moves only when the phone clearly moves, trails
+// the hand in a controlled way, and settles quickly enough to tap what you are looking at.
+// These assertions run against the REAL exported helpers in useDevicePointing.ts, so a
+// future edit that speeds the camera back up fails here rather than on device.
+// Follow math comes from the pure module; the stillness freeze is asserted against the
+// hook source, which owns the gyro gating.
+const FOLLOW_PATH = path.resolve(__dirname, "../src/features/sky-lens/ar/pointingFollow.ts");
+const HOOK_PATH = path.resolve(__dirname, "../src/features/sky-lens/ar/useDevicePointing.ts");
+const motion = requireTs(FOLLOW_PATH);
+const motionSrc = fs.readFileSync(HOOK_PATH, "utf8");
+const followSrc = fs.readFileSync(FOLLOW_PATH, "utf8");
+// Banned-behaviour scans look at CODE only — the comments in these files legitimately
+// use words like "recentering" to document that the behaviour is absent.
+const stripComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+const motionCode = stripComments(motionSrc) + stripComments(followSrc);
+
+const inRange = (v, lo, hi) => v >= lo && v <= hi;
+
+console.log("");
+assert("small movement follow factor is 0.10–0.12",
+  inRange(motion.FOLLOW_FACTOR_SMALL, 0.10, 0.12), `got ${motion.FOLLOW_FACTOR_SMALL}`);
+assert("medium movement follow factor is 0.16–0.18",
+  inRange(motion.FOLLOW_FACTOR_MEDIUM, 0.16, 0.18), `got ${motion.FOLLOW_FACTOR_MEDIUM}`);
+assert("large movement follow factor is 0.22–0.24",
+  inRange(motion.FOLLOW_FACTOR_LARGE, 0.22, 0.24), `got ${motion.FOLLOW_FACTOR_LARGE}`);
+assert("follow factors increase with movement size",
+  motion.FOLLOW_FACTOR_SMALL < motion.FOLLOW_FACTOR_MEDIUM &&
+  motion.FOLLOW_FACTOR_MEDIUM < motion.FOLLOW_FACTOR_LARGE);
+
+// Movement-size banding selects the right base factor.
+assert("a 2° nudge uses the small factor", motion.baseFollowFactor(2) === motion.FOLLOW_FACTOR_SMALL);
+assert("a 12° turn uses the medium factor", motion.baseFollowFactor(12) === motion.FOLLOW_FACTOR_MEDIUM);
+assert("a 40° sweep uses the large factor", motion.baseFollowFactor(40) === motion.FOLLOW_FACTOR_LARGE);
+
+// Zoom damping: stronger as zoom climbs, never zero, never above 1.
+assert("no extra damping at 1× zoom", motion.zoomDampingMultiplier(1) === 1);
+assert("damping increases with zoom",
+  motion.zoomDampingMultiplier(4) < motion.zoomDampingMultiplier(2) &&
+  motion.zoomDampingMultiplier(2) < motion.zoomDampingMultiplier(1));
+assert("damping is floored so high zoom stays responsive",
+  motion.zoomDampingMultiplier(50) === motion.ZOOM_DAMPING_FLOOR);
+assert("damping floor is a usable fraction", inRange(motion.ZOOM_DAMPING_FLOOR, 0.3, 0.6));
+assert("invalid zoom degrades to undamped", motion.zoomDampingMultiplier(NaN) === 1);
+assert("zoom below 1 cannot amplify", motion.zoomDampingMultiplier(0.2) === 1);
+
+// Resolved factors are strictly slower at zoom than at 1×, on every movement size.
+for (const delta of [2, 12, 40]) {
+  const at1 = motion.resolveFollowFactors(delta, 1).follow;
+  const at8 = motion.resolveFollowFactors(delta, 8).follow;
+  assert(`zoomed follow is slower than 1× at ${delta}°`, at8 < at1, `${at8.toFixed(4)} < ${at1.toFixed(4)}`);
+  assert(`follow factor stays positive at ${delta}°`, at8 > 0);
+}
+
+// Roll never outruns its ceiling — a tipping frame is what makes labels unreadable.
+assert("roll is capped at the roll ceiling",
+  motion.resolveFollowFactors(40, 1).roll <= motion.ROLL_FOLLOW_CEILING + 1e-9,
+  `got ${motion.resolveFollowFactors(40, 1).roll}`);
+assert("roll never exceeds the pointing follow factor",
+  [1, 4, 12].every((z) => [2, 12, 40].every((d) => {
+    const { follow, roll } = motion.resolveFollowFactors(d, z);
+    return roll <= follow + 1e-9;
+  })));
+
+// The stillness freeze must survive this change untouched.
+assert("gyro stillness freeze is still present",
+  motionSrc.includes("if (!movingRef.current) return;"));
+assert("stillness is confirmed over a dwell window",
+  /STILLNESS_CONFIRM_MS\s*=\s*\d+/.test(motionSrc) &&
+  motionSrc.includes("now - lastMotionAtRef.current >= STILLNESS_CONFIRM_MS"));
+assert("start/stop thresholds keep hysteresis (start > stop)",
+  /GYRO_START_THRESHOLD\s*=\s*([\d.]+)/.exec(motionSrc)[1] * 1 >
+  /GYRO_STOP_THRESHOLD\s*=\s*([\d.]+)/.exec(motionSrc)[1] * 1);
+assert("dead zones still suppress sub-degree jitter",
+  motionSrc.includes("AZIMUTH_DEAD_ZONE") && motionSrc.includes("ALTITUDE_DEAD_ZONE"));
+
+// Explicitly banned motion behaviours.
+assert("no automatic recentering", !/recenter|autoCenter|snapTo/i.test(motionCode));
+assert("no animation chase loop in the pointing hook",
+  !/requestAnimationFrame|setInterval|withTiming|withSpring/.test(motionCode));
+assert("no velocity amplification or acceleration term",
+  !/accelerationFactor|velocityBoost|\bmomentum\b/i.test(motionCode));
+assert("zoom is read via a ref, so zooming does not resubscribe the sensors",
+  motionSrc.includes("zoomRef.current = zoomLevel"));
+
 console.log("");
 if (failed) {
   console.error(`Sky Lens projection self-test: ${failed} failure(s).`);
   process.exit(1);
 }
 console.log(
-  "Sky Lens projection self-test passed: real ENU projectTarget verified (center, behind, FOV clip, roll, zenith, wraparound, divergence) + orientation."
+  "Sky Lens projection self-test passed: real ENU projectTarget verified (center, behind, FOV clip, roll, zenith, wraparound, divergence) + orientation + follow factors, zoom damping and the stillness freeze."
 );

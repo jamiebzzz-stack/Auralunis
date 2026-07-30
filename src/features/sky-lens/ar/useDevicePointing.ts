@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { Accelerometer, Gyroscope, Magnetometer } from "expo-sensors";
 import { pointingFromSensors, type Vec3 } from "./SkyLensOrientation";
 import type { CameraPointing } from "./SkyLensProjection";
+// Follow-factor math lives in a pure module (no React / no expo-sensors) so the shipping
+// values are directly assertable by the Sky Lens self-test.
+import { resolveFollowFactors } from "./pointingFollow";
 
 type SensorReading = { x: number; y: number; z: number };
 interface SensorModule {
@@ -52,7 +55,12 @@ const followLinear = (previous: number, next: number, factor: number) =>
 export function useDevicePointing(
   _updateMs = SENSOR_INTERVAL_MS,
   magneticDeclinationDegrees = 0,
-  _smoothingAlpha = 0.3
+  /**
+   * Current zoom level (1 = default field of view). Higher zoom damps the follow factor
+   * further — see zoomDampingMultiplier. This replaces a previous `_smoothingAlpha`
+   * parameter that callers passed but the hook never read.
+   */
+  zoomLevel = 1
 ): DevicePointingState {
   const [state, setState] = useState<DevicePointingState>({
     pointing: EMPTY_POINTING,
@@ -64,6 +72,10 @@ export function useDevicePointing(
   const publishedRef = useRef<CameraPointing | null>(null);
   const movingRef = useRef(false);
   const lastMotionAtRef = useRef(0);
+  // Zoom is read through a ref so changing it damps the NEXT sample without tearing down
+  // and re-subscribing the sensor listeners (which would drop the stillness state).
+  const zoomRef = useRef(zoomLevel);
+  zoomRef.current = zoomLevel;
 
   useEffect(() => {
     Sensors.Accelerometer.setUpdateInterval(SENSOR_INTERVAL_MS);
@@ -138,14 +150,14 @@ export function useDevicePointing(
         return;
       }
 
-      // One bounded update per sensor sample. Keep deliberate turns responsive, but use a
-      // slower follow rate so normal hand movement does not race ahead of the observer.
+      // One bounded update per sensor sample — a fraction of the remaining distance, never
+      // more. The scene trails the hand deliberately, and zoom damps it further still.
       const largestDelta = Math.max(azimuthDelta, altitudeDelta, rollDelta);
-      const factor = largestDelta > 18 ? 0.34 : largestDelta > 7 ? 0.26 : 0.18;
+      const { follow, roll } = resolveFollowFactors(largestDelta, zoomRef.current);
       const next: CameraPointing = {
-        azimuthDegrees: followCircular(previous.azimuthDegrees, raw.azimuthDegrees, factor),
-        altitudeDegrees: clampAltitude(followLinear(previous.altitudeDegrees, raw.altitudeDegrees, factor)),
-        rollDegrees: followCircular(previous.rollDegrees, raw.rollDegrees, Math.min(factor, 0.22))
+        azimuthDegrees: followCircular(previous.azimuthDegrees, raw.azimuthDegrees, follow),
+        altitudeDegrees: clampAltitude(followLinear(previous.altitudeDegrees, raw.altitudeDegrees, follow)),
+        rollDegrees: followCircular(previous.rollDegrees, raw.rollDegrees, roll)
       };
 
       publishedRef.current = next;
