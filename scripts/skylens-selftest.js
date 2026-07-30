@@ -1282,6 +1282,49 @@ console.log("");
     layerSrc.includes("if (labelOpacity < 0.06) return null;"));
 }
 
+// ── The Dark/Clear brightness control is gone ────────────────────────────────────────
+{
+  const screenSrc = fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/SkyLensScreen.tsx"), "utf8");
+  console.log("");
+
+  // Sky Lens is a rendered planetarium, not a camera pass-through, so a "see through the
+  // scene" dimmer had nothing to control. The whole affordance is removed, not just hidden.
+  assert("no Slider is imported into Sky Lens", !screenSrc.includes("@react-native-community/slider"));
+  assert("no Slider element is rendered", !/<Slider\b/.test(screenSrc));
+  assert("the Dark and Clear labels are gone",
+    !screenSrc.includes("☾ Dark") && !screenSrc.includes("☀ Clear"));
+  assert("the brightness toggle button is gone",
+    !screenSrc.includes('accessibilityLabel="Sky brightness"'));
+  assert("its visibility state is gone", !screenSrc.includes("brightnessVisible"));
+  assert("its thumb-position ref is gone", !screenSrc.includes("sliderValueRef"));
+  assert("its animated scrim value is gone", !screenSrc.includes("scrimOpacity"));
+  assert("its styles are gone",
+    !screenSrc.includes("skySliderWrap") && !screenSrc.includes("skySliderLabel") &&
+    !screenSrc.includes("skySlider:"));
+  assert("its reserved layout height is gone", !screenSrc.includes("BRIGHTNESS_H"));
+
+  // The DEFAULT APPEARANCE must not change. The slider's default thumb sat mid-track, which
+  // produced a scrim opacity of 0.35; that exact value is now a constant.
+  assert("the sky scrim is a fixed constant", screenSrc.includes("const SKY_SCRIM_OPACITY = 0.35;"));
+  assert("the scrim still renders at that opacity",
+    screenSrc.includes("opacity: SKY_SCRIM_OPACITY"));
+  assert("the scrim keeps its original colour", screenSrc.includes('backgroundColor: "#030816"'));
+  assert("the scrim is still non-interactive", (() => {
+    const i = screenSrc.indexOf("opacity: SKY_SCRIM_OPACITY");
+    return screenSrc.slice(i, i + 200).includes('pointerEvents="none"');
+  })());
+
+  // Nothing else in the bottom chrome may shift as a side effect.
+  assert("dock height no longer reserves brightness space",
+    /const dockHeight =\s*LAYER_BAR_HEIGHT \+\s*6 \+\s*\(scrubVisible && !selected \? SCRUB_H : 0\);/.test(screenSrc));
+  assert("the time scrub bar is untouched", screenSrc.includes("const SCRUB_H = 71;"));
+  assert("Lock Sky is still mounted", screenSrc.includes("skyOrientation.toggleLock()"));
+  assert("layer controls are still mounted", screenSrc.includes("LAYER_BAR_HEIGHT"));
+  assert("object cards still open", screenSrc.includes("setSelected(closest.obj)"));
+  assert("safe-area spacing is still applied to the dock",
+    screenSrc.includes("paddingBottom: insets.bottom + 6"));
+}
+
 console.log("");
 if (failed) {
   console.error(`Sky Lens projection self-test: ${failed} failure(s).`);

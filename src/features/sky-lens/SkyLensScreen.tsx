@@ -17,7 +17,6 @@ try {
 import { Body, Horizon, Observer, SearchHourAngle } from "astronomy-engine";
 import { GestureDetector, Gesture } from "react-native-gesture-handler";
 import { LinearGradient } from "expo-linear-gradient";
-import Slider from "@react-native-community/slider";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AuraLunisColors } from "@/theme/tokens";
 import { useAuraLunisVault } from "@/state/AuraLunisVaultContext";
@@ -164,11 +163,6 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
     // Mount-only snapshot by design — deps intentionally empty.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  // Sky brightness lives behind a top-bar button now. It used to be a permanently-mounted
-  // slider bar sitting directly above the pills — 62pt of chrome, always on, and (being a
-  // dark rounded bar with a slider in it) routinely mistaken for the time-travel panel.
-  // It is a set-once control; it does not deserve permanent residency over the sky.
-  const [brightnessVisible, setBrightnessVisible] = useState(false);
   // ── DETERMINISTIC REVIEW MODE (dev + no compass only) ─────────────────────────
   //
   // The whole review loop has been broken: a simulator has no magnetometer, so `available`
@@ -372,13 +366,11 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
   // chrome and labels vanish; only the sky remains, darkened to ~85%. Enter via a
   // triple-tap or a long-press on the mode button; a single tap anywhere restores the UI.
   const [cinematic, setCinematic] = useState(false);
-  // Sky brightness — an Animated.Value so dragging the slider animates ONLY the native
-  // scrim opacity (no React re-render of the whole scene per frame). Range 0 → 0.7.
-  // Starts at a slight tint (thumb mid). Dragging toward ☾ Dark raises it, ☀ Clear → 0.
-  const scrimOpacity = useRef(new Animated.Value(0.35)).current;
-  // Remembers the thumb position so it doesn't snap back to center when the slider
-  // re-mounts (it's hidden while an info card is open).
-  const sliderValueRef = useRef(0.5);
+  // Fixed sky tint. Sky Lens is a rendered planetarium, not a camera pass-through, so there
+  // is no longer a scene to "see through" — the Dark/Clear control had nothing meaningful to
+  // do and has been removed. This is the value its default thumb position produced, so the
+  // default sky appearance is byte-for-byte what it was.
+  const SKY_SCRIM_OPACITY = 0.35;
   const cinematicHint = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     if (!cinematic) return;
@@ -788,7 +780,6 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
   // computed from this, so nothing can drift out of sync with a magic constant again.
   // (The old code hard-coded `bottom: insets.bottom + 168/175` for the shutter and the
   // Moon prompt, numbers that assumed a layout which no longer exists.)
-  const BRIGHTNESS_H = 62; // slider bar (8+36+8) + its 10pt margin — exact
   // The time panel was TRIMMED ~23% (TimeScrubBar) and this figure corrected: it was 70,
   // but the panel really measured ~89pt, so the exclusion zone ran 19pt short and labels
   // could slide under it. Now ~61pt of panel + 10pt margin = 71.
@@ -796,7 +787,6 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
   const dockHeight =
     LAYER_BAR_HEIGHT +
     6 +
-    (brightnessVisible && !selected ? BRIGHTNESS_H : 0) +
     (scrubVisible && !selected ? SCRUB_H : 0);
   // Top edge of the bottom chrome, in screen px — the exclusion line for labels/artwork.
   const dockTop = box.height - dockHeight - insets.bottom - 12;
@@ -969,10 +959,10 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
             }]}
             pointerEvents="none"
           />
-          {/* Sky-darkness scrim — sits between the camera and the star canvas; the
-              brightness slider drives its opacity (0 → 0.6) to darken the whole sky. */}
-          <Animated.View
-            style={[StyleSheet.absoluteFillObject, { backgroundColor: "#030816", opacity: scrimOpacity }]}
+          {/* Sky-darkness scrim — a fixed tint under the star canvas. Previously driven by
+              the Dark/Clear slider; now a constant, so the default look is unchanged. */}
+          <View
+            style={[StyleSheet.absoluteFillObject, { backgroundColor: "#030816", opacity: SKY_SCRIM_OPACITY }]}
             pointerEvents="none"
           />
           {planetarium && !nightMode && (
@@ -1262,17 +1252,6 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
 
         <View style={styles.toggleRow} pointerEvents="box-none">
           <TouchableOpacity
-            style={[styles.iconBtn, brightnessVisible && { backgroundColor: "rgba(217,168,78,0.32)" }]}
-            onPress={() => setBrightnessVisible((v) => !v)}
-            accessibilityRole="button"
-            accessibilityLabel="Sky brightness"
-            accessibilityState={{ selected: brightnessVisible }}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.iconBtnText}>☀</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
             style={[styles.iconBtn, scrubVisible && { backgroundColor: "rgba(217,168,78,0.32)" }]}
             onPress={() => {
               // Time Travel (scrubbing the sky through time) is premium — free users get
@@ -1343,24 +1322,6 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
       {/* Bottom controls (hidden in cinematic Immersive Sky) */}
       {!cinematic && (
       <View style={[styles.bottom, { paddingBottom: insets.bottom + 6 }]} pointerEvents="box-none">
-        {/* Sky brightness — slide to lighten/darken the backdrop. Hidden while an info
-            card is open so they don't overlap. */}
-        {brightnessVisible && !selected && (
-          <View style={styles.skySliderWrap}>
-            <Text style={styles.skySliderLabel}>☾ Dark</Text>
-            <Slider
-              style={styles.skySlider}
-              minimumValue={0}
-              maximumValue={1}
-              value={sliderValueRef.current}
-              onValueChange={(v) => { sliderValueRef.current = v; scrimOpacity.setValue((1 - v) * 0.7); }}
-              thumbTintColor={AuraLunisColors.gold}
-              minimumTrackTintColor={AuraLunisColors.gold}
-              maximumTrackTintColor="rgba(192,198,212,0.18)"
-            />
-            <Text style={styles.skySliderLabel}>☀ Clear</Text>
-          </View>
-        )}
         {/* Time Scrub — drag to fast-forward / rewind the whole sky */}
         {scrubVisible && !selected && (
           <View style={{ marginBottom: 10 }}>
@@ -1551,19 +1512,4 @@ const styles = StyleSheet.create({
   hudSub: { color: AuraLunisColors.muted, fontSize: 13, fontWeight: "500", marginTop: 1, opacity: 0.82 },
   hudSubSmall: { color: AuraLunisColors.muted, fontSize: 13, fontWeight: "500", marginTop: 0, opacity: 0.72 },
   bottom: { position: "absolute", left: 0, right: 0, bottom: 0 },
-  skySliderWrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginHorizontal: 16,
-    marginBottom: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 14,
-    backgroundColor: "rgba(3,8,22,0.85)",
-    borderWidth: 1,
-    borderColor: AuraLunisColors.borderSubtle
-  },
-  skySliderLabel: { color: AuraLunisColors.muted, fontSize: 10, fontWeight: "700" },
-  skySlider: { flex: 1, height: 36 }
 });

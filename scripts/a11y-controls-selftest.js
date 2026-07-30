@@ -25,7 +25,6 @@ const card = read("src/features/sky-lens/SkyLensInfoCard.tsx");
 // Every top-bar / shutter control has an accessibilityLabel.
 const labeled = [
   ['accessibilityLabel="Close Sky Lens"', "close button labeled"],
-  ['accessibilityLabel="Sky brightness"', "brightness button labeled"],
   ['accessibilityLabel="Time travel"', "time-travel button labeled"],
   ['accessibilityLabel="Night vision"', "night-vision button labeled"],
   ['accessibilityLabel="Capture a photo of the sky"', "shutter button labeled (capture)"]
@@ -40,9 +39,11 @@ check("no control is labeled 'camera' or 'AR'", !labels.some((l) => /camera|augm
 check("night-vision exposes selected state", /accessibilityLabel="Night vision"[\s\S]{0,140}accessibilityState=\{\{ selected: nightMode \}\}/.test(screen));
 check("time-travel exposes selected state", /accessibilityLabel="Time travel"[\s\S]{0,140}accessibilityState=\{\{ selected: scrubVisible \}\}/.test(screen));
 
-// The 38pt icon buttons expand to >= 44pt effective touch via hitSlop (close + 3 toggles).
+// The 38pt icon buttons expand to >= 44pt effective touch via hitSlop (close + 2 toggles).
+// Was >= 4 when a Sky brightness toggle also lived here; that control was removed with the
+// Dark/Clear slider, since a rendered planetarium has no pass-through scene to dim.
 const hitSlops = (screen.match(/hitSlop=\{\{ top: 8, bottom: 8, left: 8, right: 8 \}\}/g) || []).length;
-check("icon buttons carry hitSlop (>=44pt effective touch)", hitSlops >= 4, `${hitSlops} hitSlop props`);
+check("icon buttons carry hitSlop (>=44pt effective touch)", hitSlops >= 3, `${hitSlops} hitSlop props`);
 
 // Info-card modal close is labeled.
 check("info-card close button labeled", card.includes('accessibilityLabel="Close"'));
