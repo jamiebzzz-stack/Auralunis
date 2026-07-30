@@ -180,6 +180,18 @@ export function ConstellationLayer({
     // Showing both produces two labels for one pattern.
     if (suppressNameIds?.has(c.id)) return null;
 
+    // ONE LABEL PER IDENTITY PER FRAME — a hard guarantee, not an inference.
+    //
+    // Band membership and mount order are supposed to make a double-render impossible, but
+    // BOOTES was observed rendering twice on device and static analysis could not identify
+    // the path. Rather than guess, the invariant is enforced where it cannot be bypassed:
+    // the placer is rebuilt every canvas render and shared by every mount, so it is the only
+    // thing that sees all passes at once. The first (highest-priority) pass to claim an id
+    // keeps it; any later attempt is suppressed. Claimed AFTER the visibility and
+    // suppression checks, so an off-screen or intentionally-suppressed label never consumes
+    // the identity and hides the real one.
+    if (placeLabel && !placeLabel.claimIdentity(`constellation:${c.id}`)) return null;
+
     // An asterism leads with the name people use and carries the official constellation
     // underneath in smaller type — the Big Dipper is a pattern INSIDE Ursa Major, not a
     // constellation, and the label should teach that rather than flatten it.

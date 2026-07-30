@@ -40,6 +40,11 @@ export type LabelPlacer = ((
 ) => { x: number; y: number }) & {
   reserve: (x: number, y: number, w: number, h: number) => void;
   reserveCircle: (x: number, y: number, r: number) => void;
+  /**
+   * Claim a display identity for this frame. True the first time, false on every repeat.
+   * Guarantees one visible label per identity regardless of how many passes attempt it.
+   */
+  claimIdentity: (key: string) => boolean;
 };
 
 export type Rect = { x: number; y: number; w: number; h: number };
@@ -105,6 +110,9 @@ export function makeLabelPlacer(
   const safeTop = safe.top ?? 0;
   const safeBottom = safe.bottom ?? 0;
   const claimed: Rect[] = [];
+  // Frame-scoped identity registry. The placer is rebuilt on every canvas render and shared
+  // by EVERY label mount, so it is the one place that can see all passes at once.
+  const identities = new Set<string>();
 
   const inBounds = (r: Rect): boolean =>
     r.x >= LABEL_SAFE_INSET &&
@@ -181,6 +189,19 @@ export function makeLabelPlacer(
     return { x: NaN, y: NaN }; // no clean slot — caller suppresses the label
   };
 
+  /**
+   * Claim a display identity for this frame. Returns true the FIRST time a key is seen and
+   * false for every repeat, so a label can be rendered at most once per frame no matter how
+   * many passes or mounts try to draw it.
+   *
+   * Priority is mount order, so the earliest (highest-priority) pass wins the identity and
+   * any later pass is suppressed — which is the behaviour we want if one ever double-claims.
+   */
+  place.claimIdentity = (key: string): boolean => {
+    if (identities.has(key)) return false;
+    identities.add(key);
+    return true;
+  };
   place.reserve = (x: number, y: number, w: number, h: number) => {
     claimed.push({ x, y, w, h });
   };

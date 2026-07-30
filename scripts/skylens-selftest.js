@@ -1496,6 +1496,108 @@ console.log("");
   assert("the heavier weight is preserved", /LABEL_WEIGHT = "800"/.test(layerSrc));
 }
 
+// ── One label per constellation identity per frame ───────────────────────────────────
+{
+  const layout = requireTs(path.resolve(__dirname, "../src/features/sky-lens/labelLayout.ts"));
+  const layerSrc = fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/layers/ConstellationLayer.tsx"), "utf8");
+  const canvasSrc = fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/SkyLensCanvas.tsx"), "utf8");
+  const catSrc = fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/data/constellationLines.ts"), "utf8");
+  console.log("");
+
+  // BOOTES was seen twice on device. Reproduce the guarantee directly against the real placer.
+  {
+    const placer = layout.makeLabelPlacer({ width: 430, height: 932 }, { top: 40, bottom: 110 });
+    assert("BOOTES claims its identity the first time",
+      placer.claimIdentity("constellation:bootes") === true);
+    assert("a second BOOTES claim in the same frame is refused",
+      placer.claimIdentity("constellation:bootes") === false);
+    assert("a third claim is still refused",
+      placer.claimIdentity("constellation:bootes") === false);
+    assert("an unrelated constellation is unaffected",
+      placer.claimIdentity("constellation:corona-borealis") === true);
+    // A NEW frame rebuilds the placer, so the identity is available again.
+    const nextFrame = layout.makeLabelPlacer({ width: 430, height: 932 }, { top: 40, bottom: 110 });
+    assert("a new frame can claim BOOTES again",
+      nextFrame.claimIdentity("constellation:bootes") === true);
+  }
+
+  // Every catalogue id survives exactly one claim and is refused the second.
+  {
+    const placer = layout.makeLabelPlacer({ width: 430, height: 932 }, { top: 40, bottom: 110 });
+    const ids = [...catSrc.matchAll(/id: "([^"]+)"/g)].map((m) => m[1]);
+    const firstAll = ids.every((id) => placer.claimIdentity(`constellation:${id}`) === true);
+    const secondNone = ids.every((id) => placer.claimIdentity(`constellation:${id}`) === false);
+    assert(`all ${ids.length} constellation ids claim once`, firstAll);
+    assert("no constellation id can claim twice in one frame", secondNone);
+  }
+
+  assert("the label path claims an identity before rendering",
+    layerSrc.includes("if (placeLabel && !placeLabel.claimIdentity(`constellation:${c.id}`)) return null;"));
+  // The claim must come AFTER visibility/suppression, or a hidden label would consume the
+  // identity and suppress the one that should have shown.
+  assert("the identity is claimed after the visibility checks", (() => {
+    const claim = layerSrc.indexOf("claimIdentity(`constellation:");
+    return claim > layerSrc.indexOf("const anyStarUp") &&
+      claim > layerSrc.indexOf("if (!labelVisible) return null;") &&
+      claim > layerSrc.indexOf("if (suppressNameIds?.has(c.id)) return null;");
+  })());
+  assert("the claim happens before any text is drawn", (() => {
+    const claim = layerSrc.indexOf("claimIdentity(`constellation:");
+    return claim < layerSrc.indexOf("THREE-PASS BACKING");
+  })());
+
+  // General invariant: no id may sit in two bands, and the mounts must not overlap bands.
+  {
+    const setOf = (name) => {
+      const m = new RegExp(name + " = new Set\\(\\[([\\s\\S]*?)\\]\\)").exec(layerSrc);
+      return new Set([...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]));
+    };
+    const primary = setOf("PRIMARY_CONSTELLATIONS");
+    const secondary = setOf("SECONDARY_CONSTELLATIONS");
+    const both = [...primary].filter((id) => secondary.has(id));
+    assert("no constellation id appears in more than one band", both.length === 0,
+      both.length ? `in both: ${both.join(", ")}` : "disjoint");
+    assert("BOOTES is in exactly one band",
+      (primary.has("bootes") ? 1 : 0) + (secondary.has("bootes") ? 1 : 0) === 1);
+
+    const mountBands = [...canvasSrc.matchAll(/bands=\{\[([^\]]*)\]\}/g)]
+      .map((m) => m[1].replace(/["\s]/g, "").split(",").filter(Boolean));
+    const flat = mountBands.flat();
+    assert("no band is drawn by two mounts", new Set(flat).size === flat.length,
+      flat.join(" | "));
+    assert("every band is drawn by exactly one mount",
+      ["primary", "secondary", "tertiary"].every((b) => flat.filter((x) => x === b).length === 1));
+  }
+
+  // The intentional two-line Dipper label is ONE identity, not two.
+  assert("an asterism's two lines are a single identity", (() => {
+    const placer = layout.makeLabelPlacer({ width: 430, height: 932 }, { top: 40, bottom: 110 });
+    // Both the familiar name and the official sub-label belong to one constellation id.
+    return placer.claimIdentity("constellation:ursa-major") === true &&
+      placer.claimIdentity("constellation:ursa-major") === false;
+  })());
+  assert("the sub-label is still rendered inside the same label group",
+    layerSrc.includes("{subLabel && (") &&
+    layerSrc.indexOf("{subLabel && (") > layerSrc.indexOf("THREE-PASS BACKING"));
+
+  // Zodiac fallback is untouched: names return when the constellation layer is off.
+  assert("zodiac names are hidden ONLY while the constellation layer is on",
+    canvasSrc.includes('hideNames={activeLayers.has("constellations")}'));
+  assert("the zodiac claims no constellation identity",
+    !fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/layers/ZodiacLayer.tsx"), "utf8")
+      .includes("claimIdentity"));
+
+  // A shared anchor region must NOT suppress a different constellation.
+  {
+    const placer = layout.makeLabelPlacer({ width: 430, height: 932 }, { top: 40, bottom: 110 });
+    placer.claimIdentity("constellation:bootes");
+    assert("a different constellation sharing the region still gets its label",
+      placer.claimIdentity("constellation:hercules") === true);
+    assert("identity keys are namespaced so ids cannot collide across layers",
+      placer.claimIdentity("star:bootes") === true);
+  }
+}
+
 console.log("");
 if (failed) {
   console.error(`Sky Lens projection self-test: ${failed} failure(s).`);
