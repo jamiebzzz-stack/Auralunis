@@ -138,14 +138,14 @@ export function useDevicePointing(
         return;
       }
 
-      // One bounded update per sensor sample. No requestAnimationFrame chase loop and no
-      // velocity amplification: deliberate turns follow, tiny hand motion does not explode.
+      // One bounded update per sensor sample. Keep deliberate turns responsive, but use a
+      // slower follow rate so normal hand movement does not race ahead of the observer.
       const largestDelta = Math.max(azimuthDelta, altitudeDelta, rollDelta);
-      const factor = largestDelta > 18 ? 0.42 : largestDelta > 7 ? 0.32 : 0.24;
+      const factor = largestDelta > 18 ? 0.34 : largestDelta > 7 ? 0.26 : 0.18;
       const next: CameraPointing = {
         azimuthDegrees: followCircular(previous.azimuthDegrees, raw.azimuthDegrees, factor),
         altitudeDegrees: clampAltitude(followLinear(previous.altitudeDegrees, raw.altitudeDegrees, factor)),
-        rollDegrees: followCircular(previous.rollDegrees, raw.rollDegrees, Math.min(factor, 0.28))
+        rollDegrees: followCircular(previous.rollDegrees, raw.rollDegrees, Math.min(factor, 0.22))
       };
 
       publishedRef.current = next;
