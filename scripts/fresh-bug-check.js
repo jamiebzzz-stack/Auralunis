@@ -180,8 +180,10 @@ check("planet review target env var is read only behind the reviewMode gate",
   (skyLensScreen.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1").match(/EXPO_PUBLIC_SKYLENS_REVIEW_TARGET/g) || []).length === 1);
 check("review mode stays dev + explicit-flag gated",
   skyLensScreen.includes('const reviewMode = __DEV__ && process.env.EXPO_PUBLIC_SKYLENS_REVIEW_MODE === "1"'));
-check("review pointing override falls back to live sensor pointing off review mode",
-  skyLensScreen.includes("if (!reviewMode) return sensorPointing;"));
+// Same guard, new source: live pointing is now derived from the quaternion orientation the
+// sky is rendered from, not from the separate raw-sensor Euler hook.
+check("review pointing override falls back to live pointing off review mode",
+  skyLensScreen.includes("if (!reviewMode) return livePointing;"));
 
 // Dev-only "Preview Paywall" button in Settings — lets QA inspect trial/pricing states
 // without altering release behavior. It MUST stay guarded by __DEV__ so it is stripped

@@ -961,7 +961,13 @@ console.log("");
     fsExists("src/features/sky-lens/ar/orientationFusion.ts"));
   assert("legacy Euler projectTarget is still exported",
     /export function projectTarget\(/.test(fs.readFileSync(PROJ_PATH, "utf8")));
-  assert("the legacy hook is still mounted as a fallback", screenSrc.includes("useDevicePointing(120, 0, zoom)"));
+  // The legacy hook is now deliberately UNMOUNTED from Sky Lens: it subscribed
+  // Accelerometer + Magnetometer + Gyroscope natively while DeviceMotion already fuses all
+  // three, and nothing reads its output any more.
+  assert("the legacy raw-sensor hook is no longer mounted in Sky Lens",
+    !screenSrc.includes("useDevicePointing("));
+  assert("the legacy module still EXISTS (kept, not deleted)",
+    fs.existsSync(path.resolve(__dirname, "../src/features/sky-lens/ar/useDevicePointing.ts")));
   // The Euler call is still present ON PURPOSE, as the fallback branch. What matters is
   // that it is unreachable whenever a basis is supplied — and the screen always supplies one.
   assert("the legacy Euler projection is only a conditional fallback",
@@ -1596,6 +1602,103 @@ console.log("");
     assert("identity keys are namespaced so ids cannot collide across layers",
       placer.claimIdentity("star:bootes") === true);
   }
+}
+
+// ── One compass: HUD and sky read the SAME orientation ───────────────────────────────
+{
+  const screenSrc = fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/SkyLensScreen.tsx"), "utf8");
+  const fsExists = (rel) => fs.existsSync(path.resolve(__dirname, "..", rel));
+  console.log("");
+
+  // The HUD used to read useDevicePointing (the raw-sensor Euler path) while the sky was
+  // drawn from the quaternion basis, so the two disagreed — worst near the zenith, where
+  // that path swings ~46 deg per sample.
+  assert("the HUD reads the quaternion readout, not a second orientation source",
+    screenSrc.includes("Math.round(quaternionReadout.azimuthDegrees)") &&
+    screenSrc.includes("Math.round(quaternionReadout.altitudeDegrees)"));
+  assert("the readout is derived from skyOrientation.orientation",
+    /const quaternionReadout = useMemo\(\s*\(\) => eulerReadoutFromQuaternion\(skyOrientation\.orientation\)/.test(screenSrc));
+  assert("the calibrating state uses skyOrientation.available",
+    screenSrc.includes("const available = skyOrientation.available;"));
+  assert("the HUD no longer references the legacy pointing",
+    !/pointing\.azimuthDegrees\)\}°\s*·/.test(screenSrc) && !screenSrc.includes("sensorPointing"));
+
+  // Because the readout derives from skyOrientation.orientation, and that single quaternion
+  // already resolves Lock Sky, drag and the unlock blend, the HUD follows all three for free.
+  {
+    const hookSrc = fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/ar/useSkyOrientation.ts"), "utf8");
+    assert("locked, dragged and blending states all resolve into ONE orientation",
+      hookSrc.includes("orientation = drag.yaw !== 0 || drag.pitch !== 0") &&
+      hookSrc.includes("orientation = slerp(blendFrom, live, blendProgress);") &&
+      hookSrc.includes("orientation = live;"));
+    assert("the basis is built from that same orientation",
+      hookSrc.includes("basis: cameraBasisFromQuaternion(orientation)"));
+  }
+  // Behavioural: the readout of a known orientation matches the basis it produces.
+  {
+    for (const [az, alt] of [[0, 0], [90, 45], [237, -12], [15, 84]]) {
+      const q = Q.quaternionLookingAt(az, alt);
+      const readout = Q.eulerReadoutFromQuaternion(q);
+      const basis = Q.cameraBasisFromQuaternion(q);
+      const basisAz = ((Math.atan2(basis.forward.e, basis.forward.n) * 180) / Math.PI + 360) % 360;
+      const basisAlt = (Math.asin(Math.max(-1, Math.min(1, basis.forward.u))) * 180) / Math.PI;
+      assert(`HUD readout matches the rendered basis at az=${az} alt=${alt}`,
+        Math.abs(((readout.azimuthDegrees - basisAz + 540) % 360) - 180) < 0.01 &&
+        Math.abs(readout.altitudeDegrees - basisAlt) < 0.01);
+    }
+    // Locking then dragging moves the readout exactly as it moves the sky.
+    const base = Q.quaternionLookingAt(100, 30);
+    const dragged = Q.composeDragOffset(base, 20, 0);
+    assert("dragging while locked moves the HUD readout with the sky",
+      Math.abs(Q.eulerReadoutFromQuaternion(dragged).azimuthDegrees -
+               Q.eulerReadoutFromQuaternion(base).azimuthDegrees) > 1);
+  }
+
+  // ── Native sensor subscriptions: DeviceMotion only ──
+  assert("Sky Lens does not mount useDevicePointing", !screenSrc.includes("useDevicePointing("));
+  assert("Sky Lens does not mount the DeviceMotion probe", !screenSrc.includes("useDeviceMotionProbe"));
+  assert("review mode does not fall back to a legacy sensor hook",
+    screenSrc.includes("if (!reviewMode) return livePointing;") &&
+    !screenSrc.includes("return sensorPointing"));
+  assert("review-mode pointing derives from the quaternion readout",
+    /const livePointing = useMemo<CameraPointing>\([\s\S]{0,240}?quaternionReadout\.azimuthDegrees/.test(screenSrc));
+
+  // The orientation hook that IS mounted must use DeviceMotion and nothing else.
+  {
+    const quatSrc = fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/ar/useQuaternionPointing.ts"), "utf8");
+    // Strip comments: the file header legitimately names the sensors it replaced.
+    const quatCode = quatSrc.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+    assert("the live orientation hook subscribes only DeviceMotion",
+      quatCode.includes('import { DeviceMotion } from "expo-sensors";') &&
+      !/\b(Accelerometer|Magnetometer|Gyroscope)\b/.test(quatCode));
+    assert("it removes its subscription on unmount", quatSrc.includes("subscription?.remove();"));
+    assert("it guards against resolving after unmount", quatSrc.includes("if (cancelled || !deviceMotionAvailable) return;"));
+  }
+
+  // ── Diagnostics are gone ──
+  assert("the temporary probe file is deleted", !fsExists("src/features/sky-lens/ar/useDeviceMotionProbe.ts"));
+  assert("the temporary diagnostics file is deleted", !fsExists("src/features/sky-lens/ar/pointingDiagnostics.ts"));
+  for (const rel of [
+    "src/features/sky-lens/ar/useQuaternionPointing.ts",
+    "src/features/sky-lens/ar/useSkyOrientation.ts",
+    "src/features/sky-lens/ar/useDevicePointing.ts",
+    "src/features/sky-lens/SkyLensScreen.tsx"
+  ]) {
+    const src = fs.readFileSync(path.resolve(__dirname, "..", rel), "utf8");
+    assert(`${rel.split("/").pop()} has no diagnostic wiring`,
+      !/logOrientationSample|logPointingSample|pointingDiagnostics/.test(src));
+  }
+  // The render-phase side effect is the specific anti-pattern that must not return.
+  {
+    const hookSrc = fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/ar/useSkyOrientation.ts"), "utf8");
+    const renderTail = hookSrc.slice(hookSrc.indexOf("// Resolve the orientation to render"));
+    assert("no side effect runs during render in useSkyOrientation",
+      !/console\.|log[A-Z]\w*\(/.test(renderTail));
+  }
+  assert("no high-frequency sensor logging remains in the sky-lens tree", (() => {
+    const dir = path.resolve(__dirname, "../src/features/sky-lens/ar");
+    return fs.readdirSync(dir).every((f) => !/console\.log/.test(fs.readFileSync(path.join(dir, f), "utf8")));
+  })());
 }
 
 console.log("");

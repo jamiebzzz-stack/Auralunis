@@ -25,7 +25,6 @@ import {
   type Quaternion
 } from "./orientationQuaternion";
 import { useQuaternionPointing } from "./useQuaternionPointing";
-import { logOrientationSample } from "./pointingDiagnostics";
 
 /** How long the unlock blend takes. Long enough to read as motion, short enough to feel direct. */
 export const UNLOCK_BLEND_MS = 450;
@@ -133,31 +132,16 @@ export function useSkyOrientation(enabled: boolean = true): SkyOrientationState 
 
   // Resolve the orientation to render. Exactly one value per render, used by every layer.
   let orientation: Quaternion;
-  let source: "live" | "locked" | "drag" | "unlock-blend";
   if (isLocked && frozen) {
-    const dragged = drag.yaw !== 0 || drag.pitch !== 0;
-    orientation = dragged ? composeDragOffset(frozen, drag.yaw, drag.pitch) : frozen;
-    source = dragged ? "drag" : "locked";
+    orientation = drag.yaw !== 0 || drag.pitch !== 0
+      ? composeDragOffset(frozen, drag.yaw, drag.pitch)
+      : frozen;
   } else if (blendFrom && blendProgress < 1) {
     // Slerp toward the CURRENT live orientation each frame, so the blend converges even if
     // the device keeps moving during the transition.
     orientation = slerp(blendFrom, live, blendProgress);
-    source = "unlock-blend";
   } else {
     orientation = live;
-    source = "live";
-  }
-
-  if (__DEV__) {
-    logOrientationSample({
-      orientation,
-      step: 0,
-      still: isStill,
-      source,
-      dragYaw: drag.yaw,
-      dragPitch: drag.pitch,
-      blend: blendProgress
-    });
   }
 
   return {

@@ -20,7 +20,6 @@ import {
   angleBetweenQuaternions,
   type Quaternion
 } from "./orientationQuaternion";
-import { logOrientationSample } from "./pointingDiagnostics";
 
 /** Sensor cadence. Matches the old pointing hook so battery behaviour is unchanged. */
 const UPDATE_INTERVAL_MS = 80;
@@ -113,9 +112,6 @@ export function useQuaternionPointing(enabled: boolean = true): QuaternionPointi
           quietCountRef.current += 1;
           if (quietCountRef.current >= STILL_CONFIRM_SAMPLES) {
             if (!isStill) setIsStill(true);
-            if (__DEV__) {
-              logOrientationSample({ orientation: previous, step, still: true, source: "frozen" });
-            }
             return;
           }
         } else {
@@ -127,9 +123,6 @@ export function useQuaternionPointing(enabled: boolean = true): QuaternionPointi
         const smoothed = slerp(previous, next, SMOOTHING);
         smoothedRef.current = smoothed;
         setOrientation(smoothed);
-        if (__DEV__) {
-          logOrientationSample({ orientation: smoothed, step, still: false, source: "live" });
-        }
       });
     };
 

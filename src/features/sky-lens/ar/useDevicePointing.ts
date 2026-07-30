@@ -7,8 +7,6 @@ import type { CameraPointing } from "./SkyLensProjection";
 import { resolveFollowFactors } from "./pointingFollow";
 // Heading fusion: gyro for short-term motion, magnetometer as a slow bounded correction.
 import { correctHeading, gyroHeadingDelta, normalizeHeading as normalizeFused } from "./orientationFusion";
-// TEMPORARY dev-only instrumentation. Compiles to nothing in Release.
-import { logPointingSample } from "./pointingDiagnostics";
 
 type SensorReading = { x: number; y: number; z: number };
 interface SensorModule {
@@ -169,20 +167,6 @@ export function useDevicePointing(
         correctionApplied = correction.appliedDegrees;
       }
 
-      if (__DEV__) {
-        logPointingSample({
-          rawHeading: measuredHeading,
-          fusedHeading: fusedHeadingRef.current,
-          gyroSpeed: gyroSpeedRef.current,
-          isMoving: movingRef.current,
-          conditioning,
-          reason: correctionReason,
-          appliedDegrees: correctionApplied,
-          cumulativeTrim: magneticTrimRef.current,
-          altitude: clampAltitude(-measured.altitudeDegrees),
-          roll: normalizeHeading(measured.rollDegrees)
-        });
-      }
 
       const raw: CameraPointing = {
         azimuthDegrees: fusedHeadingRef.current,

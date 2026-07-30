@@ -27,13 +27,9 @@ import { useAuraLunisSettings } from "@/state/AuraLunisSettingsContext";
 import { SKY_PROFILES, getSeasonalTint, getMagnificentBoost, type SkyQuality } from "@/services/SkyQualityService";
 import { computeStargazingIndex } from "@/services/StargazingIndexService";
 import { fetchCurrentWeather, type WeatherSnapshot } from "@/services/WeatherService";
-import { useDevicePointing } from "./ar/useDevicePointing";
-// TEMPORARY dev-only probe: logs DeviceMotion attitude to confirm the Euler convention.
-// It does NOT drive the camera — the live orientation path below is unchanged.
-import { useDeviceMotionProbe } from "./ar/useDeviceMotionProbe";
 // Live quaternion orientation + Lock Sky + drag-to-pan. This is the path that renders.
 import { useSkyOrientation, DRAG_ACTIVATION_POINTS } from "./ar/useSkyOrientation";
-import { cameraBasisFromQuaternion, quaternionLookingAt } from "./ar/orientationQuaternion";
+import { cameraBasisFromQuaternion, quaternionLookingAt, eulerReadoutFromQuaternion } from "./ar/orientationQuaternion";
 import { useParallaxOffset } from "./ar/useParallaxOffset";
 import { getFleet, simulateTick, syncLiveTLEData, isFleetLive } from "@/services/AtmosphereExplorerService";
 import { onObjectTapped, onObjectCentered } from "@/services/HapticDiscoveryService";
@@ -111,16 +107,31 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
   // useDevicePointing damps its follow factor further as zoom climbs (see
   // zoomDampingMultiplier there). This replaces a `smoothAlpha` value that was computed
   // here and passed in, but which the hook never actually read.
-  const { pointing: sensorPointing, available } = useDevicePointing(120, 0, zoom);
-  // Dev-only attitude probe. Logs raw alpha/beta/gamma and the derived pointing so the
-  // DeviceMotion mapping can be verified on hardware. No effect on what is rendered.
-  useDeviceMotionProbe(__DEV__);
-  // Quaternion orientation drives the rendered camera. `sensorPointing` above is retained as
-  // the legacy fallback until this passes device testing; it no longer feeds the projection.
   const skyOrientation = useSkyOrientation(true);
   // Gesture callbacks are created once; read the live handlers through a ref.
   const skyOrientationRef = useRef(skyOrientation);
   skyOrientationRef.current = skyOrientation;
+
+  // ONE COMPASS. The HUD and every legacy `pointing` consumer read the SAME orientation the
+  // sky is rendered from. This previously came from useDevicePointing — the raw-sensor Euler
+  // path — so the readout could disagree with the sky, worst of all near the zenith where
+  // that path swings ~46 degrees per sample. eulerReadoutFromQuaternion is the sanctioned
+  // display-only conversion; it never feeds the camera.
+  const available = skyOrientation.available;
+  const quaternionReadout = useMemo(
+    () => eulerReadoutFromQuaternion(skyOrientation.orientation),
+    [skyOrientation.orientation]
+  );
+  // Because it derives from skyOrientation.orientation, it automatically follows Lock Sky,
+  // drag-to-pan and the unlock blend — those all resolve into that one quaternion.
+  const livePointing = useMemo<CameraPointing>(
+    () => ({
+      azimuthDegrees: quaternionReadout.azimuthDegrees,
+      altitudeDegrees: quaternionReadout.altitudeDegrees,
+      rollDegrees: 0
+    }),
+    [quaternionReadout]
+  );
   const parallax = useParallaxOffset();
   // Time Scrub: when the scrub bar is dragged, freeze the sky to the offset instant.
   const [timeOffsetMin, setTimeOffsetMin] = useState(0);
@@ -217,16 +228,16 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
   // Aim at the review target so it lands dead centre — a planet from sky.bodies when a
   // planet target is set, otherwise the default M42 nebula.
   const pointing = useMemo<CameraPointing>(() => {
-    if (!reviewMode) return sensorPointing;
+    if (!reviewMode) return livePointing;
     if (reviewPlanet) {
       const b = sky.bodies.find((body) => body.id === reviewPlanet && body.aboveHorizon);
       if (b) return { azimuthDegrees: b.azimuthDegrees, altitudeDegrees: b.altitudeDegrees, rollDegrees: 0 };
-      return sensorPointing;
+      return livePointing;
     }
     const t = sky.nebulae.find((n) => n.id === "m42");
-    if (!t) return sensorPointing;
+    if (!t) return livePointing;
     return { azimuthDegrees: t.azimuthDegrees, altitudeDegrees: t.altitudeDegrees, rollDegrees: 0 };
-  }, [reviewMode, reviewPlanet, sensorPointing, sky.nebulae, sky.bodies]);
+  }, [reviewMode, reviewPlanet, livePointing, sky.nebulae, sky.bodies]);
 
   // THE camera basis for this render — one immutable snapshot shared by every layer, label,
   // overlay and hit test. Review mode still aims at its target; everything else follows the
@@ -673,9 +684,9 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
   const hud = useMemo(
     () =>
       available
-        ? `Heading ${Math.round(pointing.azimuthDegrees)}°  ·  Alt ${Math.round(pointing.altitudeDegrees)}°`
+        ? `Heading ${Math.round(quaternionReadout.azimuthDegrees)}°  ·  Alt ${Math.round(quaternionReadout.altitudeDegrees)}°`
         : "Calibrating compass…",
-    [available, pointing.azimuthDegrees, pointing.altitudeDegrees]
+    [available, quaternionReadout.azimuthDegrees, quaternionReadout.altitudeDegrees]
   );
 
   // Moon finder: tells you where the Moon is (or that it's below the horizon) so
