@@ -4,15 +4,19 @@ import Svg, { Circle, Defs, G, Path, RadialGradient, Stop } from "react-native-s
 import type { HorizontalNebula } from "../ephemeris/Nebulae";
 import type { SelectedObject } from "../SkyLensVisual";
 import {
-  projectTarget,
+  projectTarget, projectTargetWithBasis,
   type CameraFov,
   type CameraPointing,
+  type CameraBasis,
   type OverlayBox,
 } from "../ar/SkyLensProjection";
 
 type Props = {
   nebulae: HorizontalNebula[];
   pointing: CameraPointing;
+  /** Quaternion camera basis. When present it MUST be used, so this layer agrees with
+   *  every other layer about where the camera is looking. */
+  basis?: CameraBasis;
   fov: CameraFov;
   box: OverlayBox;
   visible: boolean;
@@ -196,7 +200,13 @@ function cloudPath(cx: number, cy: number, rx: number, ry: number, seed: number)
   return `${d} Z`;
 }
 
-export function NebulaImageLayer({ nebulae, pointing, fov, box, visible, fullSphere = false, uiBottom = 120, onSelect }: Props) {
+export function NebulaImageLayer({ nebulae, pointing, basis, fov, box, visible, fullSphere = false, uiBottom = 120, onSelect }: Props) {
+  // One projection for this layer, matching the shared camera snapshot exactly.
+  const projectWith = (az: number, alt: number) =>
+    basis
+      ? projectTargetWithBasis(basis, az, alt, fov, box)
+      : projectTarget(pointing, az, alt, fov, box);
+
   if (!visible || box.width <= 0 || box.height <= 0) return null;
 
   const candidates = nebulae
@@ -210,7 +220,7 @@ export function NebulaImageLayer({ nebulae, pointing, fov, box, visible, fullSph
       return true;
     })
     .map((nebula, index) => {
-      const projected = projectTarget(pointing, nebula.azimuthDegrees, nebula.altitudeDegrees, fov, box);
+      const projected = projectWith(nebula.azimuthDegrees, nebula.altitudeDegrees);
       if (projected.behind || !projected.onScreen) return null;
 
       // UI exclusion zones — drop, don't draw-under.
@@ -244,7 +254,7 @@ export function NebulaImageLayer({ nebulae, pointing, fov, box, visible, fullSph
       if (!chosen) {
         if (!fullSphere && m42.altitudeDegrees <= 0) reject = `below horizon (alt ${m42.altitudeDegrees.toFixed(1)}°)`;
         else {
-          const p = projectTarget(pointing, m42.azimuthDegrees, m42.altitudeDegrees, fov, box);
+          const p = projectWith(m42.azimuthDegrees, m42.altitudeDegrees);
           if (p.behind) reject = "behind the viewer";
           else if (!p.onScreen) reject = `off-screen (x ${p.x.toFixed(0)}, y ${p.y.toFixed(0)})`;
           else if (p.y < UI_TOP) reject = `under the top HUD (y ${p.y.toFixed(0)} < ${UI_TOP})`;

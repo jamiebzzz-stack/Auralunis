@@ -4,15 +4,19 @@ import Svg, { Circle, Defs, G, RadialGradient, Stop } from "react-native-svg";
 import type { HorizontalNebula } from "../ephemeris/Nebulae";
 import type { SelectedObject } from "../SkyLensVisual";
 import {
-  projectTarget,
+  projectTarget, projectTargetWithBasis,
   type CameraFov,
   type CameraPointing,
+  type CameraBasis,
   type OverlayBox,
 } from "../ar/SkyLensProjection";
 
 type Props = {
   nebulae: HorizontalNebula[];
   pointing: CameraPointing;
+  /** Quaternion camera basis. When present it MUST be used, so this layer agrees with
+   *  every other layer about where the camera is looking. */
+  basis?: CameraBasis;
   fov: CameraFov;
   box: OverlayBox;
   visible: boolean;
@@ -109,7 +113,13 @@ const SWARMS: Record<string, Dot[]> = Object.fromEntries(
   HERO_CLUSTER_IDS.map((id) => [id, buildSwarm(id)])
 );
 
-export function ClusterLayer({ nebulae, pointing, fov, box, visible, fullSphere = false, uiBottom = 120, onSelect }: Props) {
+export function ClusterLayer({ nebulae, pointing, basis, fov, box, visible, fullSphere = false, uiBottom = 120, onSelect }: Props) {
+  // One projection for this layer, matching the shared camera snapshot exactly.
+  const projectWith = (az: number, alt: number) =>
+    basis
+      ? projectTargetWithBasis(basis, az, alt, fov, box)
+      : projectTarget(pointing, az, alt, fov, box);
+
   if (!visible || box.width <= 0 || box.height <= 0) return null;
 
   const candidates = nebulae
@@ -121,7 +131,7 @@ export function ClusterLayer({ nebulae, pointing, fov, box, visible, fullSphere 
       return true;
     })
     .map((n) => {
-      const p = projectTarget(pointing, n.azimuthDegrees, n.altitudeDegrees, fov, box);
+      const p = projectWith(n.azimuthDegrees, n.altitudeDegrees);
       if (p.behind || !p.onScreen) return null;
       if (p.y < UI_TOP || p.y > box.height - uiBottom) return null;
       if (p.x > box.width - SHUTTER_W && p.y > box.height - SHUTTER_H) return null;

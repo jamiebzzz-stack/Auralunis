@@ -95,3 +95,47 @@ export function logPointingSample(sample: PointingSample): void {
       ` envelopeHits=${envelopeHits}`
   );
 }
+
+
+// ── Quaternion orientation diagnostics ───────────────────────────────────────────────
+// Dev-only, same contract as above: silent in Release.
+
+let lastOrientationLogAt = 0;
+const ORIENTATION_THROTTLE_MS = 500;
+
+export interface OrientationSample {
+  orientation: { w: number; x: number; y: number; z: number };
+  /** Degrees of orientation change this sample. */
+  step: number;
+  /** Whether the stillness gate has frozen the scene. */
+  still: boolean;
+  source: "live" | "frozen" | "locked" | "drag" | "unlock-blend";
+  /** Drag offset while locked, in degrees. */
+  dragYaw?: number;
+  dragPitch?: number;
+  /** Unlock blend progress, 0..1. */
+  blend?: number;
+}
+
+export function logOrientationSample(sample: OrientationSample): void {
+  if (!__DEV__) return;
+  const now = Date.now();
+  if (now - lastOrientationLogAt < ORIENTATION_THROTTLE_MS) return;
+  lastOrientationLogAt = now;
+
+  const q = sample.orientation;
+  const f = (v: number | undefined, p = 3) =>
+    (Number.isFinite(v) ? (v as number) : 0).toFixed(p).padStart(p + 4);
+
+  // eslint-disable-next-line no-console
+  console.log(
+    "[SkyLensQuat]" +
+      ` q=[${f(q.w)} ${f(q.x)} ${f(q.y)} ${f(q.z)}]` +
+      ` step=${f(sample.step, 2)}deg` +
+      ` ${sample.still ? "STILL " : "MOVING"}` +
+      ` src=${sample.source.padEnd(12)}` +
+      (sample.dragYaw !== undefined ? ` dragYaw=${f(sample.dragYaw, 1)}` : "") +
+      (sample.dragPitch !== undefined ? ` dragPitch=${f(sample.dragPitch, 1)}` : "") +
+      (sample.blend !== undefined ? ` blend=${f(sample.blend, 2)}` : "")
+  );
+}

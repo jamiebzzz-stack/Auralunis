@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo } from "react";
 import Svg, { Circle, Defs, G, RadialGradient, Stop } from "react-native-svg";
 import { StyleSheet } from "react-native";
-import { projectTarget, DEFAULT_FOV, type CameraPointing, type CameraFov } from "./ar/SkyLensProjection";
+import { projectTarget, projectTargetWithBasis, DEFAULT_FOV, type CameraPointing, type CameraBasis, type CameraFov } from "./ar/SkyLensProjection";
 import { GridLayer } from "./layers/GridLayer";
 import { CardinalLayer } from "./layers/CardinalLayer";
 import { ConstellationLayer } from "./layers/ConstellationLayer";
@@ -27,6 +27,12 @@ import { getVisualGate, type VisualGateConfig } from "./PremiumVisualGating";
 type Props = {
   box: { width: number; height: number };
   pointing: CameraPointing;
+  /**
+   * Quaternion-derived camera basis. When present this drives EVERY layer, label and hit
+   * test through the singularity-free projection; `pointing` is then only a legacy fallback.
+   * One immutable snapshot per render — nothing downstream re-derives orientation.
+   */
+  basis?: CameraBasis;
   sky: SkyData;
   fov: CameraFov;
   activeLayers: Set<LayerKey>;
@@ -56,7 +62,7 @@ type Props = {
 // Composes the enabled celestial layers over the cinematic sky. The presentation may
 // look like a planetarium, but normal viewing remains horizon-correct: objects beneath
 // the observer are never painted into the visible sky.
-export function SkyLensCanvas({ box, pointing, sky, fov, activeLayers, nightMode, milkyWayBoost, domeStarMultiplier = 1, nebulaOpacity = 1, extinction = false, isPremium, focus, showcase, parallax, satellites, cinematic = false, gate, bottomInset = 120, topInset = 108, reservedRects = [], onSelect }: Props) {
+export function SkyLensCanvas({ box, pointing, basis, sky, fov, activeLayers, nightMode, milkyWayBoost, domeStarMultiplier = 1, nebulaOpacity = 1, extinction = false, isPremium, focus, showcase, parallax, satellites, cinematic = false, gate, bottomInset = 120, topInset = 108, reservedRects = [], onSelect }: Props) {
   const palette = nightMode ? NIGHT_PALETTE : DAY_PALETTE;
   const vg = gate ?? getVisualGate(isPremium);
   const horizonCorrect = false;
@@ -75,9 +81,24 @@ export function SkyLensCanvas({ box, pointing, sky, fov, activeLayers, nightMode
   const constellations = sky.constellations;
 
   const project: ProjectFn = useCallback(
-    (az: number, alt: number) => projectTarget(pointing, az, alt, fov, box),
-    [pointing, box, fov]
+    // ONE projection for the whole render. With a quaternion basis this never reconstructs a
+    // camera axis from an azimuth, so the zenith stops being a singularity; without one it
+    // falls back to the legacy Euler path, which remains intact but unused in production.
+    (az: number, alt: number) =>
+      basis
+        ? projectTargetWithBasis(basis, az, alt, fov, box)
+        : projectTarget(pointing, az, alt, fov, box),
+    [basis, pointing, box, fov]
   );
+
+  // Display-only heading for the horizon glow and grid centring. Read off the basis rather
+  // than the Euler pointing so every consumer agrees with the rendered camera. This is a
+  // READOUT, never a source of camera motion.
+  const centerAzimuth = useMemo(() => {
+    if (!basis) return pointing.azimuthDegrees;
+    const az = (Math.atan2(basis.forward.e, basis.forward.n) * 180) / Math.PI;
+    return (az + 360) % 360;
+  }, [basis, pointing.azimuthDegrees]);
 
   const zoomLevel = DEFAULT_FOV.horizontalDegrees / fov.horizontalDegrees;
   const starLabelMag = 1.65 + Math.min(2.2, Math.max(0, zoomLevel - 1) * 0.65);
@@ -114,10 +135,10 @@ export function SkyLensCanvas({ box, pointing, sky, fov, activeLayers, nightMode
           nightMode={nightMode}
           fullSphere={horizonCorrect}
         />
-        <HorizonGlowLayer project={project} centerAzimuth={pointing.azimuthDegrees} box={box} nightMode={nightMode} boost={milkyWayBoost} />
+        <HorizonGlowLayer project={project} centerAzimuth={centerAzimuth} box={box} nightMode={nightMode} boost={milkyWayBoost} />
 
         {activeLayers.has("grid") && !cinematic && (
-          <GridLayer project={project} centerAzimuth={pointing.azimuthDegrees} box={box} palette={palette} />
+          <GridLayer project={project} centerAzimuth={centerAzimuth} box={box} palette={palette} />
         )}
         {!cinematic && <CardinalLayer project={project} box={box} nightMode={nightMode} />}
         {activeLayers.has("ecliptic") && !cinematic && (

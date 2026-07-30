@@ -32,9 +32,13 @@ import { useDevicePointing } from "./ar/useDevicePointing";
 // TEMPORARY dev-only probe: logs DeviceMotion attitude to confirm the Euler convention.
 // It does NOT drive the camera — the live orientation path below is unchanged.
 import { useDeviceMotionProbe } from "./ar/useDeviceMotionProbe";
+// Live quaternion orientation + Lock Sky + drag-to-pan. This is the path that renders.
+import { useSkyOrientation, DRAG_ACTIVATION_POINTS } from "./ar/useSkyOrientation";
+import { cameraBasisFromQuaternion, quaternionLookingAt } from "./ar/orientationQuaternion";
 import { useParallaxOffset } from "./ar/useParallaxOffset";
 import { getFleet, simulateTick, syncLiveTLEData, isFleetLive } from "@/services/AtmosphereExplorerService";
 import { onObjectTapped, onObjectCentered } from "@/services/HapticDiscoveryService";
+import { tapLight } from "@/services/HapticService";
 import { computeAzimuthElevation } from "@/utils/alignmentEngine";
 import type { SkyLensSatellite } from "./layers/SatelliteLayer";
 import { useSkyData } from "./hooks/useSkyProjection";
@@ -112,6 +116,12 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
   // Dev-only attitude probe. Logs raw alpha/beta/gamma and the derived pointing so the
   // DeviceMotion mapping can be verified on hardware. No effect on what is rendered.
   useDeviceMotionProbe(__DEV__);
+  // Quaternion orientation drives the rendered camera. `sensorPointing` above is retained as
+  // the legacy fallback until this passes device testing; it no longer feeds the projection.
+  const skyOrientation = useSkyOrientation(true);
+  // Gesture callbacks are created once; read the live handlers through a ref.
+  const skyOrientationRef = useRef(skyOrientation);
+  skyOrientationRef.current = skyOrientation;
   const parallax = useParallaxOffset();
   // Time Scrub: when the scrub bar is dragged, freeze the sky to the offset instant.
   const [timeOffsetMin, setTimeOffsetMin] = useState(0);
@@ -223,6 +233,16 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
     if (!t) return sensorPointing;
     return { azimuthDegrees: t.azimuthDegrees, altitudeDegrees: t.altitudeDegrees, rollDegrees: 0 };
   }, [reviewMode, reviewPlanet, sensorPointing, sky.nebulae, sky.bodies]);
+
+  // THE camera basis for this render — one immutable snapshot shared by every layer, label,
+  // overlay and hit test. Review mode still aims at its target; everything else follows the
+  // quaternion orientation (live, locked, dragged, or mid unlock-blend).
+  const cameraBasis = useMemo(() => {
+    if (!reviewMode) return skyOrientation.basis;
+    return cameraBasisFromQuaternion(
+      quaternionLookingAt(pointing.azimuthDegrees, pointing.altitudeDegrees, 0)
+    );
+  }, [reviewMode, skyOrientation.basis, pointing.azimuthDegrees, pointing.altitudeDegrees]);
 
   // Photo capture — captureScreen grabs the full rendered screen including SVG
   const sceneRef = useRef<View>(null);
@@ -497,7 +517,30 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
         }),
     [] // stable — reads live values through refs (see above)
   );
-  const sceneGesture = useMemo(() => Gesture.Simultaneous(pinch, cinematicTap, objectTap), [pinch, cinematicTap, objectTap]);
+  // Drag-to-pan, active ONLY while the sky is locked. The activation distance keeps a tap a
+  // tap: below DRAG_ACTIVATION_POINTS of movement nothing pans and object selection wins.
+  const dragLast = useRef({ x: 0, y: 0 });
+  const skyDrag = useMemo(
+    () =>
+      Gesture.Pan()
+        .runOnJS(true)
+        .cancelsTouchesInView(false)
+        .minDistance(DRAG_ACTIVATION_POINTS)
+        .onStart((e) => {
+          dragLast.current = { x: e.translationX, y: e.translationY };
+        })
+        .onUpdate((e) => {
+          const dx = e.translationX - dragLast.current.x;
+          const dy = e.translationY - dragLast.current.y;
+          dragLast.current = { x: e.translationX, y: e.translationY };
+          skyOrientationRef.current.applyDrag(dx, dy);
+        }),
+    []
+  );
+  const sceneGesture = useMemo(
+    () => Gesture.Simultaneous(pinch, skyDrag, cinematicTap, objectTap),
+    [pinch, skyDrag, cinematicTap, objectTap]
+  );
   // Milky Way brightens as the camera fades out: faint over a live feed, bold over
   // black. AR (1.4) → Immersive (1.9) → Planetarium (2.4).
   // ── Sky Quality (Bortle) + live conditions drive the entire visual ─────────
@@ -946,6 +989,7 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
           <NebulaImageLayer
             nebulae={sky.nebulae}
             pointing={pointing}
+            basis={cameraBasis}
             fov={fov}
             box={box}
             visible={!nightMode && active.has("deepsky")}
@@ -960,6 +1004,7 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
           <ClusterLayer
             nebulae={sky.nebulae}
             pointing={pointing}
+            basis={cameraBasis}
             fov={fov}
             box={box}
             visible={!nightMode && active.has("deepsky")}
@@ -1042,6 +1087,7 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
             <SkyLensCanvas
               box={box}
               pointing={pointing}
+              basis={cameraBasis}
               sky={sky}
               fov={fov}
               activeLayers={activeWithPreview}
@@ -1133,6 +1179,24 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
         style={[StyleSheet.absoluteFillObject, { backgroundColor: "#FFFFFF", opacity: flash }]}
         pointerEvents="none"
       />
+
+      {/* Lock Sky — freezes the orientation exactly so the sky can be read, and enables
+          drag-to-pan. Zoom and object taps keep working either way. Hidden in cinematic,
+          which is a hands-off presentation mode. */}
+      {!cinematic && (
+        <Pressable
+          onPress={() => { tapLight(); skyOrientation.toggleLock(); }}
+          style={[styles.lockChip, { bottom: insets.bottom + 96 }, skyOrientation.isLocked && styles.lockChipActive]}
+          accessibilityRole="button"
+          accessibilityState={{ selected: skyOrientation.isLocked }}
+          accessibilityLabel={skyOrientation.isLocked ? "Unlock the sky and resume live tracking" : "Lock the sky so it stops moving"}
+          hitSlop={10}
+        >
+          <Text style={[styles.lockChipText, skyOrientation.isLocked && styles.lockChipTextActive]}>
+            {skyOrientation.isLocked ? "🔒  Sky Locked · drag to explore" : "🔓  Lock Sky"}
+          </Text>
+        </Pressable>
+      )}
 
       {/* Zoom indicator — pinch to zoom, tap to reset */}
       {!cinematic && zoom > 1.05 && (
@@ -1434,6 +1498,22 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginTop: 6,
   },
+  lockChip: {
+    position: "absolute",
+    alignSelf: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 999,
+    backgroundColor: "rgba(8,12,24,0.72)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)"
+  },
+  lockChipActive: {
+    backgroundColor: "rgba(217,168,78,0.16)",
+    borderColor: "rgba(217,168,78,0.42)"
+  },
+  lockChipText: { color: "rgba(255,255,255,0.86)", fontSize: 12, fontWeight: "700", letterSpacing: 0.3 },
+  lockChipTextActive: { color: "#D9A84E" },
   cinematicHint: { position: "absolute", left: 0, right: 0, alignItems: "center" },
   cinematicHintText: {
     color: "rgba(244,227,184,0.92)",

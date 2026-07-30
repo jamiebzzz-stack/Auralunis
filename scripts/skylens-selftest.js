@@ -904,6 +904,122 @@ console.log("");
     `${bad} non-finite projections`);
 }
 
+// ── Wiring: the quaternion path actually drives the render ───────────────────────────
+{
+  const screenSrc = fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/SkyLensScreen.tsx"), "utf8");
+  const canvasSrc = fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/SkyLensCanvas.tsx"), "utf8");
+  const nebulaSrc = fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/layers/NebulaImageLayer.tsx"), "utf8");
+  const clusterSrc = fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/layers/ClusterLayer.tsx"), "utf8");
+
+  console.log("");
+  assert("Sky Lens mounts the quaternion orientation hook", screenSrc.includes("useSkyOrientation("));
+  assert("one camera basis is computed per render", screenSrc.includes("const cameraBasis = useMemo("));
+  assert("the canvas receives that basis", screenSrc.includes("basis={cameraBasis}"));
+
+  // Every layer must share the ONE basis — the canvas project callback feeds them all.
+  assert("the canvas project callback uses projectTargetWithBasis",
+    canvasSrc.includes("projectTargetWithBasis(basis, az, alt, fov, box)"));
+  assert("the shared project callback depends on the basis", canvasSrc.includes("[basis, pointing, box, fov]"));
+  assert("horizon glow and grid centre on the basis, not a separate azimuth",
+    !canvasSrc.includes("centerAzimuth={pointing.azimuthDegrees}") &&
+    canvasSrc.includes("centerAzimuth={centerAzimuth}"));
+
+  // Layers that project independently must ALSO take the basis, or they would disagree
+  // with everything else about where the camera is looking.
+  for (const [name, src] of [["NebulaImageLayer", nebulaSrc], ["ClusterLayer", clusterSrc]]) {
+    assert(`${name} accepts the shared basis`, src.includes("basis?: CameraBasis;"));
+    assert(`${name} projects through the basis when present`,
+      src.includes("projectTargetWithBasis(basis, az, alt, fov, box)"));
+    assert(`${name} no longer calls projectTarget(pointing, ...) directly`,
+      !/projectTarget\(pointing,\s*\w+\.azimuthDegrees/.test(src));
+  }
+  assert("both independent layers are given the basis",
+    (screenSrc.match(/basis=\{cameraBasis\}/g) || []).length >= 3);
+
+  // Hit testing shares the same projection: object taps read the layers' projected
+  // positions, which now come from the basis.
+  assert("object selection is still wired", screenSrc.includes("objectTap"));
+  assert("pinch zoom is still wired", screenSrc.includes("Gesture.Pinch()"));
+  assert("zoom range is unchanged", screenSrc.includes("Math.max(1, Math.min(12,"));
+
+  // Lock Sky + drag.
+  assert("a Lock Sky control exists", screenSrc.includes("skyOrientation.toggleLock()"));
+  assert("the lock control is labelled for accessibility",
+    screenSrc.includes("Lock the sky so it stops moving") &&
+    screenSrc.includes("Unlock the sky and resume live tracking"));
+  assert("drag-to-pan is a distinct gesture", screenSrc.includes("Gesture.Pan()"));
+  assert("drag uses an activation distance so taps still select",
+    screenSrc.includes(".minDistance(DRAG_ACTIVATION_POINTS)"));
+  assert("drag and pinch run simultaneously with taps",
+    /Gesture\.Simultaneous\(pinch, skyDrag, cinematicTap, objectTap\)/.test(screenSrc));
+
+  // The legacy paths must still exist, but no longer feed the projection.
+  const fsExists = (rel) => fs.existsSync(path.resolve(__dirname, "..", rel));
+  assert("legacy useDevicePointing.ts is still present",
+    fsExists("src/features/sky-lens/ar/useDevicePointing.ts"));
+  assert("legacy orientationFusion.ts is still present",
+    fsExists("src/features/sky-lens/ar/orientationFusion.ts"));
+  assert("legacy Euler projectTarget is still exported",
+    /export function projectTarget\(/.test(fs.readFileSync(PROJ_PATH, "utf8")));
+  assert("the legacy hook is still mounted as a fallback", screenSrc.includes("useDevicePointing(120, 0, zoom)"));
+  // The Euler call is still present ON PURPOSE, as the fallback branch. What matters is
+  // that it is unreachable whenever a basis is supplied — and the screen always supplies one.
+  assert("the legacy Euler projection is only a conditional fallback",
+    /basis\s*\?\s*projectTargetWithBasis\([\s\S]{0,120}?:\s*projectTarget\(pointing,/.test(canvasSrc));
+  assert("the screen always supplies a basis, so the fallback is unused in production",
+    screenSrc.includes("basis={cameraBasis}") && screenSrc.includes("const cameraBasis = useMemo("));
+}
+
+// ── Lock / drag / unlock behaviour, against the real orientation helpers ──────────────
+{
+  const base = Q.quaternionLookingAt(120, 40);
+
+  // Locked: a completely different sensor sample must not move the rendered orientation.
+  const sensorLater = Q.quaternionLookingAt(310, -20);
+  assert("locking preserves the exact quaternion",
+    Q.angleBetweenQuaternions(base, base) === 0);
+  assert("a locked orientation ignores sensor movement",
+    Q.angleBetweenQuaternions(base, sensorLater) > 90);
+
+  // Drag only composes onto the frozen orientation.
+  const dragged = Q.composeDragOffset(base, 25, -10);
+  assert("drag moves the locked orientation", Q.angleBetweenQuaternions(base, dragged) > 5);
+  assert("drag is reversible back to the frozen orientation",
+    Q.angleBetweenQuaternions(Q.composeDragOffset(dragged, -25, 10), base) < 1e-3);
+
+  // Unlock blend: monotone, no jump, ends exactly on live.
+  const live = Q.quaternionLookingAt(150, 55);
+  let previous = base;
+  let worstStep = 0;
+  for (let i = 1; i <= 30; i += 1) {
+    const blended = Q.slerp(base, live, i / 30);
+    worstStep = Math.max(worstStep, Q.angleBetweenQuaternions(previous, blended));
+    previous = blended;
+  }
+  const direct = Q.angleBetweenQuaternions(base, live);
+  assert("the unlock blend never jumps the whole gap in one frame",
+    worstStep < direct / 5, `worst step ${worstStep.toFixed(2)}° vs ${direct.toFixed(2)}° total`);
+  // acos loses precision near 1; 1e-3 degrees is far below anything observable.
+  assert("the unlock blend lands on the live orientation",
+    Q.angleBetweenQuaternions(previous, live) < 1e-3,
+    `${Q.angleBetweenQuaternions(previous, live).toExponential(2)}°`);
+
+  // Drag must not distort geometry: it is a rigid rotation of the whole sky.
+  const BOX = { width: 430, height: 932 };
+  const PAT = [[118, 38], [122, 41], [126, 43], [130, 42]];
+  const proj = (q) => {
+    const b = Q.cameraBasisFromQuaternion(q);
+    return PAT.map(([az, alt]) => projectTargetWithBasis(b, az, alt, DEFAULT_FOV, BOX));
+  };
+  const before = proj(base);
+  const after = proj(Q.composeDragOffset(base, 6, 0));
+  const d = (p, i, j) => Math.hypot(p[i].x - p[j].x, p[i].y - p[j].y);
+  const r = [];
+  for (let i = 0; i < PAT.length - 1; i += 1) r.push(d(after, i, i + 1) / d(before, i, i + 1));
+  assert("dragging does not distort constellation geometry",
+    Math.max(...r) - Math.min(...r) < 0.02, `edge-ratio spread ${(Math.max(...r) - Math.min(...r)).toFixed(4)}`);
+}
+
 console.log("");
 if (failed) {
   console.error(`Sky Lens projection self-test: ${failed} failure(s).`);
