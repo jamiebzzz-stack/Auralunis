@@ -19,6 +19,34 @@ const DEEP_SKY_LEVEL_TAB = {
   advanced: 1
 } as const;
 
+function CategoryCardArtwork({ categoryId }: { categoryId: string }) {
+  if (categoryId === "deep_sky") {
+    return (
+      <View pointerEvents="none" style={styles.categoryArtwork}>
+        <View style={styles.nebulaGlowLarge} />
+        <View style={styles.nebulaGlowSmall} />
+        <View style={[styles.artStar, { top: 18, right: 24 }]} />
+        <View style={[styles.artStar, { top: 44, right: 56, width: 2, height: 2 }]} />
+        <View style={[styles.artStar, { bottom: 22, right: 18, width: 3, height: 3 }]} />
+      </View>
+    );
+  }
+
+  if (categoryId === "milky_way") {
+    return (
+      <View pointerEvents="none" style={styles.categoryArtwork}>
+        <View style={styles.milkyBandOuter} />
+        <View style={styles.milkyBandInner} />
+        <View style={[styles.artStar, { top: 20, right: 20 }]} />
+        <View style={[styles.artStar, { top: 34, right: 46, width: 2, height: 2 }]} />
+        <View style={[styles.artStar, { bottom: 20, right: 30, width: 3, height: 3 }]} />
+      </View>
+    );
+  }
+
+  return null;
+}
+
 export function LearnScreen() {
   const navigation = useNavigation<any>();
   const { isPremium } = useEntitlement();
@@ -90,8 +118,6 @@ export function LearnScreen() {
   if (openTopicId) {
     const topic = learnTopics.find((candidate) => candidate.id === openTopicId);
     if (topic) {
-      // Next Lesson stays in the same curriculum level. This prevents an Advanced learner from
-      // being sent into Beginner or Intermediate material merely because it is next in the file.
       const levelSequence = learnTopics.filter((candidate) => candidate.level === topic.level);
       const levelIndex = levelSequence.findIndex((candidate) => candidate.id === topic.id);
       const next = levelSequence.length > 1
@@ -143,9 +169,12 @@ export function LearnScreen() {
               style={[styles.categoryCard, active && styles.categoryCardActive]}
               onPress={() => setSelectedCategory(category.id as LearnCategoryId)}
             >
-              <Text style={styles.categoryIcon}>{category.icon}</Text>
-              <Text style={styles.categoryTitle}>{category.title}</Text>
-              <Text style={styles.categoryDescription}>{category.description}</Text>
+              <CategoryCardArtwork categoryId={category.id} />
+              <View style={styles.categoryCardContent}>
+                <Text style={styles.categoryIcon}>{category.icon}</Text>
+                <Text style={styles.categoryTitle}>{category.title}</Text>
+                <Text style={styles.categoryDescription}>{category.description}</Text>
+              </View>
             </Pressable>
           );
         })}
@@ -209,11 +238,64 @@ const styles = StyleSheet.create({
     minHeight: 132,
     borderRadius: 22,
     padding: 13,
+    overflow: "hidden",
     backgroundColor: "rgba(255,255,255,0.045)",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.07)"
   },
   categoryCardActive: { backgroundColor: "rgba(217,168,78,0.12)", borderColor: "rgba(217,168,78,0.28)" },
+  categoryCardContent: { zIndex: 2 },
+  categoryArtwork: {
+    ...StyleSheet.absoluteFillObject,
+    overflow: "hidden"
+  },
+  nebulaGlowLarge: {
+    position: "absolute",
+    width: 118,
+    height: 92,
+    borderRadius: 60,
+    right: -30,
+    top: 12,
+    backgroundColor: "rgba(76,126,255,0.22)",
+    transform: [{ rotate: "-18deg" }]
+  },
+  nebulaGlowSmall: {
+    position: "absolute",
+    width: 82,
+    height: 62,
+    borderRadius: 40,
+    right: 8,
+    top: 34,
+    backgroundColor: "rgba(220,116,255,0.16)",
+    transform: [{ rotate: "22deg" }]
+  },
+  milkyBandOuter: {
+    position: "absolute",
+    width: 190,
+    height: 34,
+    borderRadius: 18,
+    right: -44,
+    top: 48,
+    backgroundColor: "rgba(110,156,255,0.15)",
+    transform: [{ rotate: "-28deg" }]
+  },
+  milkyBandInner: {
+    position: "absolute",
+    width: 180,
+    height: 12,
+    borderRadius: 8,
+    right: -42,
+    top: 58,
+    backgroundColor: "rgba(245,232,202,0.22)",
+    transform: [{ rotate: "-28deg" }]
+  },
+  artStar: {
+    position: "absolute",
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "rgba(255,255,255,0.9)"
+  },
   categoryIcon: { fontSize: 24, color: AuraLunisColors.gold2 },
   categoryTitle: { color: "#FFF", fontSize: 14, fontWeight: "900", marginTop: 7 },
   categoryDescription: { color: AuraLunisColors.muted, fontSize: 11, lineHeight: 15, marginTop: 5 },
