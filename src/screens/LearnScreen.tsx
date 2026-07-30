@@ -5,7 +5,13 @@ import { ScreenShell } from "@/components/ScreenShell";
 import { FeatureCard } from "@/components/FeatureCard";
 import { AuraLunisColors } from "@/theme/tokens";
 import { TAB_BAR_STYLE } from "@/navigation/RootTabs";
-import { learnCategories, learnTopics, isLearnLessonFree, FREE_LEARN_LESSON_COUNT } from "@/features/learn/LearnCatalog";
+import {
+  learnCategories,
+  learnTopics,
+  isLearnLessonFree,
+  FREE_LEARN_LESSON_COUNT,
+  DEEP_SKY_SUBJECTS
+} from "@/features/learn/LearnCatalog";
 import type { LearnCategoryId } from "@/features/learn/LearnTypes";
 import { LearnVisualForCategory } from "@/features/learn/LearnCategoryVisual";
 import { useLearnPreferences } from "@/features/learn/learnPreferences";
@@ -105,8 +111,12 @@ export function LearnScreen() {
   const selectedTopics = useMemo(() => {
     const inCategory = learnTopics.filter((topic) => topic.categoryId === selectedCategory);
     if (selectedCategory === "deep_sky") {
-      const wantId = ["nebulae", "galaxies", "clusters", "remnants"][deepSkyTabIndex];
-      return inCategory.filter((topic) => topic.id === wantId && topic.level === prefs.level);
+      // Select by (subject, level), never by hardcoded lesson id. Every one of the
+      // 4 subjects × 3 levels has a lesson, so no Deep Sky tab can render blank.
+      const subject = DEEP_SKY_SUBJECTS[deepSkyTabIndex] ?? DEEP_SKY_SUBJECTS[0];
+      return inCategory.filter(
+        (topic) => topic.deepSkySubject === subject && topic.level === prefs.level
+      );
     }
 
     if (selectedCategory === "beginner_path") return inCategory;

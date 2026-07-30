@@ -1,4 +1,4 @@
-import type { LearnTopic } from "./LearnTypes";
+import type { DeepSkySubject, LearnLevel, LearnTopic } from "./LearnTypes";
 
 export const learnTopics: LearnTopic[] = [
   {
@@ -201,6 +201,7 @@ export const learnTopics: LearnTopic[] = [
   {
     id: "nebulae",
     categoryId: "deep_sky",
+    deepSkySubject: "nebulae",
     title: "What are Nebulae?",
     level: "beginner",
     summary: "Nebulae are clouds of gas and dust. Some are star nurseries, some are the remains of dying stars, and some block light behind them.",
@@ -217,6 +218,7 @@ export const learnTopics: LearnTopic[] = [
   {
     id: "galaxies",
     categoryId: "deep_sky",
+    deepSkySubject: "galaxies",
     title: "What are Galaxies?",
     level: "advanced",
     summary: "Galaxies are vast islands of stars — millions to trillions of them — bound by gravity, often spiralling around a bright core.",
@@ -233,6 +235,7 @@ export const learnTopics: LearnTopic[] = [
   {
     id: "clusters",
     categoryId: "deep_sky",
+    deepSkySubject: "clusters",
     title: "What are Star Clusters?",
     level: "intermediate",
     summary: "Star clusters are groups of stars born together from one cloud — loose open clusters of young stars, or dense globular clusters of ancient ones.",
@@ -249,6 +252,7 @@ export const learnTopics: LearnTopic[] = [
   {
     id: "remnants",
     categoryId: "deep_sky",
+    deepSkySubject: "remnants",
     title: "What are Supernova Remnants?",
     level: "advanced",
     summary: "Supernova remnants are the expanding shells of glowing gas left behind when a massive star ends its life in a colossal explosion.",
@@ -322,8 +326,222 @@ export const learnTopics: LearnTopic[] = [
     ],
     skyLensAction: "Start Night 1",
     archiveAction: "Open 30 Nights"
+  },
+
+  // ── Solar System: intermediate + advanced ───────────────────────────────────
+  // The category previously held only the beginner lesson, so an Intermediate or
+  // Advanced learner saw an empty Solar System list.
+  {
+    id: "solar-system-orbits-scale",
+    categoryId: "solar_system",
+    title: "Orbits, Kepler’s Laws, and Solar System Scale",
+    level: "intermediate",
+    summary: "Kepler’s three laws describe how planets actually move, and scale models show why the Solar System is mostly empty space.",
+    body: "Planets do not travel in perfect circles. Kepler’s first law states that each orbit is an ellipse with the Sun at one focus, so a planet's distance changes over its year. The point closest to the Sun is perihelion, the farthest is aphelion.\n\nHis second law says a line drawn from the Sun to a planet sweeps equal areas in equal times — which means planets move fastest at perihelion and slowest at aphelion. Earth is actually closest to the Sun in early January, so northern winter is a slightly faster season than northern summer.\n\nThe third law ties period to distance: the square of the orbital period is proportional to the cube of the semi-major axis. Double a planet's distance and its year grows by about 2.8 times. That single relationship lets you predict any orbit's period from its size alone.\n\nScale is the part diagrams always distort. If Earth's orbit were a circle one metre across, Neptune's would be 30 metres wide and the nearest star would sit roughly 270 kilometres away. The Solar System is overwhelmingly empty.",
+    keyFacts: [
+      "Orbits are ellipses with the Sun at one focus, not circles.",
+      "Planets move fastest at perihelion and slowest at aphelion.",
+      "Period squared is proportional to semi-major axis cubed.",
+      "An astronomical unit is the average Earth–Sun distance, about 150 million km."
+    ],
+    skyLensAction: "Trace planetary orbits",
+    archiveAction: "Open Solar System"
+  },
+  {
+    id: "solar-system-formation-small-bodies",
+    categoryId: "solar_system",
+    title: "Formation, Migration, and Small-Body Populations",
+    level: "advanced",
+    summary: "The Solar System’s architecture records disk formation, giant-planet migration, and the reservoirs of small bodies left behind.",
+    body: "The Solar System condensed from a collapsing molecular cloud core about 4.57 billion years ago. Angular momentum flattened the infalling material into a protoplanetary disk, and a temperature gradient across that disk set the composition of everything built inside it. Inside the snow line only rock and metal could condense; beyond it, water ice was solid and available in bulk, so cores there grew fast enough to capture hydrogen and helium before the gas dispersed.\n\nThe planets did not stay where they formed. Interactions with the gas disk and later with planetesimals moved the giants substantially. Models such as the Nice model and the Grand Tack reproduce features that a static Solar System cannot: the mass deficit of Mars, the excited and depleted asteroid belt, Jupiter's Trojan populations, and the resonant structure of the Kuiper Belt where Pluto sits locked in a 3:2 resonance with Neptune.\n\nThree reservoirs of leftovers survive. The main asteroid belt holds rocky and metallic bodies stirred by Jupiter's resonances into Kirkwood gaps. The Kuiper Belt beyond Neptune holds icy bodies including the dwarf planets. The Oort Cloud, inferred rather than imaged, extends perhaps a fifth of the way to the nearest star and supplies long-period comets when passing stars and the galactic tide perturb it.\n\nMeteorites let us date all of this directly. Calcium–aluminium-rich inclusions in chondrites are the oldest solids known, and radiometric ages of 4.567 billion years anchor the timeline of the entire system.",
+    keyFacts: [
+      "The snow line divided rocky inner bodies from ice-rich outer ones.",
+      "Giant-planet migration explains the belt’s depletion and Kuiper resonances.",
+      "Kirkwood gaps are cleared by orbital resonances with Jupiter.",
+      "Radiometric dating of chondrites gives an age near 4.567 billion years."
+    ],
+    skyLensAction: "Study Solar System architecture",
+    archiveAction: "Open Solar System"
+  },
+
+  // ── Deep Sky · Nebulae: intermediate + advanced ─────────────────────────────
+  {
+    id: "nebulae-types-structure",
+    categoryId: "deep_sky",
+    deepSkySubject: "nebulae",
+    title: "Emission, Reflection, and Dark Nebulae",
+    level: "intermediate",
+    summary: "Nebulae are classified by how they interact with starlight — emitting it, scattering it, or blocking it entirely.",
+    body: "An emission nebula glows under its own power. Hot young stars flood the surrounding hydrogen with ultraviolet photons energetic enough to strip electrons from atoms. When those electrons recombine they cascade back down and emit light at fixed wavelengths, most famously the deep red hydrogen-alpha line at 656.3 nanometres. These regions are called H II regions, and the Lagoon Nebula in Sagittarius is a fine summer example.\n\nA reflection nebula produces no light of its own. Its dust grains simply scatter the light of nearby stars, and because short wavelengths scatter more efficiently the result is characteristically blue — the same physics that makes the daytime sky blue. The wisps around the Pleiades are the classic case.\n\nA dark nebula is the same cold dust seen without any convenient star behind or within it. It registers only as a silhouette against a brighter background, like the Horsehead in Orion or the Great Rift splitting the summer Milky Way.\n\nThese are not separate objects so much as separate viewing geometries. One cloud can be an emission nebula where a hot star has carved into it, a reflection nebula along its illuminated flank, and a dark nebula in its cold shielded interior.",
+    keyFacts: [
+      "Emission nebulae glow by recombination after ultraviolet ionization.",
+      "Reflection nebulae look blue because short wavelengths scatter more.",
+      "Dark nebulae are seen only in silhouette against brighter background light.",
+      "One physical cloud can show all three appearances at once."
+    ],
+    skyLensAction: "Find the Lagoon Nebula in Sky Lens",
+    archiveAction: "Open Nebulae",
+    skyTarget: { raHours: 18.06, decDegrees: -24.38, name: "Lagoon Nebula", subtitle: "Emission Nebula · M8", description: "A bright summer H II region in Sagittarius, carved by hot young stars." }
+  },
+  {
+    id: "nebulae-ionization-astrophysics",
+    categoryId: "deep_sky",
+    deepSkySubject: "nebulae",
+    title: "Ionization Fronts, Line Emission, and Nebular Diagnostics",
+    level: "advanced",
+    summary: "Nebular spectra encode temperature, density, and composition through recombination lines and forbidden transitions.",
+    body: "A hot star embedded in neutral hydrogen carves out a roughly spherical ionized volume whose size follows from balancing ionizing photon output against recombination. That idealized boundary is the Strömgren sphere, and its radius scales with the cube root of the ionizing photon rate divided by the square of the gas density. Real nebulae are messier — density varies, radiation leaks through low-density channels — but the concept sets the scale.\n\nThe boundary itself is an ionization front, a thin transition where the gas changes state over a short distance. Because ionized gas is far hotter than the neutral material it displaces, the pressure imbalance drives champagne flows that break the nebula open and let ionized gas stream away.\n\nSpectra are the real diagnostic. Recombination lines of hydrogen and helium measure the amount of ionized gas. Collisionally excited forbidden lines — [O III] at 495.9 and 500.7 nm, [N II], [S II] — arise from transitions too slow to occur at laboratory densities but common in gas thousands of times thinner than the best vacuum on Earth. Their intensity ratios give electron temperature and density directly, and the [S II] doublet ratio is a standard density probe.\n\nThose same ratios separate excitation mechanisms. Plotting [O III]/Hβ against [N II]/Hα on a BPT diagram distinguishes gas photoionized by hot stars from gas excited by shocks or by an active galactic nucleus.",
+    keyFacts: [
+      "The Strömgren radius follows from ionization–recombination balance.",
+      "Forbidden lines like [O III] require densities far below laboratory vacuum.",
+      "Line ratios yield electron temperature and density directly.",
+      "BPT diagrams separate photoionization from shock and AGN excitation."
+    ],
+    skyLensAction: "Find the Ring Nebula in Sky Lens",
+    archiveAction: "Open Nebulae",
+    skyTarget: { raHours: 18.893, decDegrees: 33.03, name: "Ring Nebula", subtitle: "Planetary Nebula · M57", description: "An ionized shell in Lyra, textbook for forbidden-line emission." }
+  },
+
+  // ── Deep Sky · Galaxies: beginner + intermediate ────────────────────────────
+  {
+    id: "galaxies-first-look",
+    categoryId: "deep_sky",
+    deepSkySubject: "galaxies",
+    title: "Galaxies: Islands of Stars",
+    level: "beginner",
+    summary: "A galaxy is an enormous family of stars held together by gravity — and one of them is visible to your unaided eye.",
+    body: "Every star you can see by eye belongs to our own galaxy, the Milky Way. A galaxy is a vast collection of stars, gas, and dust bound together by gravity, and the universe holds hundreds of billions of them.\n\nThe remarkable part is that you can see another one without any equipment at all. On a dark autumn night the Andromeda Galaxy appears as a faint elongated smudge, dimmer than a star but noticeably fuzzy. That smudge is about 2.5 million light-years away, which means the light entering your eye left before our species existed.\n\nUse averted vision to find it. Look slightly to one side of where you expect it to be and it brightens noticeably, because the outer part of your retina is more sensitive to faint light than the centre. Binoculars turn it into an obvious oval glow.\n\nGalaxies come in a few broad shapes. Spirals like Andromeda and our own have flat disks with curving arms. Ellipticals are smooth and rounded. Irregulars have no tidy shape at all.",
+    keyFacts: [
+      "A galaxy is a gravitationally bound family of stars, gas, and dust.",
+      "Andromeda is visible to the unaided eye from a dark site.",
+      "Its light takes about 2.5 million years to reach us.",
+      "Averted vision makes faint galaxies noticeably easier to see."
+    ],
+    skyLensAction: "Find the Andromeda Galaxy in Sky Lens",
+    archiveAction: "Open Galaxies",
+    skyTarget: { raHours: 0.712, decDegrees: 41.27, name: "Andromeda Galaxy", subtitle: "Spiral Galaxy · M31", description: "The nearest large spiral galaxy, and the most distant object visible to the unaided eye." }
+  },
+  {
+    id: "galaxies-types-local-group",
+    categoryId: "deep_sky",
+    deepSkySubject: "galaxies",
+    title: "Galaxy Types and the Local Group",
+    level: "intermediate",
+    summary: "Hubble’s classification sorts galaxies by shape, and our own Local Group shows how they cluster and interact.",
+    body: "Edwin Hubble sorted galaxies into a sequence still used today. Ellipticals, labelled E0 through E7, are smooth spheroids of mostly old red stars with little gas and almost no ongoing star formation. Spirals, labelled Sa through Sc, have a central bulge and a disk whose arms grow more open and more actively star-forming along the sequence. Barred spirals, SBa through SBc, run a straight bar through the centre — our Milky Way is one. Lenticulars sit between the two, with a disk but no arms, and irregulars defy the scheme entirely.\n\nThe old picture of this as an evolutionary track was wrong. Hubble's sequence describes appearance, not age. What actually drives shape is formation history and merging.\n\nOur galaxy belongs to the Local Group, a loose collection of more than eighty galaxies spanning roughly ten million light-years. Two large spirals dominate it: the Milky Way and Andromeda. The Triangulum Galaxy is a distant third, and everything else is a dwarf — including the Large and Small Magellanic Clouds, visible to the unaided eye from southern latitudes.\n\nGalaxies interact. Andromeda is approaching us at about 110 kilometres per second and will merge with the Milky Way in roughly four billion years. Because galaxies are mostly empty space, almost no stars will collide; the gas clouds will, triggering a burst of star formation.",
+    keyFacts: [
+      "Hubble’s sequence classifies by appearance, not evolutionary age.",
+      "The Milky Way is a barred spiral, not a simple spiral.",
+      "The Local Group holds 80+ galaxies, mostly dwarfs.",
+      "Andromeda and the Milky Way will merge in about four billion years."
+    ],
+    skyLensAction: "Find the Triangulum Galaxy in Sky Lens",
+    archiveAction: "Open Galaxies",
+    skyTarget: { raHours: 1.564, decDegrees: 30.66, name: "Triangulum Galaxy", subtitle: "Spiral Galaxy · M33", description: "The third-largest Local Group galaxy — a face-on spiral needing dark skies." }
+  },
+
+  // ── Deep Sky · Star Clusters: beginner + advanced ───────────────────────────
+  {
+    id: "clusters-first-look",
+    categoryId: "deep_sky",
+    deepSkySubject: "clusters",
+    title: "Spotting Star Clusters",
+    level: "beginner",
+    summary: "Star clusters are families of stars born together, and the brightest are among the easiest targets in the sky.",
+    body: "Most stars do not form alone. They condense in groups from the same cloud of gas, and many of those groups stay loosely together for millions of years afterwards. Those are star clusters, and several are bright enough to find on your first night out.\n\nThe Pleiades in Taurus is the standout. Most people see six stars in a tiny dipper-shaped knot; sharp eyes under dark skies catch more. Binoculars transform it into dozens of blue-white stars. It is often mistaken for the Little Dipper, but it is far smaller and more compact.\n\nNearby sits the Hyades, a looser V-shaped group forming the face of Taurus. The bright orange star Aldebaran appears to belong to it but does not — it lies about half as far away and merely falls along the same line of sight.\n\nClusters are useful for learning the sky because every star in one is genuinely at the same distance and the same age. They are the closest astronomy gets to a controlled experiment.",
+    keyFacts: [
+      "Cluster stars form together from a single cloud.",
+      "The Pleiades shows six stars to most eyes, dozens in binoculars.",
+      "Aldebaran only appears to sit in the Hyades — it is much closer.",
+      "All stars in a cluster share one age and one distance."
+    ],
+    skyLensAction: "See the Pleiades in Sky Lens",
+    archiveAction: "Open Clusters",
+    skyTarget: { raHours: 3.79, decDegrees: 24.11, name: "Pleiades", subtitle: "Open Cluster · M45", description: "A glittering knot of hot blue stars in Taurus — the easiest cluster to find." }
+  },
+  {
+    id: "clusters-dynamics-ages",
+    categoryId: "deep_sky",
+    deepSkySubject: "clusters",
+    title: "Cluster Dynamics, Turnoff Ages, and Populations",
+    level: "advanced",
+    summary: "Main-sequence turnoff dates a cluster, while relaxation, mass segregation, and evaporation govern how it dissolves.",
+    body: "Because a cluster's stars share an age, distance, and initial composition, its colour–magnitude diagram is a direct read-out of stellar evolution. The most massive stars burn through their hydrogen fastest and peel away from the main sequence first. The point where the cluster's sequence bends toward the giant branch — the main-sequence turnoff — corresponds to the mass whose main-sequence lifetime equals the cluster's age. Locate the turnoff and you have dated the cluster.\n\nThat method splits clusters cleanly. Open clusters show turnoffs high on the main sequence, giving ages from a few million to a couple of billion years. Globular clusters turn off near one solar mass, implying ages above twelve billion years, which makes them among the oldest bound structures known and a hard lower limit on the age of the universe.\n\nDynamics decide how long a cluster survives. Two-body encounters gradually push the system toward energy equipartition over a relaxation timescale, so massive stars sink toward the centre while low-mass stars drift outward — mass segregation. Stars pushed past escape velocity leave entirely, and the cluster evaporates. Tidal shear from the galactic disk and passing molecular clouds accelerate the loss, which is why open clusters rarely survive long while globulars in the halo persist.\n\nCluster cores can also undergo core collapse, contracting until binary star interactions inject enough energy to halt it. Blue stragglers — stars sitting above the turnoff where none should remain — are the visible fingerprint of those collisions and mergers.",
+    keyFacts: [
+      "Main-sequence turnoff mass gives the cluster’s age directly.",
+      "Globular turnoffs imply ages above twelve billion years.",
+      "Mass segregation sinks heavy stars toward the core over a relaxation time.",
+      "Blue stragglers mark stellar mergers and close encounters."
+    ],
+    skyLensAction: "Find the Hercules Cluster in Sky Lens",
+    archiveAction: "Open Clusters",
+    skyTarget: { raHours: 16.695, decDegrees: 36.46, name: "Hercules Cluster", subtitle: "Globular Cluster · M13", description: "A dense ancient swarm of hundreds of thousands of stars in Hercules." }
+  },
+
+  // ── Deep Sky · Supernova Remnants: beginner + intermediate ──────────────────
+  {
+    id: "remnants-first-look",
+    categoryId: "deep_sky",
+    deepSkySubject: "remnants",
+    title: "What Happens When a Star Explodes?",
+    level: "beginner",
+    summary: "A dying massive star detonates as a supernova, and the glowing wreckage it leaves behind seeds space with new elements.",
+    body: "Stars shine by fusing light elements into heavier ones. A massive star eventually builds an iron core, and iron is where the process stops paying — fusing it consumes energy instead of releasing it. Without that outward push the core collapses in under a second, and the star tears itself apart in a supernova.\n\nFor a few weeks the explosion can outshine its entire host galaxy. What remains is a supernova remnant: an expanding shell of gas ploughing into the surrounding space, glowing as it goes.\n\nThe famous example is the Crab Nebula in Taurus. Chinese and Japanese astronomers recorded a new star there in the year 1054, bright enough to be seen in daylight for weeks. Nearly a thousand years later we can still watch the debris expanding.\n\nThese explosions matter to us directly. Elements heavier than iron are forged in them and flung outward. The calcium in your bones and the iron in your blood were made inside stars and scattered by supernovae long before the Sun formed.",
+    keyFacts: [
+      "An iron core cannot support the star, so it collapses.",
+      "A supernova can briefly outshine its whole galaxy.",
+      "The Crab Nebula was recorded exploding in the year 1054.",
+      "Supernovae scatter the heavy elements life is built from."
+    ],
+    skyLensAction: "Find the Crab Nebula in Sky Lens",
+    archiveAction: "Open Remnants",
+    skyTarget: { raHours: 5.575, decDegrees: 22.01, name: "Crab Nebula", subtitle: "Supernova Remnant · M1", description: "The expanding wreckage of a star seen to explode in 1054." }
+  },
+  {
+    id: "remnants-types-observing",
+    categoryId: "deep_sky",
+    deepSkySubject: "remnants",
+    title: "Supernova Types and Observing Remnants",
+    level: "intermediate",
+    summary: "Spectra and light curves separate core-collapse from thermonuclear supernovae, and remnants fall into distinct structural classes.",
+    body: "Supernovae divide first by spectrum. Type I events show no hydrogen lines; Type II do. The physically important split, though, cuts across that scheme. Type Ia supernovae are thermonuclear: a white dwarf in a binary system gains mass until runaway carbon fusion destroys it entirely. Because that ignition happens near a consistent mass limit, Type Ia events reach a consistent peak luminosity, which is what makes them standard candles for measuring cosmic distances.\n\nEverything else — Types II, Ib, and Ic — is core collapse in a massive star. The subtypes reflect how much of the outer envelope the star had already shed. Type II keeps its hydrogen, Ib has lost it, Ic has lost hydrogen and helium both.\n\nThe remnants they leave sort into three structural classes. Shell remnants, like the Veil Nebula in Cygnus, show a hollow expanding rim brightest along the edges where the line of sight passes through the most material. Pulsar wind nebulae, like the Crab, are filled in rather than hollow, energized from within by a spinning neutron star. Composite remnants show both.\n\nFor observing, a narrowband filter is the difference between frustration and success. Remnant light is concentrated in a few emission lines, especially [O III] and hydrogen-alpha, so an O III filter suppresses the continuum of light pollution while passing the nebula. The Veil in particular goes from nearly invisible to strikingly detailed.",
+    keyFacts: [
+      "Type Ia is thermonuclear; Types II, Ib, and Ic are core collapse.",
+      "Consistent Type Ia peak luminosity makes them standard candles.",
+      "Shell, pulsar-wind, and composite are the three remnant classes.",
+      "O III narrowband filters dramatically improve remnant visibility."
+    ],
+    skyLensAction: "Find the Veil Nebula in Sky Lens",
+    archiveAction: "Open Remnants",
+    skyTarget: { raHours: 20.76, decDegrees: 30.72, name: "Veil Nebula", subtitle: "Supernova Remnant · NGC 6960/6992", description: "A large shell remnant in Cygnus, spectacular through an O III filter." }
   }
 ];
+
+/**
+ * Deep Sky subjects in the order the Deep Sky visual renders its tabs
+ * (Nebula · Galaxy · Cluster · Remnant). The tab index maps into this array —
+ * never into a list of hardcoded lesson ids.
+ */
+export const DEEP_SKY_SUBJECTS = ["nebulae", "galaxies", "clusters", "remnants"] as const;
+
+export const LEARN_LEVELS = ["beginner", "intermediate", "advanced"] as const;
+
+/**
+ * The Deep Sky lesson for a given tab + level. Every (subject, level) pair has
+ * exactly one lesson, so a Deep Sky tab can never render blank — see the
+ * 4 × 3 coverage matrix asserted in scripts/learn-gate-selftest.js.
+ */
+export function findDeepSkyLesson(
+  subject: DeepSkySubject,
+  level: LearnLevel
+): LearnTopic | undefined {
+  return learnTopics.find(
+    (topic) =>
+      topic.categoryId === "deep_sky" &&
+      topic.deepSkySubject === subject &&
+      topic.level === level
+  );
+}
 
 export const FREE_LEARN_LESSON_COUNT = 3;
 const freeLearnLessonIds = new Set(
