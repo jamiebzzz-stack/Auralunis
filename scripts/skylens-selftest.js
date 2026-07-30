@@ -31,7 +31,7 @@ function requireTs(absPath) {
 }
 
 const PROJ_PATH = path.resolve(__dirname, "../src/features/sky-lens/ar/SkyLensProjection.ts");
-const { projectTarget, DEFAULT_FOV } = requireTs(PROJ_PATH);
+const { projectTarget, DEFAULT_FOV, effectiveVerticalFov, effectiveVerticalHalfFov } = requireTs(PROJ_PATH);
 
 const toRad = (d) => (d * Math.PI) / 180;
 const toDeg = (r) => (r * 180) / Math.PI;
@@ -82,10 +82,16 @@ for (const box of [IP16PM, IPSE]) {
 
 // ── 3. Target above / outside the configured FOV is clipped ───────────────────────
 {
+  // Vertical FOV is DERIVED from the horizontal FOV and viewport aspect so both axes share
+  // one angular scale; clipping must therefore use the effective value, not fov.verticalDegrees.
+  // Aim the camera low so that clearing the effective vertical half-FOV still lands on a
+  // valid altitude (a full effective FOV above the axis would pass the zenith and read as
+  // "behind", which is a different case tested separately).
+  const camAlt = -30;
   const r = P(
-    { azimuthDegrees: 180, altitudeDegrees: 20, rollDegrees: 0 },
+    { azimuthDegrees: 180, altitudeDegrees: camAlt, rollDegrees: 0 },
     180,
-    20 + DEFAULT_FOV.verticalDegrees, // one full vertical-FOV above the axis
+    camAlt + effectiveVerticalHalfFov(DEFAULT_FOV, IP16PM) + 6, // just past the effective edge
     IP16PM
   );
   assert(
@@ -360,7 +366,66 @@ assert("shortest delta never exceeds 180°",
   [[0, 180], [10, 350], [270, 90], [45, 225]].every(([f, t]) =>
     Math.abs(fusion.shortestAngleDelta(f, t)) <= 180));
 
-const moving = { conditioning: 1, gyroSpeed: 0.5, isMoving: true };
+const moving = { conditioning: 1, gyroSpeed: 0.5, isMoving: true, currentTrim: 0 };
+
+// ── Correction envelope: the magnetometer may trim, never redefine north ──────────────
+{
+  // The device defect, replayed: magnetometer stuck 44° away while the user gently pans.
+  // Before the envelope this walked heading 150° -> 106° in about ten seconds.
+  const GENTLE = 0.20; // rad/s — a gentle pan
+  let heading = 150;
+  let trim = 0;
+  let envelopeHits = 0;
+  let outliers = 0;
+  for (let k = 0; k < 4000; k += 1) {
+    const r = fusion.correctHeading({
+      currentHeading: heading, measuredHeading: 106,
+      conditioning: 1, gyroSpeed: GENTLE, isMoving: true, currentTrim: trim
+    });
+    heading = r.heading; trim = r.trim;
+    if (r.reason === "envelope") envelopeHits += 1;
+    if (r.reason === "outlier") outliers += 1;
+  }
+  assert("gentle panning does NOT disable outlier protection", outliers > 0, `${outliers} rejected`);
+  assert("a persistent 44° bad reading cannot drag heading from 150° toward 106°",
+    Math.abs(fusion.shortestAngleDelta(150, heading)) < 1, `heading held at ${heading.toFixed(1)}°`);
+  assert("cumulative trim stays inside the ±12° envelope",
+    Math.abs(trim) <= fusion.MAX_TOTAL_TRIM_DEGREES + 1e-9, `trim ${trim.toFixed(2)}°`);
+}
+{
+  // A disagreement small enough to be believed still saturates at the envelope, never beyond.
+  let heading = 0, trim = 0, hits = 0;
+  for (let k = 0; k < 4000; k += 1) {
+    const r = fusion.correctHeading({
+      currentHeading: heading, measuredHeading: 40,
+      conditioning: 1, gyroSpeed: 0.6, isMoving: true, currentTrim: trim
+    });
+    heading = r.heading; trim = r.trim;
+    if (r.reason === "envelope") hits += 1;
+  }
+  assert("a believable but persistent offset saturates at the envelope",
+    Math.abs(trim - fusion.MAX_TOTAL_TRIM_DEGREES) < 1e-6 && hits > 0, `trim ${trim.toFixed(3)}°`);
+  assert("fused heading never moves more than the envelope from where it started",
+    Math.abs(fusion.shortestAngleDelta(0, heading)) <= fusion.MAX_TOTAL_TRIM_DEGREES + 1e-6,
+    `moved ${fusion.shortestAngleDelta(0, heading).toFixed(2)}°`);
+  assert("the envelope is ±12°", fusion.MAX_TOTAL_TRIM_DEGREES === 12);
+}
+{
+  // Outlier allowance scales with gyro speed and never switches off.
+  assert("outlier allowance grows with gyro speed",
+    fusion.outlierAllowanceDegrees(1.5) > fusion.outlierAllowanceDegrees(0.2) &&
+    fusion.outlierAllowanceDegrees(0.2) > fusion.outlierAllowanceDegrees(0.01));
+  assert("a 44° disagreement is rejected during a gentle pan",
+    44 > fusion.outlierAllowanceDegrees(0.20),
+    `allowance ${fusion.outlierAllowanceDegrees(0.2).toFixed(1)}°`);
+  assert("a fast deliberate turn is still permitted to outrun the magnetometer",
+    fusion.outlierAllowanceDegrees(1.5) > 60);
+  assert("rejection is active even at very high gyro speed (never disabled)",
+    fusion.correctHeading({
+      currentHeading: 0, measuredHeading: 179,
+      conditioning: 1, gyroSpeed: 1.0, isMoving: true, currentTrim: 0
+    }).reason === "outlier");
+}
 
 // 1. Magnetometer drift cannot move a stationary view.
 {
@@ -370,7 +435,7 @@ const moving = { conditioning: 1, gyroSpeed: 0.5, isMoving: true };
     const noisy = 100 + Math.sin(i * 0.7) * 9 + (i % 5) * 1.4; // sustained magnetic wander
     const r = fusion.correctHeading({
       currentHeading: heading, measuredHeading: noisy,
-      conditioning: 1, gyroSpeed: 0.01, isMoving: false
+      conditioning: 1, gyroSpeed: 0.01, isMoving: false, currentTrim: 0
     });
     heading = r.heading;
     if (r.reason !== "frozen" || r.appliedDegrees !== 0) unlocked = true;
@@ -382,7 +447,7 @@ const moving = { conditioning: 1, gyroSpeed: 0.5, isMoving: true };
 // 2. A single large outlier cannot spin the camera.
 {
   const r = fusion.correctHeading({
-    currentHeading: 10, measuredHeading: 190, conditioning: 1, gyroSpeed: 0.01, isMoving: true
+    currentHeading: 10, measuredHeading: 190, conditioning: 1, gyroSpeed: 0.01, isMoving: true, currentTrim: 0
   });
   assert("a 180° magnetic outlier while barely turning is rejected",
     r.reason === "outlier" && r.heading === 10);
@@ -418,7 +483,7 @@ const moving = { conditioning: 1, gyroSpeed: 0.5, isMoving: true };
 // 5. Near-vertical camera: the magnetometer heading is ignored, not fed in noisily.
 {
   const r = fusion.correctHeading({
-    currentHeading: 40, measuredHeading: 55, conditioning: 0.05, gyroSpeed: 0.5, isMoving: true
+    currentHeading: 40, measuredHeading: 55, conditioning: 0.05, gyroSpeed: 0.5, isMoving: true, currentTrim: 0
   });
   assert("an ill-conditioned (near-zenith) heading is ignored",
     r.reason === "ill-conditioned" && r.heading === 40);
@@ -451,7 +516,7 @@ const moving = { conditioning: 1, gyroSpeed: 0.5, isMoving: true };
 // 7. The stationary guard is checked FIRST — before conditioning and before outlier tests.
 {
   const r = fusion.correctHeading({
-    currentHeading: 0, measuredHeading: 190, conditioning: 0.01, gyroSpeed: 9, isMoving: false
+    currentHeading: 0, measuredHeading: 190, conditioning: 0.01, gyroSpeed: 9, isMoving: false, currentTrim: 0
   });
   assert("stillness wins over every other correction rule", r.reason === "frozen" && r.appliedDegrees === 0);
 }
@@ -517,26 +582,37 @@ assert("no per-star smoothing exists in the constellation layer",
       spread < 0.02, `edge-ratio spread ${spread.toFixed(4)}`);
   }
 
-  // ANISOTROPY OF THE SHIPPING MAPPING — a measured, pinned defect.
-  //
-  // DEFAULT_FOV is 60x45 (aspect 1.33) but the viewport is 430x932 (aspect 0.46), and each
-  // axis maps its own FOV across its own dimension. Degrees therefore convert to pixels at
-  // very different rates horizontally and vertically, so a pattern that rotates on screen
-  // genuinely stretches. THIS is why the Big Dipper appears to change shape while turning —
-  // not per-star smoothing, and not an inconsistent camera snapshot (both ruled out above).
-  //
-  // Correcting it means giving both axes a common angular scale, which moves every layer on
-  // screen. That is a deliberate visual-layout change and is NOT made here. This assertion
-  // records the current ratio so the defect is visible and cannot silently worsen.
+  // ISOTROPY: equal angular offsets must project at equal pixel scale on both axes.
+  // This is the fix for patterns shearing as they rotate. DEFAULT_FOV is 60x45 on a 430x932
+  // viewport; before the fix a degree was worth 2.86x more pixels vertically than
+  // horizontally, so a rotating pattern genuinely stretched.
   {
     const c0 = projectTarget(base, 172, 50, DEFAULT_FOV, BOX);
+    // 5 degrees of TRUE angle horizontally at this altitude, and 5 degrees vertically.
     const hStep = projectTarget(base, 172 + 5 / Math.cos(50 * Math.PI / 180), 50, DEFAULT_FOV, BOX);
     const vStep = projectTarget(base, 172, 55, DEFAULT_FOV, BOX);
     const hpx = Math.hypot(hStep.x - c0.x, hStep.y - c0.y);
     const vpx = Math.hypot(vStep.x - c0.x, vStep.y - c0.y);
     const ratio = vpx / hpx;
-    assert("KNOWN: shipping FOV/viewport mapping is anisotropic (patterns stretch when rotated)",
-      ratio > 1.5, `vertical/horizontal px-per-degree = ${ratio.toFixed(2)}x — 1.00 would be shape-preserving`);
+    assert("equal 5° angular offsets project at equal scale on both axes",
+      Math.abs(ratio - 1) < 0.05, `vertical/horizontal px-per-degree = ${ratio.toFixed(3)}x`);
+    assert("vertical FOV is derived from horizontal FOV and viewport aspect", (() => {
+      const derived = effectiveVerticalFov(DEFAULT_FOV, BOX);
+      const expected = DEFAULT_FOV.horizontalDegrees * (BOX.height / BOX.width);
+      return Math.abs(derived - expected) < 1e-6;
+    })());
+    assert("a tall viewport therefore sees more sky vertically than horizontally",
+      effectiveVerticalFov(DEFAULT_FOV, BOX) > DEFAULT_FOV.horizontalDegrees);
+  }
+
+  // Roll on the REAL shipping FOV/viewport must now also preserve edge ratios.
+  {
+    const rotated = PATTERN.map(([az, alt]) => projectTarget({ ...base, rollDegrees: 37 }, az, alt, DEFAULT_FOV, BOX));
+    const r = [];
+    for (let i = 0; i < PATTERN.length - 1; i += 1) r.push(dist(rotated, i, i + 1) / dist(first, i, i + 1));
+    const spread = Math.max(...r) - Math.min(...r);
+    assert("roll preserves pattern proportions on the SHIPPING viewport",
+      spread < 0.02, `edge-ratio spread ${spread.toFixed(4)}`);
   }
 
   // Zoom scales the whole pattern uniformly.
@@ -563,6 +639,35 @@ assert("no per-star smoothing exists in the constellation layer",
   assert("the old fixed 260px cull is gone", !/>\s*260/.test(conSrc));
   assert("non-finite coordinates are dropped",
     isPlausibleSegment({ x: NaN, y: 0 }, { x: 10, y: 10 }, BOX) === false);
+}
+
+// ── Labels stay anchored to their object after collision adjustment ──────────────────
+// The "separate layers" impression is most likely explained by the projection anisotropy
+// fixed above (vertical and horizontal screen motion differed by 2.86x, so objects at
+// different screen positions appeared to move at different rates). The placer itself only
+// nudges within a bounded set of candidates — pinned here so it cannot start drifting.
+{
+  const layout = requireTs(path.resolve(__dirname, "../src/features/sky-lens/labelLayout.ts"));
+  const BOX = { width: 430, height: 932 };
+  const place = layout.makeLabelPlacer(BOX, { top: 40, bottom: 110 });
+  const anchors = [[120, 300], [122, 305], [124, 310], [126, 315], [128, 320]];
+  let worst = 0;
+  for (const [x, y] of anchors) {
+    const p1 = place(x, y, "SIRIUS", 13, { x, y, r: 8 });
+    if (!Number.isFinite(p1.x)) continue;
+    worst = Math.max(worst, Math.hypot(p1.x - x, p1.y - y));
+  }
+  assert("a collision-nudged label stays close to its object", worst < 120, `worst offset ${worst.toFixed(0)}px`);
+
+  // Centred labels may only move vertically — moving them horizontally would misrepresent
+  // which pattern they name.
+  const fresh = layout.makeLabelPlacer(BOX, { top: 40, bottom: 110 });
+  const c1 = fresh(200, 400, "URSA MAJOR", 13, undefined, true, { weight: 500, letterSpacing: 1.6 });
+  const c2 = fresh(200, 400, "URSA MINOR", 13, undefined, true, { weight: 500, letterSpacing: 1.6 });
+  assert("a centred label never shifts horizontally off its pattern",
+    c1.x === 200 && (!Number.isFinite(c2.x) || c2.x === 200));
+  assert("a displaced centred label is still vertically near its anchor",
+    !Number.isFinite(c2.y) || Math.abs(c2.y - 400) < 120);
 }
 
 console.log("");

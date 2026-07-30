@@ -37,6 +37,26 @@ function toRad(degrees: number): number {
   return (degrees * Math.PI) / 180;
 }
 
+/**
+ * Half of the EFFECTIVE vertical field of view, derived from the horizontal FOV and the real
+ * viewport aspect so both axes share one degrees-to-pixels scale.
+ *
+ * A tall phone therefore sees MORE sky vertically than horizontally, which is what an
+ * undistorted window onto the sky must do. Deriving it (rather than using an independent
+ * fov.verticalDegrees) is what keeps constellation geometry rigid.
+ */
+export function effectiveVerticalHalfFov(fov: CameraFov, box: OverlayBox): number {
+  const halfH = fov.horizontalDegrees / 2;
+  if (!(box.width > 0) || !(halfH > 0)) return fov.verticalDegrees / 2;
+  const pixelsPerDegree = box.width / 2 / halfH;
+  return box.height / 2 / pixelsPerDegree;
+}
+
+/** Full effective vertical field of view in degrees. */
+export function effectiveVerticalFov(fov: CameraFov, box: OverlayBox): number {
+  return effectiveVerticalHalfFov(fov, box) * 2;
+}
+
 // ── Full-dome camera projection ───────────────────────────────────────────────
 // Everything is done with unit vectors in East-North-Up (ENU) coordinates, so the
 // projection is correct in EVERY direction — including straight up at the zenith,
@@ -91,12 +111,27 @@ export function projectTarget(
   const vRot = -hAngle * Math.sin(roll) + vAngle * Math.cos(roll);
 
   const halfH = fov.horizontalDegrees / 2;
-  const halfV = fov.verticalDegrees / 2;
 
-  const x = box.width / 2 + (hRot / halfH) * (box.width / 2);
-  const y = box.height / 2 - (vRot / halfV) * (box.height / 2);
+  // ONE angular scale for BOTH axes.
+  //
+  // This previously divided the horizontal angle by the horizontal FOV and the vertical
+  // angle by the vertical FOV, then stretched each across its own screen dimension. With
+  // DEFAULT_FOV 60x45 (aspect 1.33) on a 430x932 viewport (aspect 0.46) that made a degree
+  // worth 2.86x more pixels vertically than horizontally, so any pattern that rotated on
+  // screen genuinely sheared — the Big Dipper and Leo visibly changed proportions as the
+  // phone turned. Sharing a single degrees-to-pixels scale makes the mapping conformal, so
+  // a rigid sky pattern stays rigid under pan, roll and zoom.
+  //
+  // The vertical field of view is therefore DERIVED from the horizontal FOV and the real
+  // viewport aspect rather than taken from fov.verticalDegrees, which is retained on the
+  // type for compatibility but no longer drives scale.
+  const pixelsPerDegree = box.width / 2 / halfH;
+  const halfVEffective = effectiveVerticalHalfFov(fov, box);
 
-  const onScreen = !behind && Math.abs(hRot) <= halfH && Math.abs(vRot) <= halfV;
+  const x = box.width / 2 + hRot * pixelsPerDegree;
+  const y = box.height / 2 - vRot * pixelsPerDegree;
+
+  const onScreen = !behind && Math.abs(hRot) <= halfH && Math.abs(vRot) <= halfVEffective;
   const bearingDegrees =
     (Math.atan2(y - box.height / 2, x - box.width / 2) * 180) / Math.PI;
 

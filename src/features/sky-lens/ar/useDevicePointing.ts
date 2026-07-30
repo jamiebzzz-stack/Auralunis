@@ -7,6 +7,8 @@ import type { CameraPointing } from "./SkyLensProjection";
 import { resolveFollowFactors } from "./pointingFollow";
 // Heading fusion: gyro for short-term motion, magnetometer as a slow bounded correction.
 import { correctHeading, gyroHeadingDelta, normalizeHeading as normalizeFused } from "./orientationFusion";
+// TEMPORARY dev-only instrumentation. Compiles to nothing in Release.
+import { logPointingSample } from "./pointingDiagnostics";
 
 type SensorReading = { x: number; y: number; z: number };
 interface SensorModule {
@@ -82,6 +84,9 @@ export function useDevicePointing(
   // nudged back toward magnetic north within bounds — never recomputed absolutely.
   const fusedHeadingRef = useRef<number | null>(null);
   const gyroSpeedRef = useRef(0);
+  // Cumulative magnetic trim relative to the gyro-integrated heading, held inside the
+  // +/-MAX_TOTAL_TRIM_DEGREES envelope so the magnetometer can never redefine north.
+  const magneticTrimRef = useRef(0);
   const lastGyroAtRef = useRef(0);
 
   useEffect(() => {
@@ -143,17 +148,40 @@ export function useDevicePointing(
       // Tilt comes straight from gravity — unambiguous and low-noise, no fusion needed.
       // Heading does NOT: it is the fused value, nudged toward the magnetometer within
       // strict bounds rather than recomputed from scratch on every sample.
+      const measuredHeading = normalizeHeading(measured.azimuthDegrees);
+      const conditioning = headingConditioning(accelerometerRef.current, magnetometer);
+      let correctionReason = "seed";
+      let correctionApplied = 0;
       if (fusedHeadingRef.current === null) {
-        fusedHeadingRef.current = normalizeHeading(measured.azimuthDegrees);
+        fusedHeadingRef.current = measuredHeading;
       } else {
         const correction = correctHeading({
           currentHeading: fusedHeadingRef.current,
-          measuredHeading: normalizeHeading(measured.azimuthDegrees),
-          conditioning: headingConditioning(accelerometerRef.current, magnetometer),
+          measuredHeading,
+          conditioning,
           gyroSpeed: gyroSpeedRef.current,
-          isMoving: movingRef.current
+          isMoving: movingRef.current,
+          currentTrim: magneticTrimRef.current
         });
         fusedHeadingRef.current = correction.heading;
+        magneticTrimRef.current = correction.trim;
+        correctionReason = correction.reason;
+        correctionApplied = correction.appliedDegrees;
+      }
+
+      if (__DEV__) {
+        logPointingSample({
+          rawHeading: measuredHeading,
+          fusedHeading: fusedHeadingRef.current,
+          gyroSpeed: gyroSpeedRef.current,
+          isMoving: movingRef.current,
+          conditioning,
+          reason: correctionReason,
+          appliedDegrees: correctionApplied,
+          cumulativeTrim: magneticTrimRef.current,
+          altitude: clampAltitude(-measured.altitudeDegrees),
+          roll: normalizeHeading(measured.rollDegrees)
+        });
       }
 
       const raw: CameraPointing = {

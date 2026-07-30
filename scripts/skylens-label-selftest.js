@@ -112,8 +112,12 @@ for (const d of DEVICES) {
   const pointing = { azimuthDegrees: 180, altitudeDegrees: 20, rollDegrees: 0 };
   // Search a small target grid for one whose real projection lands inside the shutter rect.
   let hit = null;
+  // Search the FULL effective field of view. The vertical FOV is derived from the horizontal
+  // FOV and the viewport aspect (both axes share one degrees-to-pixels scale), so on a tall
+  // phone the vertical extent is much larger than the old fixed 45° — a 34° search no longer
+  // reaches the bottom-of-screen shutter.
   for (let dAz = 0; dAz <= 34 && !hit; dAz += 1) {
-    for (let dAlt = 0; dAlt >= -34 && !hit; dAlt -= 1) {
+    for (let dAlt = 0; dAlt >= -80 && !hit; dAlt -= 1) {
       const pr = projectTarget(pointing, 180 + dAz, 20 + dAlt, DEFAULT_FOV, d.box);
       if (pr.onScreen && pr.x >= shutter.x && pr.x <= shutter.x + shutter.w && pr.y >= shutter.y && pr.y <= shutter.y + shutter.h) {
         hit = pr;
