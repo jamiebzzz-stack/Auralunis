@@ -12,6 +12,13 @@ export interface CameraPointing {
   rollDegrees: number; // rotation about the optical axis
 }
 
+/** Camera basis in ENU, resolved from an orientation quaternion. */
+export interface CameraBasis {
+  forward: { e: number; n: number; u: number };
+  right: { e: number; n: number; u: number };
+  up: { e: number; n: number; u: number };
+}
+
 export interface CameraFov {
   horizontalDegrees: number;
   verticalDegrees: number;
@@ -82,6 +89,52 @@ function cross(a: Vec, b: Vec): Vec {
     n: a.u * b.e - a.e * b.u,
     u: a.e * b.n - a.n * b.e
   };
+}
+
+/**
+ * Project a sky target using a CAMERA BASIS rather than azimuth/altitude/roll.
+ *
+ * This is the singularity-free path. `projectTarget` below reconstructs the camera's "right"
+ * vector from the pointing azimuth, which is undefined when the camera looks straight up —
+ * on a real handset that produced median azimuth swings of 45.8 deg per sample above 85 deg
+ * elevation, with roll swinging by an almost identical amount (the classic gimbal signature).
+ *
+ * Here the basis arrives already resolved from the orientation quaternion, so nothing is ever
+ * reconstructed from an angle and the zenith is an ordinary direction like any other.
+ *
+ * The screen mapping is identical to `projectTarget`: ONE shared degrees-to-pixels scale for
+ * both axes (the isotropic fix), so constellation geometry stays rigid.
+ */
+export function projectTargetWithBasis(
+  basis: CameraBasis,
+  targetAzimuthDegrees: number,
+  targetAltitudeDegrees: number,
+  fov: CameraFov = DEFAULT_FOV,
+  box: OverlayBox
+): ProjectedTarget {
+  const forward: Vec = { e: basis.forward.e, n: basis.forward.n, u: basis.forward.u };
+  const right: Vec = { e: basis.right.e, n: basis.right.n, u: basis.right.u };
+  // Screen "up" is the device top axis. Negated nowhere: y is flipped at the pixel step.
+  const up: Vec = { e: basis.up.e, n: basis.up.n, u: basis.up.u };
+
+  const target = azAltToVec(targetAzimuthDegrees, targetAltitudeDegrees);
+  const depth = dot(target, forward);
+  const behind = depth <= 0.0001;
+
+  const hAngle = (Math.atan2(dot(target, right), depth) * 180) / Math.PI;
+  const vAngle = (Math.atan2(dot(target, up), depth) * 180) / Math.PI;
+
+  const halfH = fov.horizontalDegrees / 2;
+  const pixelsPerDegree = box.width / 2 / halfH;
+  const halfVEffective = effectiveVerticalHalfFov(fov, box);
+
+  const x = box.width / 2 + hAngle * pixelsPerDegree;
+  const y = box.height / 2 - vAngle * pixelsPerDegree;
+
+  const onScreen = !behind && Math.abs(hAngle) <= halfH && Math.abs(vAngle) <= halfVEffective;
+  const bearingDegrees = (Math.atan2(y - box.height / 2, x - box.width / 2) * 180) / Math.PI;
+
+  return { x, y, onScreen, behind, bearingDegrees: (bearingDegrees + 360) % 360 };
 }
 
 export function projectTarget(

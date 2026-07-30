@@ -29,6 +29,9 @@ import { SKY_PROFILES, getSeasonalTint, getMagnificentBoost, type SkyQuality } f
 import { computeStargazingIndex } from "@/services/StargazingIndexService";
 import { fetchCurrentWeather, type WeatherSnapshot } from "@/services/WeatherService";
 import { useDevicePointing } from "./ar/useDevicePointing";
+// TEMPORARY dev-only probe: logs DeviceMotion attitude to confirm the Euler convention.
+// It does NOT drive the camera — the live orientation path below is unchanged.
+import { useDeviceMotionProbe } from "./ar/useDeviceMotionProbe";
 import { useParallaxOffset } from "./ar/useParallaxOffset";
 import { getFleet, simulateTick, syncLiveTLEData, isFleetLive } from "@/services/AtmosphereExplorerService";
 import { onObjectTapped, onObjectCentered } from "@/services/HapticDiscoveryService";
@@ -106,6 +109,9 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
   // zoomDampingMultiplier there). This replaces a `smoothAlpha` value that was computed
   // here and passed in, but which the hook never actually read.
   const { pointing: sensorPointing, available } = useDevicePointing(120, 0, zoom);
+  // Dev-only attitude probe. Logs raw alpha/beta/gamma and the derived pointing so the
+  // DeviceMotion mapping can be verified on hardware. No effect on what is rendered.
+  useDeviceMotionProbe(__DEV__);
   const parallax = useParallaxOffset();
   // Time Scrub: when the scrub bar is dragged, freeze the sky to the offset instant.
   const [timeOffsetMin, setTimeOffsetMin] = useState(0);

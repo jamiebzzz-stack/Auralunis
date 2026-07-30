@@ -31,7 +31,7 @@ function requireTs(absPath) {
 }
 
 const PROJ_PATH = path.resolve(__dirname, "../src/features/sky-lens/ar/SkyLensProjection.ts");
-const { projectTarget, DEFAULT_FOV, effectiveVerticalFov, effectiveVerticalHalfFov } = requireTs(PROJ_PATH);
+const { projectTarget, projectTargetWithBasis, DEFAULT_FOV, effectiveVerticalFov, effectiveVerticalHalfFov } = requireTs(PROJ_PATH);
 
 const toRad = (d) => (d * Math.PI) / 180;
 const toDeg = (r) => (r * 180) / Math.PI;
@@ -668,6 +668,240 @@ assert("no per-star smoothing exists in the constellation layer",
     c1.x === 200 && (!Number.isFinite(c2.x) || c2.x === 200));
   assert("a displaced centred label is still vertically near its anchor",
     !Number.isFinite(c2.y) || Math.abs(c2.y - 400) < 120);
+}
+
+// ── Quaternion orientation: singularity-free camera path ─────────────────────────────
+const Q = requireTs(path.resolve(__dirname, "../src/features/sky-lens/ar/orientationQuaternion.ts"));
+const DEG = Math.PI / 180;
+const qlen = (q) => Math.hypot(q.w, q.x, q.y, q.z);
+
+console.log("");
+// Normalization and validity.
+{
+  const q = Q.quaternionFromDeviceMotion(0.3, 1.0, -0.4);
+  assert("DeviceMotion attitude yields a unit quaternion", Math.abs(qlen(q) - 1) < 1e-12,
+    `|q| = ${qlen(q).toFixed(15)}`);
+  assert("non-finite attitude degrades to identity",
+    Q.quaternionFromDeviceMotion(NaN, 1, 0).w === 1);
+  assert("a malformed quaternion is rejected", Q.isValidQuaternion({ w: NaN, x: 0, y: 0, z: 0 }) === false);
+  assert("a zero quaternion is rejected", Q.isValidQuaternion({ w: 0, x: 0, y: 0, z: 0 }) === false);
+  assert("normalizing garbage yields identity, not NaN",
+    Q.normalizeQuaternion({ w: 0, x: 0, y: 0, z: 0 }).w === 1);
+}
+
+// Equivalent Euler representations must describe the SAME orientation.
+{
+  // q and -q are the same rotation.
+  const q = Q.quaternionFromDeviceMotion(0.5, 0.9, 0.2);
+  const neg = { w: -q.w, x: -q.x, y: -q.y, z: -q.z };
+  // acos loses precision near 1, so an exact-zero comparison is not meaningful here;
+  // 1e-4 degrees is far below any physically observable difference.
+  assert("q and -q describe the same orientation",
+    Q.angleBetweenQuaternions(q, neg) < 1e-4, `${Q.angleBetweenQuaternions(q, neg).toFixed(9)}°`);
+  // alpha wrapped by 2π is the same attitude.
+  const wrapped = Q.quaternionFromDeviceMotion(0.5 + 2 * Math.PI, 0.9, 0.2);
+  assert("alpha + 2π is the same orientation",
+    Q.angleBetweenQuaternions(q, wrapped) < 1e-4);
+  // The device's own Euler flip: beta past 90° flips alpha and gamma by π.
+  const preFlip = Q.quaternionFromDeviceMotion(37.4 * DEG, 89.9 * DEG, -1.5 * DEG);
+  const postFlip = Q.quaternionFromDeviceMotion((37.4 - 180) * DEG, 90.1 * DEG, (-1.5 - 180) * DEG);
+  assert("the real device Euler flip is a small orientation change, not a 180° jump",
+    Q.angleBetweenQuaternions(preFlip, postFlip) < 1.0,
+    `${Q.angleBetweenQuaternions(preFlip, postFlip).toFixed(3)}° apart`);
+}
+
+// Slerp: shortest arc, endpoints exact, always unit length.
+{
+  const a = Q.quaternionFromDeviceMotion(0, 0, 0);
+  const b = Q.quaternionFromDeviceMotion(350 * DEG, 0, 0);
+  const mid = Q.slerp(a, b, 0.5);
+  // 0 -> 350 the short way passes through 355, NOT through 175.
+  assert("slerp takes the shortest arc across the 0/360 wrap",
+    Q.angleBetweenQuaternions(mid, Q.quaternionFromDeviceMotion(355 * DEG, 0, 0)) < 1e-6);
+  assert("slerp(t=0) returns the start exactly", Q.angleBetweenQuaternions(Q.slerp(a, b, 0), a) < 1e-9);
+  assert("slerp(t=1) returns the end exactly", Q.angleBetweenQuaternions(Q.slerp(a, b, 1), b) < 1e-9);
+  assert("slerp output is always unit length",
+    [0, 0.25, 0.5, 0.75, 1].every((t) => Math.abs(qlen(Q.slerp(a, b, t)) - 1) < 1e-12));
+  assert("slerp clamps out-of-range t", Q.angleBetweenQuaternions(Q.slerp(a, b, 5), b) < 1e-9);
+  assert("slerp with a negated endpoint still takes the short arc", (() => {
+    const nb = { w: -b.w, x: -b.x, y: -b.y, z: -b.z };
+    return Q.angleBetweenQuaternions(Q.slerp(a, nb, 0.5), mid) < 1e-6;
+  })());
+}
+
+// THE DECISIVE TEST: crossing the zenith must stay continuous.
+{
+  const BOX = { width: 430, height: 932 };
+  const star = { az: 45, alt: 80 };
+  // Sweep pitch straight through the zenith in fine steps, holding yaw and roll fixed.
+  const eulerJumps = [];
+  const quatJumps = [];
+  let prevE = null;
+  let prevQ = null;
+  for (let beta = 170; beta <= 190; beta += 0.5) {
+    const q = Q.quaternionFromDeviceMotion(30 * DEG, beta * DEG, 0);
+    const basis = Q.cameraBasisFromQuaternion(q);
+    const pq = projectTargetWithBasis(basis, star.az, star.alt, DEFAULT_FOV, BOX);
+    // Same sweep through the Euler path, via the diagnostics readout.
+    const e = Q.eulerReadoutFromQuaternion(q);
+    const pe = projectTarget(
+      { azimuthDegrees: e.azimuthDegrees, altitudeDegrees: e.altitudeDegrees, rollDegrees: 0 },
+      star.az, star.alt, DEFAULT_FOV, BOX
+    );
+    if (prevQ) quatJumps.push(Math.hypot(pq.x - prevQ.x, pq.y - prevQ.y));
+    if (prevE) eulerJumps.push(Math.hypot(pe.x - prevE.x, pe.y - prevE.y));
+    prevQ = pq;
+    prevE = pe;
+  }
+  const maxQ = Math.max(...quatJumps);
+  const maxE = Math.max(...eulerJumps);
+  assert("zenith crossing is CONTINUOUS on the quaternion path",
+    maxQ < 40, `max step ${maxQ.toFixed(1)}px across the zenith`);
+  assert("the quaternion path is far smoother than the Euler path at the zenith",
+    maxQ < maxE, `quaternion ${maxQ.toFixed(1)}px vs euler ${maxE.toFixed(1)}px`);
+}
+
+// No azimuth/roll swap: a small physical rotation near the zenith is a small orientation change.
+{
+  const near = Q.quaternionFromDeviceMotion(30 * DEG, 179 * DEG, 0);
+  const nudged = Q.quaternionFromDeviceMotion(30 * DEG, 181 * DEG, 0);
+  assert("a 2° physical rotation through the zenith is a 2° orientation change",
+    Math.abs(Q.angleBetweenQuaternions(near, nudged) - 2) < 0.01,
+    `${Q.angleBetweenQuaternions(near, nudged).toFixed(3)}°`);
+  // The same nudge read through Euler angles swings azimuth wildly — that is the defect.
+  const a = Q.eulerReadoutFromQuaternion(near);
+  const b = Q.eulerReadoutFromQuaternion(nudged);
+  let dAz = Math.abs(((b.azimuthDegrees - a.azimuthDegrees + 540) % 360) - 180);
+  assert("the same nudge swings the EULER azimuth (documents why quaternions are used)",
+    dAz > 100, `euler azimuth moved ${dAz.toFixed(1)}° for a 2° physical rotation`);
+}
+
+// Freeze and lock: the exact quaternion survives.
+{
+  const q = Q.quaternionFromDeviceMotion(0.4, 1.1, -0.2);
+  const frozen = { ...q };
+  // "Sensor updates" while locked must not be applied at all.
+  const later = Q.quaternionFromDeviceMotion(1.9, 0.3, 2.2);
+  assert("a frozen orientation is preserved bit-for-bit",
+    frozen.w === q.w && frozen.x === q.x && frozen.y === q.y && frozen.z === q.z);
+  assert("a locked orientation ignores a new sensor sample entirely",
+    Q.angleBetweenQuaternions(frozen, q) === 0 && Q.angleBetweenQuaternions(frozen, later) > 1);
+  assert("slerp with t=0 is the freeze operation", Q.angleBetweenQuaternions(Q.slerp(q, later, 0), q) < 1e-9);
+}
+
+// Drag composes onto a frozen orientation.
+{
+  const base = Q.quaternionFromDeviceMotion(0, 90 * DEG, 0);
+  const zeroDrag = Q.composeDragOffset(base, 0, 0);
+  assert("zero drag leaves the orientation unchanged",
+    Q.angleBetweenQuaternions(base, zeroDrag) < 1e-9);
+  const yawed = Q.composeDragOffset(base, 20, 0);
+  assert("drag yaw rotates the orientation", Q.angleBetweenQuaternions(base, yawed) > 5);
+  assert("drag output stays unit length", Math.abs(qlen(yawed) - 1) < 1e-12);
+  assert("drag yaw is reversible",
+    Q.angleBetweenQuaternions(Q.composeDragOffset(yawed, -20, 0), base) < 1e-6);
+  assert("non-finite drag is ignored rather than corrupting orientation",
+    Q.angleBetweenQuaternions(Q.composeDragOffset(base, NaN, NaN), base) < 1e-9);
+  // Drag works at the zenith, where an azimuth-based pan would be undefined.
+  const zenith = Q.quaternionFromDeviceMotion(0, 180 * DEG, 0);
+  assert("drag still works when pointing at the zenith",
+    Q.angleBetweenQuaternions(zenith, Q.composeDragOffset(zenith, 15, 0)) > 5);
+}
+
+// One immutable snapshot -> identical coordinates, and rigid constellations.
+{
+  const BOX = { width: 430, height: 932 };
+  const PATTERN = [[160, 50], [166, 53], [172, 55], [178, 54], [184, 50], [188, 45], [182, 42]];
+  const project = (q) => {
+    const basis = Q.cameraBasisFromQuaternion(q);
+    return PATTERN.map(([az, alt]) => projectTargetWithBasis(basis, az, alt, DEFAULT_FOV, BOX));
+  };
+  const q = Q.quaternionFromDeviceMotion(20 * DEG, 130 * DEG, 5 * DEG);
+  const a = project(q);
+  const b = project({ ...q });
+  assert("an identical orientation snapshot yields identical coordinates",
+    a.every((p, i) => p.x === b[i].x && p.y === b[i].y));
+
+  const dist = (pts, i, j) => Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y);
+
+  // RIGIDITY = the pattern must not BEND. Measured under pure roll about the optical axis,
+  // which keeps the pattern in the same region of the frame.
+  //
+  // Yaw/pitch are deliberately NOT asserted this way: moving a pattern to a different part
+  // of the frame legitimately changes screen-space edge lengths in ANY flat projection
+  // (angle-to-pixel distortion grows off-axis). Asserting constant edge ratios there would
+  // be asserting that a flat map of a sphere has no distortion, which is false for the
+  // shipping projection too. Bending is what we care about, and roll isolates it.
+  const rollInDeviceFrame = (base, degrees) =>
+    Q.normalizeQuaternion(
+      Q.multiplyQuaternions(base, Q.quaternionFromAxisAngle({ x: 0, y: 0, z: 1 }, degrees * DEG))
+    );
+
+  // Camera CENTRED on the pattern in each case, so the pattern occupies the same region of
+  // the frame and only bending would show up.
+  for (const [label, baseQ, pattern] of [
+    ["roll at mid altitude", Q.quaternionLookingAt(174, 49), PATTERN],
+    // Near the zenith — the posture that broke the Euler path entirely.
+    ["roll at the zenith", Q.quaternionLookingAt(0, 88),
+      [[0, 84], [40, 86], [90, 85], [140, 86], [180, 84], [220, 86]]]
+  ]) {
+    const basis0 = Q.cameraBasisFromQuaternion(baseQ);
+    const p0 = pattern.map(([az, alt]) => projectTargetWithBasis(basis0, az, alt, DEFAULT_FOV, BOX));
+    for (const deg of [15, 40, 90]) {
+      const basisR = Q.cameraBasisFromQuaternion(rollInDeviceFrame(baseQ, deg));
+      const pR = pattern.map(([az, alt]) => projectTargetWithBasis(basisR, az, alt, DEFAULT_FOV, BOX));
+      const ratios = [];
+      for (let i = 0; i < pattern.length - 1; i += 1) ratios.push(dist(pR, i, i + 1) / dist(p0, i, i + 1));
+      const spread = Math.max(...ratios) - Math.min(...ratios);
+      assert(`pattern does not bend under ${deg}° ${label}`, spread < 0.02,
+        `edge-ratio spread ${spread.toFixed(4)}`);
+    }
+  }
+
+  // A pattern crossing the zenith must not tear: consecutive frames stay close together.
+  {
+    let worst = 0;
+    let prev = null;
+    for (let beta = 172; beta <= 188; beta += 0.5) {
+      const basisZ = Q.cameraBasisFromQuaternion(Q.quaternionFromDeviceMotion(20 * DEG, beta * DEG, 0));
+      const pts = PATTERN.map(([az, alt]) => projectTargetWithBasis(basisZ, az, alt, DEFAULT_FOV, BOX));
+      if (prev) {
+        for (let i = 0; i < pts.length; i += 1) {
+          worst = Math.max(worst, Math.hypot(pts[i].x - prev[i].x, pts[i].y - prev[i].y));
+        }
+      }
+      prev = pts;
+    }
+    assert("a pattern sweeping through the zenith moves continuously", worst < 40,
+      `worst per-frame star movement ${worst.toFixed(1)}px`);
+  }
+
+  // Zoom scales the whole pattern uniformly on the quaternion path too.
+  const ZOOMED = { horizontalDegrees: DEFAULT_FOV.horizontalDegrees / 3, verticalDegrees: DEFAULT_FOV.verticalDegrees / 3 };
+  const basis = Q.cameraBasisFromQuaternion(q);
+  const zoomed = PATTERN.map(([az, alt]) => projectTargetWithBasis(basis, az, alt, ZOOMED, BOX));
+  const zr = [];
+  for (let i = 0; i < PATTERN.length - 1; i += 1) zr.push(dist(zoomed, i, i + 1) / dist(a, i, i + 1));
+  assert("zoom scales every edge by the same factor (quaternion path)",
+    (Math.max(...zr) - Math.min(...zr)) / Math.max(...zr) < 0.05);
+  assert("zoom magnifies on the quaternion path", Math.min(...zr) > 1.5);
+}
+
+// Targets remain projectable (i.e. tappable) — the basis path never returns NaN.
+{
+  const BOX = { width: 430, height: 932 };
+  let bad = 0;
+  for (let beta = 0; beta <= 360; beta += 7) {
+    for (let alpha = 0; alpha < 360; alpha += 37) {
+      const basis = Q.cameraBasisFromQuaternion(Q.quaternionFromDeviceMotion(alpha * DEG, beta * DEG, 0));
+      for (const [az, alt] of [[0, 0], [90, 45], [180, 89], [270, -30], [45, 90]]) {
+        const p = projectTargetWithBasis(basis, az, alt, DEFAULT_FOV, BOX);
+        if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) bad += 1;
+      }
+    }
+  }
+  assert("every orientation projects finite coordinates (taps stay hit-testable)", bad === 0,
+    `${bad} non-finite projections`);
 }
 
 console.log("");
