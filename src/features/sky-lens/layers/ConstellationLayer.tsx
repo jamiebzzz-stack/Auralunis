@@ -13,31 +13,50 @@ const GOLD = "#D9A84E";
 const CON_LABEL_GOLD = "#C9A468";
 
 /**
- * The patterns a beginner is most likely to be looking for. These are drawn at full strength;
- * everything else in the catalogue is dimmed so the sky does not read as a wall of equal
- * names. Membership is about recognisability, not importance — it only controls emphasis.
+ * PRIMARY — the patterns a beginner actually goes looking for. Always labelled, at full
+ * strength, at every zoom level.
  */
 const PRIMARY_CONSTELLATIONS = new Set([
-  "ursa-major",
-  "ursa-minor",
+  "ursa-major",   // Big Dipper
+  "ursa-minor",   // Little Dipper + Polaris
   "orion",
   "cassiopeia",
   "leo",
   "gemini",
   "taurus",
   "scorpius",
-  "sagittarius",
-  "cygnus",
-  "lyra",
-  "aquila"
+  "sagittarius"
 ]);
 
-// Primary names carry; secondary names recede. The dark backing is what keeps either
-// legible where a label crosses a bright star or the Milky Way band.
+/**
+ * SECONDARY — well-known, but not what someone means by "show me a constellation". Present
+ * at default zoom but dimmed, and brought up to near-full strength once zoomed in.
+ */
+const SECONDARY_CONSTELLATIONS = new Set([
+  "cygnus",
+  "lyra",
+  "aquila",
+  "pegasus",
+  "andromeda",
+  "canis_major",
+  "canis-minor",
+  "bootes",
+  "corona-borealis"
+]);
+
+/** Zoom at which secondary names strengthen and the rest of the catalogue appears at all. */
+const SECONDARY_REVEAL_ZOOM = 1.8;
+
 const PRIMARY_FONT_SIZE = 14;
-const SECONDARY_FONT_SIZE = 11.5;
+const SECONDARY_FONT_SIZE = 12;
+const TERTIARY_FONT_SIZE = 11;
+/** The official constellation name under an asterism's familiar name. */
+const SUBLABEL_FONT_SIZE = 9.5;
+
 const PRIMARY_OPACITY = 0.94;
-const SECONDARY_OPACITY = 0.52;
+const SECONDARY_OPACITY_FAR = 0.5;
+const SECONDARY_OPACITY_NEAR = 0.88;
+const TERTIARY_OPACITY = 0.42;
 
 /**
  * How far collision avoidance may move a name from its pattern's centroid before the name is
@@ -45,6 +64,9 @@ const SECONDARY_OPACITY = 0.52;
  * belonging to whatever it landed on.
  */
 const MAX_LABEL_DETACHMENT_PX = 78;
+
+/** Labels fade out over this many points as they approach the viewport edge. */
+const EDGE_FADE_PX = 56;
 
 type Props = {
   constellations: HorizontalConstellation[];
@@ -64,6 +86,14 @@ type Props = {
   //   • labelsOnly=true: render LABELS only — mounted LATE (after stars & planets) so the
   //     names claim their slots in correct priority order.
   labelsOnly?: boolean;
+  /** Current zoom level (1 = default FOV). Controls which tiers of name are revealed. */
+  zoom?: number;
+  /**
+   * Constellation ids whose names are already shown by ANOTHER layer — the zodiac layer
+   * names Leo, Taurus, Gemini, Scorpius and the rest along the ecliptic. Without this the
+   * same pattern gets two labels a few points apart, which reads as a rendering bug.
+   */
+  suppressNameIds?: ReadonlySet<string>;
   onSelect: (object: SelectedObject) => void;
 };
 
@@ -78,6 +108,8 @@ export function ConstellationLayer({
   showNodes = true,
   fullSphere = false,
   labelsOnly = false,
+  zoom = 1,
+  suppressNameIds,
   onSelect,
 }: Props) {
   // Render one constellation's NAME through the shared placer. Returns null when labels are
@@ -101,11 +133,44 @@ export function ConstellationLayer({
     const anyStarUp = c.points.some((pt) => pt.aboveHorizon);
     if (!anyStarUp && !fullSphere) return null;
 
-    // Asterisms carry both names: the one people use, and the constellation it sits inside.
-    const label = (c.familiarName ? `${c.familiarName} · ${c.name}` : c.name).toUpperCase();
+    // Another layer already names this pattern (the zodiac layer owns the ecliptic signs).
+    // Showing both produces two labels for one pattern.
+    if (suppressNameIds?.has(c.id)) return null;
+
+    // An asterism leads with the name people use and carries the official constellation
+    // underneath in smaller type — the Big Dipper is a pattern INSIDE Ursa Major, not a
+    // constellation, and the label should teach that rather than flatten it.
+    const label = (c.familiarName ?? c.name).toUpperCase();
+    const subLabel = c.familiarName ? c.name.toUpperCase() : null;
     const isPrimary = PRIMARY_CONSTELLATIONS.has(c.id);
-    const fontSize = isPrimary ? PRIMARY_FONT_SIZE : SECONDARY_FONT_SIZE;
-    const labelOpacity = isPrimary ? PRIMARY_OPACITY : SECONDARY_OPACITY;
+    const isSecondary = SECONDARY_CONSTELLATIONS.has(c.id);
+    const zoomedIn = zoom >= SECONDARY_REVEAL_ZOOM;
+
+    // The rest of the catalogue only appears once zoomed in — at default zoom the sky would
+    // otherwise be a wall of names competing with the ten that matter.
+    if (!isPrimary && !isSecondary && !zoomedIn) return null;
+
+    const fontSize = isPrimary
+      ? PRIMARY_FONT_SIZE
+      : isSecondary
+        ? SECONDARY_FONT_SIZE
+        : TERTIARY_FONT_SIZE;
+    const baseOpacity = isPrimary
+      ? PRIMARY_OPACITY
+      : isSecondary
+        ? (zoomedIn ? SECONDARY_OPACITY_NEAR : SECONDARY_OPACITY_FAR)
+        : TERTIARY_OPACITY;
+
+    // Fade toward the viewport edge instead of clipping abruptly.
+    const edgeDistance = Math.min(
+      centroid.x,
+      box.width - centroid.x,
+      centroid.y - 38,
+      box.height - 110 - centroid.y
+    );
+    const edgeFade = Math.max(0, Math.min(1, edgeDistance / EDGE_FADE_PX));
+    const labelOpacity = baseOpacity * edgeFade;
+    if (labelOpacity < 0.06) return null;
     const position = placeLabel
       ? placeLabel(centroid.x, centroid.y, label, fontSize, undefined, true, { weight: 600, letterSpacing: 1.4 })
       : { x: centroid.x, y: centroid.y };
@@ -133,7 +198,10 @@ export function ConstellationLayer({
       anchorProjected.y < box.height - 110;
 
     return (
-      <G key={`${c.id}-label`}>
+      // pointerEvents="none": label TEXT never intercepts a touch. Object selection is done
+      // by the screen's JS hit test against planets, the Moon and stars, and a name sitting
+      // over a planet must not steal that tap.
+      <G key={`${c.id}-label`} pointerEvents="none">
         {anchorVisible && c.anchorStarName && (
           <G>
             <SvgText
@@ -208,6 +276,39 @@ export function ConstellationLayer({
         >
           {label}
         </SvgText>
+        {/* Official constellation name under an asterism's familiar name. Smaller and
+            fainter, so the pattern you recognise leads and the formal name supports it. */}
+        {subLabel && (
+          <G>
+            <SvgText
+              x={position.x}
+              y={position.y + fontSize + 1}
+              fill="none"
+              stroke="#05070F"
+              strokeWidth={2.5}
+              strokeOpacity={0.8}
+              strokeLinejoin="round"
+              fontSize={SUBLABEL_FONT_SIZE}
+              fontWeight="500"
+              letterSpacing={1.2}
+              textAnchor="middle"
+            >
+              {subLabel}
+            </SvgText>
+            <SvgText
+              x={position.x}
+              y={position.y + fontSize + 1}
+              fill={nightMode ? palette.conLabel : CON_LABEL_GOLD}
+              fontSize={SUBLABEL_FONT_SIZE}
+              fontWeight="500"
+              letterSpacing={1.2}
+              opacity={labelOpacity * 0.72}
+              textAnchor="middle"
+            >
+              {subLabel}
+            </SvgText>
+          </G>
+        )}
         <Circle
           cx={position.x}
           cy={position.y - 3}

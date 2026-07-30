@@ -19,6 +19,7 @@ import { SatelliteLayer, type SkyLensSatellite } from "./layers/SatelliteLayer";
 import { DAY_PALETTE, NIGHT_PALETTE, type ProjectFn, type SelectedObject, type FocusZone } from "./SkyLensVisual";
 import { type LayerKey } from "./SkyLensLayerCatalog";
 import { makeLabelPlacer } from "./labelLayout";
+import { ZODIAC_CONSTELLATION_IDS } from "./layers/constellationGeometry";
 import { type ChromeRect } from "./skyLensChromeLayout";
 import type { SkyData } from "./hooks/useSkyProjection";
 import type { ParallaxOffset } from "./ar/useParallaxOffset";
@@ -226,6 +227,8 @@ export function SkyLensCanvas({ box, pointing, basis, sky, fov, activeLayers, ni
               placeLabel={placeLabel}
               showLabels
               labelsOnly
+              zoom={zoomLevel}
+              suppressNameIds={activeLayers.has("zodiac") ? ZODIAC_CONSTELLATION_IDS : undefined}
               fullSphere={horizonCorrect}
               onSelect={onSelect}
             />

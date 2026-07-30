@@ -41,3 +41,25 @@ export function isPlausibleSegment(
   const limit = Math.hypot(box.width, box.height) * 1.05;
   return Math.hypot(dx, dy) <= limit;
 }
+
+
+/**
+ * Constellation ids that the ZODIAC layer also names.
+ *
+ * Both layers can be on at once, and both draw a name at roughly the pattern's centre — so
+ * Leo would get two labels a few points apart, which reads as a rendering bug rather than a
+ * feature. When the zodiac layer is active it owns these names and the constellation layer
+ * stays quiet for them.
+ */
+export const ZODIAC_CONSTELLATION_IDS: ReadonlySet<string> = new Set([
+  "aries",
+  "taurus",
+  "gemini",
+  "leo",
+  "virgo",
+  "scorpius",
+  "sagittarius",
+  "capricornus",
+  "aquarius",
+  "ophiuchus"
+]);

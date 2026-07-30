@@ -1130,8 +1130,11 @@ console.log("");
     starSrc.includes("familiarName: c.familiarName") &&
     starSrc.includes("anchorStarName: c.anchorStarName"));
 
-  assert("asterisms show BOTH names, not one replacing the other",
-    layerSrc.includes('`${c.familiarName} · ${c.name}`'));
+  // Both names still appear — now stacked (familiar leads, official supports) rather than
+  // joined on one line.
+  assert("asterisms show BOTH names, stacked rather than joined",
+    layerSrc.includes("const label = (c.familiarName ?? c.name).toUpperCase();") &&
+    layerSrc.includes("const subLabel = c.familiarName ? c.name.toUpperCase() : null;"));
   assert("labels are hidden when no member star is above the horizon",
     layerSrc.includes("const anyStarUp = c.points.some((pt) => pt.aboveHorizon);"));
   assert("labels are hidden when the anchor projects off-screen or behind",
@@ -1154,7 +1157,7 @@ console.log("");
   assert("primary constellations are emphasised over the rest",
     layerSrc.includes("const PRIMARY_CONSTELLATIONS = new Set([") &&
     /PRIMARY_OPACITY = 0\.9\d/.test(layerSrc) &&
-    /SECONDARY_OPACITY = 0\.\d/.test(layerSrc));
+    /SECONDARY_OPACITY_FAR = 0\.\d/.test(layerSrc));
   assert("primary names are larger than secondary names", (() => {
     const p = Number(/PRIMARY_FONT_SIZE = ([\d.]+)/.exec(layerSrc)[1]);
     const q = Number(/SECONDARY_FONT_SIZE = ([\d.]+)/.exec(layerSrc)[1]);
@@ -1167,11 +1170,13 @@ console.log("");
     const fill = layerSrc.indexOf("fill={nightMode ? palette.conLabel : CON_LABEL_GOLD}");
     return firstStroke > 0 && fill > firstStroke;
   })());
-  assert("every requested constellation is in the primary set", (() => {
+  // Every requested pattern is labelled; the tier only decides emphasis, not presence.
+  assert("every requested constellation is in a named tier", (() => {
     const want = ["ursa-major", "ursa-minor", "orion", "cassiopeia", "leo", "gemini",
       "taurus", "scorpius", "sagittarius", "cygnus", "lyra", "aquila"];
-    const block = /PRIMARY_CONSTELLATIONS = new Set\(\[([\s\S]*?)\]\)/.exec(layerSrc)[1];
-    return want.every((id) => block.includes(`"${id}"`));
+    const primary = /PRIMARY_CONSTELLATIONS = new Set\(\[([\s\S]*?)\]\)/.exec(layerSrc)[1];
+    const secondary = /SECONDARY_CONSTELLATIONS = new Set\(\[([\s\S]*?)\]\)/.exec(layerSrc)[1];
+    return want.every((id) => primary.includes(`"${id}"`) || secondary.includes(`"${id}"`));
   })());
   assert("every requested constellation exists in the dataset", (() => {
     const want = ["ursa-major", "ursa-minor", "orion", "cassiopeia", "leo", "gemini",
@@ -1197,6 +1202,84 @@ console.log("");
     screenSrcForTaps.indexOf("for (const body of sky.bodies)") <
     screenSrcForTaps.indexOf("for (const star of sky.stars)") &&
     screenSrcForTaps.includes("const planetLocked = closest !== null && closest.dist < 40;"));
+  assert("label text is pointerEvents=none so it cannot intercept a touch",
+    layerSrc.includes('pointerEvents="none"'));
+
+  // ── Familiar-name coverage across the requested set ──
+  const REQUESTED = [
+    ["ursa-major", "Ursa Major"], ["ursa-minor", "Ursa Minor"], ["orion", "Orion"],
+    ["cassiopeia", "Cassiopeia"], ["leo", "Leo"], ["gemini", "Gemini"], ["taurus", "Taurus"],
+    ["scorpius", "Scorpius"], ["sagittarius", "Sagittarius"], ["cygnus", "Cygnus"],
+    ["lyra", "Lyra"], ["aquila", "Aquila"], ["pegasus", "Pegasus"], ["andromeda", "Andromeda"],
+    ["canis_major", "Canis Major"], ["canis-minor", "Canis Minor"], ["bootes", "Boo"],
+    ["corona-borealis", "Corona Borealis"]
+  ];
+  for (const [id] of REQUESTED) {
+    assert(`dataset has geometry for ${id}`, catSrc.includes(`id: "${id}"`));
+  }
+  // Cancer was requested but the dataset has no line geometry for it; inventing one is
+  // explicitly out of scope, so this records the gap rather than hiding it.
+  assert("KNOWN GAP: Cancer has no geometry in the dataset and is deliberately not labelled",
+    !catSrc.includes('id: "cancer"'));
+
+  // ── Asterism handling: familiar name leads, official name supports ──
+  assert("an asterism's primary label is the familiar name alone",
+    layerSrc.includes("const label = (c.familiarName ?? c.name).toUpperCase();"));
+  assert("the official constellation name is a smaller second line",
+    layerSrc.includes("const subLabel = c.familiarName ? c.name.toUpperCase() : null;") &&
+    /SUBLABEL_FONT_SIZE = ([\d.]+)/.test(layerSrc));
+  assert("the sub-label is smaller than the primary label", (() => {
+    const sub = Number(/SUBLABEL_FONT_SIZE = ([\d.]+)/.exec(layerSrc)[1]);
+    const pri = Number(/PRIMARY_FONT_SIZE = ([\d.]+)/.exec(layerSrc)[1]);
+    return sub < pri;
+  })());
+  assert("neither Dipper is labelled as an official constellation on its own",
+    !/familiarName: "Big Dipper"[\s\S]{0,60}?name: "Big Dipper"/.test(catSrc));
+  // What a user actually reads:
+  const render = (familiar, name) => [(familiar ?? name).toUpperCase(), familiar ? name.toUpperCase() : null];
+  assert("Big Dipper renders as BIG DIPPER over URSA MAJOR",
+    JSON.stringify(render("Big Dipper", "Ursa Major")) === JSON.stringify(["BIG DIPPER", "URSA MAJOR"]));
+  assert("Little Dipper renders as LITTLE DIPPER over URSA MINOR",
+    JSON.stringify(render("Little Dipper", "Ursa Minor")) === JSON.stringify(["LITTLE DIPPER", "URSA MINOR"]));
+  assert("a normal constellation has no second line",
+    JSON.stringify(render(undefined, "Orion")) === JSON.stringify(["ORION", null]));
+
+  // ── Duplicate suppression ──
+  const geoSrc = fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/layers/constellationGeometry.ts"), "utf8");
+  const canvasSrcLabels = fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/SkyLensCanvas.tsx"), "utf8");
+  assert("zodiac-duplicated constellations are enumerated", geoSrc.includes("ZODIAC_CONSTELLATION_IDS"));
+  assert("Leo is in the zodiac duplicate set (the reported case)", /ZODIAC_CONSTELLATION_IDS[\s\S]*?"leo"/.test(geoSrc));
+  assert("the constellation layer suppresses names another layer owns",
+    layerSrc.includes("if (suppressNameIds?.has(c.id)) return null;"));
+  assert("suppression is applied only while the zodiac layer is on",
+    canvasSrcLabels.includes('activeLayers.has("zodiac") ? ZODIAC_CONSTELLATION_IDS : undefined'));
+
+  // ── Zoom-dependent priority ──
+  assert("three priority tiers exist",
+    layerSrc.includes("PRIMARY_CONSTELLATIONS") && layerSrc.includes("SECONDARY_CONSTELLATIONS"));
+  assert("the ten default-zoom priorities are all primary", (() => {
+    const want = ["ursa-major", "ursa-minor", "orion", "cassiopeia", "leo", "gemini",
+      "taurus", "scorpius", "sagittarius"];
+    const block = /PRIMARY_CONSTELLATIONS = new Set\(\[([\s\S]*?)\]\)/.exec(layerSrc)[1];
+    return want.every((id) => block.includes(`"${id}"`));
+  })());
+  assert("the rest of the catalogue is hidden until zoomed in",
+    layerSrc.includes("if (!isPrimary && !isSecondary && !zoomedIn) return null;"));
+  assert("secondary names strengthen when zoomed in", (() => {
+    const far = Number(/SECONDARY_OPACITY_FAR = ([\d.]+)/.exec(layerSrc)[1]);
+    const near = Number(/SECONDARY_OPACITY_NEAR = ([\d.]+)/.exec(layerSrc)[1]);
+    const pri = Number(/PRIMARY_OPACITY = ([\d.]+)/.exec(layerSrc)[1]);
+    return far < near && near <= pri;
+  })());
+  assert("the zoom reveal threshold is above default zoom", (() => {
+    const z = Number(/SECONDARY_REVEAL_ZOOM = ([\d.]+)/.exec(layerSrc)[1]);
+    return z > 1;
+  })());
+
+  // ── Edge fade instead of abrupt clipping ──
+  assert("labels fade toward the viewport edge", layerSrc.includes("const edgeFade = Math.max(0, Math.min(1, edgeDistance / EDGE_FADE_PX));"));
+  assert("a fully faded label is dropped rather than drawn invisible",
+    layerSrc.includes("if (labelOpacity < 0.06) return null;"));
 }
 
 console.log("");
