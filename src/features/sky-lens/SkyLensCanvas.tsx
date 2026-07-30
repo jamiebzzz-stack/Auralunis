@@ -196,6 +196,28 @@ export function SkyLensCanvas({ box, pointing, basis, sky, fov, activeLayers, ni
         )}
         {activeLayers.has("stars") && (
           <G transform={depth(0.25)}>
+          {/* CONSTELLATION NAMES — PRIMARY PASS.
+              The shared placer is first-come-first-served, so PRIORITY IS MOUNT ORDER.
+              Major asterisms and primary constellation names are claimed BEFORE star names,
+              which is the requested ladder: Moon/planets, then asterisms and primary
+              constellations, then bright stars. Secondary names are a separate mount AFTER
+              StarLayer, so they yield to star names instead of competing with them. */}
+          {activeLayers.has("constellations") && (
+            <ConstellationLayer
+              constellations={constellations}
+              project={project}
+              box={box}
+              palette={palette}
+              nightMode={nightMode}
+              placeLabel={placeLabel}
+              showLabels
+              labelsOnly
+              zoom={zoomLevel}
+              bands={["primary"]}
+              fullSphere={horizonCorrect}
+              onSelect={onSelect}
+            />
+          )}
             <StarLayer stars={sky.stars} project={project} palette={palette} nightMode={nightMode} focus={focus} showcase={showcase} placeLabel={placeLabel} labelMagLimit={starLabelMag} showLabels={showLabels} extinction={extinction} bloom={vg.starBloom} fullSphere={horizonCorrect} onSelect={onSelect} />
           </G>
         )}
@@ -227,6 +249,7 @@ export function SkyLensCanvas({ box, pointing, basis, sky, fov, activeLayers, ni
               showLabels
               labelsOnly
               zoom={zoomLevel}
+              bands={["secondary", "tertiary"]}
               fullSphere={horizonCorrect}
               onSelect={onSelect}
             />

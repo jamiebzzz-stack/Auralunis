@@ -219,6 +219,36 @@ export const CONSTELLATION_LINES: ReadonlyArray<ConstellationLine> = [
     lines: [[0, 1]]
   },
   {
+    id: "cancer",
+    name: "Cancer",
+    season: "Winter/Spring",
+    myth: "The Crab, crushed by Hercules; faint, but it cradles the Beehive Cluster.",
+    stars: [
+      { raHours: 8.2753, decDegrees: 9.1856 },   // 0 Beta Cnc (Al Tarf) — brightest, the tail
+      { raHours: 8.7447, decDegrees: 18.1543 },  // 1 Delta Cnc (Asellus Australis) — the hub
+      { raHours: 8.7215, decDegrees: 21.4686 },  // 2 Gamma Cnc (Asellus Borealis)
+      { raHours: 8.9748, decDegrees: 11.8577 },  // 3 Alpha Cnc (Acubens)
+      { raHours: 8.7783, decDegrees: 28.7628 }   // 4 Iota Cnc
+    ],
+    // The classic inverted "Y": Iota-Gamma-Delta down the stem, then Delta branching to
+    // Beta and Alpha. Delta Cnc is the junction every arm meets at.
+    lines: [[4, 2], [2, 1], [1, 0], [1, 3]]
+  },
+  {
+    id: "libra",
+    name: "Libra",
+    season: "Spring/Summer",
+    myth: "The Scales — once the claws of Scorpius, later weighed as balance itself.",
+    stars: [
+      { raHours: 14.8481, decDegrees: -16.0418 }, // 0 Alpha2 Lib (Zubenelgenubi)
+      { raHours: 15.2833, decDegrees: -9.3829 },  // 1 Beta Lib (Zubeneschamali)
+      { raHours: 15.5922, decDegrees: -14.7894 }, // 2 Gamma Lib (Zubenelakrab)
+      { raHours: 15.0678, decDegrees: -25.2819 }  // 3 Sigma Lib (Brachium)
+    ],
+    // The scale-beam triangle Alpha-Beta-Gamma, with the pan hanging down from Alpha.
+    lines: [[0, 1], [1, 2], [2, 0], [0, 3]]
+  },
+  {
     id: "scorpius",
     name: "Scorpius",
     season: "Summer",

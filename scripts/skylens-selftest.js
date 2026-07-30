@@ -1222,11 +1222,59 @@ console.log("");
   }
   // Cancer was requested but the dataset has no line geometry for it; inventing one is
   // explicitly out of scope, so this records the gap rather than hiding it.
-  // Cancer and Libra were requested but the dataset carries no line geometry for either, and
-  // inventing a pattern is out of scope. Recorded rather than hidden.
-  assert("KNOWN GAP: Cancer has no geometry in the dataset", !catSrc.includes('id: "cancer"'));
-  assert("KNOWN GAP: Libra has no geometry in the dataset", !catSrc.includes('id: "libra"'));
-  assert("Virgo IS present and labelled", catSrc.includes('id: "virgo"'));
+  assert("Virgo is present and labelled", catSrc.includes('id: "virgo"'));
+
+  // ── Cancer and Libra: real geometry, not approximations ──
+  for (const [id, name, starCount, lineCount] of [
+    ["cancer", "Cancer", 5, 4],
+    ["libra", "Libra", 4, 4]
+  ]) {
+    // lines: [[4, 2], [2, 1], ...] is nested, so match to the end of that line rather than
+    // to the first closing bracket.
+    const block = new RegExp(`id: "${id}"[\\s\\S]*?lines: \\[.*\\]`).exec(catSrc);
+    assert(`${name} exists in the dataset`, !!block);
+    if (!block) continue;
+    const body = block[0];
+    assert(`${name} declares its official name`, body.includes(`name: "${name}"`));
+    assert(`${name} has ${starCount} anchor stars`,
+      (body.match(/raHours:/g) || []).length === starCount,
+      `${(body.match(/raHours:/g) || []).length} stars`);
+    assert(`${name} has ${lineCount} line pairs`,
+      (body.match(/\[\d+, \d+\]/g) || []).length === lineCount);
+    assert(`${name} carries season and myth metadata`,
+      body.includes("season:") && body.includes("myth:"));
+    // Every line index must point at a real star.
+    const idx = [...body.matchAll(/\[(\d+), (\d+)\]/g)].flatMap((m) => [Number(m[1]), Number(m[2])]);
+    assert(`${name} line indices are all in range`, idx.every((i) => i >= 0 && i < starCount));
+    assert(`${name} lines reference every star (no orphans)`,
+      new Set(idx).size === starCount, `${new Set(idx).size}/${starCount} stars connected`);
+  }
+
+  // Coordinates must be plausible sky positions, and match the real constellations.
+  {
+    const cancerBlock = /id: "cancer"[\s\S]*?lines:/.exec(catSrc)[0];
+    const libraBlock = /id: "libra"[\s\S]*?lines:/.exec(catSrc)[0];
+    const ras = (b) => [...b.matchAll(/raHours: ([\d.]+)/g)].map((m) => Number(m[1]));
+    const decs = (b) => [...b.matchAll(/decDegrees: (-?[\d.]+)/g)].map((m) => Number(m[1]));
+    assert("Cancer sits in the 8h-9h RA range (between Gemini and Leo)",
+      ras(cancerBlock).every((r) => r > 8 && r < 9.1));
+    assert("Cancer is a northern pattern (dec +9 to +29)",
+      decs(cancerBlock).every((d) => d > 8 && d < 30));
+    assert("Libra sits in the 14h-16h RA range (between Virgo and Scorpius)",
+      ras(libraBlock).every((r) => r > 14.5 && r < 16));
+    assert("Libra is a southern pattern (dec -9 to -26)",
+      decs(libraBlock).every((d) => d < -9 && d > -26));
+    assert("all RA values are valid hours", [...ras(cancerBlock), ...ras(libraBlock)].every((r) => r >= 0 && r < 24));
+    assert("all Dec values are valid degrees",
+      [...decs(cancerBlock), ...decs(libraBlock)].every((d) => d >= -90 && d <= 90));
+  }
+  assert("Cancer and Libra are primary-priority labels", (() => {
+    const block = /PRIMARY_CONSTELLATIONS = new Set\(\[([\s\S]*?)\]\)/.exec(layerSrc)[1];
+    return block.includes('"cancer"') && block.includes('"libra"');
+  })());
+  // They inherit the shared visibility rule — nothing pattern-specific.
+  assert("Cancer and Libra are hidden below the horizon by the shared rule",
+    layerSrc.includes("const anyStarUp = c.points.some((pt) => pt.aboveHorizon);"));
 
   // ── Constellation names must not read as star names ──
   const starSrcForStyle = fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/layers/StarLayer.tsx"), "utf8");
@@ -1301,18 +1349,23 @@ console.log("");
     const block = /PRIMARY_CONSTELLATIONS = new Set\(\[([\s\S]*?)\]\)/.exec(layerSrc)[1];
     return want.every((id) => block.includes(`"${id}"`));
   })());
-  assert("the rest of the catalogue is hidden until zoomed in",
-    layerSrc.includes("if (!isPrimary && !isSecondary && !zoomedIn) return null;"));
+  // ── Zoom ladder: default -> medium -> high ──
+  assert("secondary names appear only at medium zoom",
+    layerSrc.includes('if (band === "secondary" && zoom < MEDIUM_ZOOM) return null;'));
+  assert("the rest of the catalogue appears only at high zoom",
+    layerSrc.includes('if (band === "tertiary" && zoom < HIGH_ZOOM) return null;'));
+  assert("the zoom thresholds are ordered and above default zoom", (() => {
+    const m = Number(/MEDIUM_ZOOM = ([\d.]+)/.exec(layerSrc)[1]);
+    const h = Number(/HIGH_ZOOM = ([\d.]+)/.exec(layerSrc)[1]);
+    return m > 1 && h > m;
+  })());
   assert("secondary names strengthen when zoomed in", (() => {
     const far = Number(/SECONDARY_OPACITY_FAR = ([\d.]+)/.exec(layerSrc)[1]);
     const near = Number(/SECONDARY_OPACITY_NEAR = ([\d.]+)/.exec(layerSrc)[1]);
     const pri = Number(/PRIMARY_OPACITY = ([\d.]+)/.exec(layerSrc)[1]);
     return far < near && near <= pri;
   })());
-  assert("the zoom reveal threshold is above default zoom", (() => {
-    const z = Number(/SECONDARY_REVEAL_ZOOM = ([\d.]+)/.exec(layerSrc)[1]);
-    return z > 1;
-  })());
+
 
   // ── Edge fade instead of abrupt clipping ──
   assert("labels fade toward the viewport edge", layerSrc.includes("const edgeFade = Math.max(0, Math.min(1, edgeDistance / EDGE_FADE_PX));"));
@@ -1361,6 +1414,86 @@ console.log("");
   assert("object cards still open", screenSrc.includes("setSelected(closest.obj)"));
   assert("safe-area spacing is still applied to the dock",
     screenSrc.includes("paddingBottom: insets.bottom + 6"));
+}
+
+// ── Label priority ladder ────────────────────────────────────────────────────────────
+// The shared placer is first-come-first-served, so PRIORITY IS MOUNT ORDER in the canvas.
+// These assertions pin that order, which is the only thing that actually decides which
+// label wins a contested slot.
+{
+  const canvasSrc = fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/SkyLensCanvas.tsx"), "utf8");
+  const layerSrc = fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/layers/ConstellationLayer.tsx"), "utf8");
+  console.log("");
+
+  const at = (needle) => canvasSrc.indexOf(needle);
+  const moonReserve = at("placeLabel.reserveCircle(moonProj.x, moonProj.y");
+  const planetLabels = at("<PlanetLayer");
+  const primaryCon = at('bands={["primary"]}');
+  const starLabels = at("<StarLayer stars={sky.stars}");
+  const secondaryCon = at('bands={["secondary", "tertiary"]}');
+  const zodiacLabels = canvasSrc.lastIndexOf("<ZodiacLayer");
+
+  assert("the Moon's disc is reserved before ANY label is placed",
+    moonReserve > 0 && moonReserve < planetLabels);
+  assert("planet labels are claimed before constellation names",
+    planetLabels > 0 && planetLabels < primaryCon);
+  assert("primary constellation names outrank bright-star names",
+    primaryCon > 0 && primaryCon < starLabels, `primary@${primaryCon} < stars@${starLabels}`);
+  assert("bright-star names outrank SECONDARY constellation names",
+    starLabels < secondaryCon, `stars@${starLabels} < secondary@${secondaryCon}`);
+  assert("zodiac text is last in the ladder",
+    zodiacLabels > secondaryCon, `zodiac@${zodiacLabels} > secondary@${secondaryCon}`);
+
+  // Two mounts are what make the split possible — one pass cannot hold two priorities.
+  assert("constellation names are mounted in two priority passes",
+    (canvasSrc.match(/bands=\{\[/g) || []).length === 2);
+  assert("the two passes cover every band without overlapping", (() => {
+    const bands = [...canvasSrc.matchAll(/bands=\{\[([^\]]*)\]\}/g)].map((m) => m[1]);
+    const all = bands.join(",").replace(/["\s]/g, "").split(",").filter(Boolean);
+    return new Set(all).size === all.length &&
+      ["primary", "secondary", "tertiary"].every((b) => all.includes(b));
+  })());
+  assert("a mount only draws its own bands",
+    layerSrc.includes("if (bands && !bands.includes(band)) return null;"));
+
+  // Clutter: Gemini sits beside Castor/Pollux, Canis Minor beside Procyon. Gemini is a
+  // primary name (wins its slot); Canis Minor is secondary, so Procyon's name wins and
+  // Canis Minor yields — which is the requested behaviour, not an accident.
+  assert("Gemini is primary, so it wins against nearby bright stars", (() => {
+    const block = /PRIMARY_CONSTELLATIONS = new Set\(\[([\s\S]*?)\]\)/.exec(layerSrc)[1];
+    return block.includes('"gemini"');
+  })());
+  assert("Canis Minor is secondary, so Procyon's name outranks it", (() => {
+    const block = /SECONDARY_CONSTELLATIONS = new Set\(\[([\s\S]*?)\]\)/.exec(layerSrc)[1];
+    return block.includes('"canis-minor"');
+  })());
+  assert("a label with no clean slot is suppressed rather than overlapped",
+    layerSrc.includes("if (!Number.isFinite(position.x)) return null;"));
+}
+
+// ── Long labels stay readable and attached ───────────────────────────────────────────
+{
+  const layout = requireTs(path.resolve(__dirname, "../src/features/sky-lens/labelLayout.ts"));
+  const layerSrc = fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/layers/ConstellationLayer.tsx"), "utf8");
+  const BOX = { width: 430, height: 932 };
+  const fontSize = Number(/PRIMARY_FONT_SIZE = ([\d.]+)/.exec(layerSrc)[1]);
+  const tracking = Number(/LABEL_TRACKING = ([\d.]+)/.exec(layerSrc)[1]);
+  const leash = Number(/MAX_LABEL_DETACHMENT_PX = (\d+)/.exec(layerSrc)[1]);
+  console.log("");
+
+  for (const text of ["LITTLE DIPPER", "CORONA BOREALIS", "BIG DIPPER", "SAGITTARIUS", "CANCER", "LIBRA"]) {
+    const { w } = layout.labelBoxSize(text, fontSize, { weight: 800, letterSpacing: tracking });
+    assert(`"${text}" fits within the viewport width`, w < BOX.width - 28,
+      `${Math.round(w)}px of ${BOX.width - 28}px usable`);
+  }
+  // A centred label may only move vertically, so the leash must exceed a couple of line
+  // heights or long names would be dropped the moment anything crowds them.
+  assert("the detachment leash allows a few line-heights of nudge",
+    leash > fontSize * 2, `leash ${leash}px vs line height ~${fontSize}px`);
+  assert("type was not shrunk back down", fontSize >= 18, `${fontSize}px`);
+  assert("the warm-gold fill is preserved", layerSrc.includes('CON_LABEL_GOLD = "#F0D9A0"'));
+  assert("the dark halo is preserved", (layerSrc.match(/stroke="#03060E"/g) || []).length >= 3);
+  assert("the heavier weight is preserved", /LABEL_WEIGHT = "800"/.test(layerSrc));
 }
 
 console.log("");

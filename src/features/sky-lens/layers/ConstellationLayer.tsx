@@ -33,7 +33,9 @@ const PRIMARY_CONSTELLATIONS = new Set([
   "pegasus",
   "andromeda",
   "bootes",
-  "corona-borealis"
+  "corona-borealis",
+  "cancer",
+  "libra"
 ]);
 
 /**
@@ -53,8 +55,26 @@ const SECONDARY_CONSTELLATIONS = new Set([
   "hercules"
 ]);
 
-/** Zoom at which secondary names strengthen and the rest of the catalogue appears at all. */
-const SECONDARY_REVEAL_ZOOM = 1.8;
+/**
+ * Zoom thresholds for revealing more of the catalogue.
+ *
+ *   default (< MEDIUM)  asterisms + primary names only — the recognisable set
+ *   medium  (>= MEDIUM) secondary names join, at full weight
+ *   high    (>= HIGH)   the rest of the catalogue appears
+ *
+ * Named rather than inlined so the ladder is inspectable and testable.
+ */
+const MEDIUM_ZOOM = 1.5;
+const HIGH_ZOOM = 3;
+/**
+ * Which priority bands this mount is allowed to draw.
+ *
+ * The shared label placer is first-come-first-served, so PRIORITY IS MOUNT ORDER. To put
+ * major asterisms and primary constellations ABOVE bright-star names while leaving secondary
+ * constellations BELOW them, this layer is mounted twice around StarLayer with different
+ * bands — one pass cannot express two different priorities.
+ */
+export type ConstellationLabelBand = "primary" | "secondary" | "tertiary";
 
 // A constellation name must not be mistakable for a star name. Star names render at 16px,
 // weight 600, no tracking, LEFT-anchored beside their dot. Constellation names are larger,
@@ -105,6 +125,12 @@ type Props = {
   /** Current zoom level (1 = default FOV). Controls which tiers of name are revealed. */
   zoom?: number;
   /**
+   * Priority bands this mount may draw. Omitted = all of them (single-pass behaviour).
+   * See ConstellationLabelBand — this is what lets primary names outrank star names while
+   * secondary names yield to them.
+   */
+  bands?: ReadonlyArray<ConstellationLabelBand>;
+  /**
    * Constellation ids whose names are already shown by ANOTHER layer — the zodiac layer
    * names Leo, Taurus, Gemini, Scorpius and the rest along the ecliptic. Without this the
    * same pattern gets two labels a few points apart, which reads as a rendering bug.
@@ -125,6 +151,7 @@ export function ConstellationLayer({
   fullSphere = false,
   labelsOnly = false,
   zoom = 1,
+  bands,
   suppressNameIds,
   onSelect,
 }: Props) {
@@ -160,11 +187,17 @@ export function ConstellationLayer({
     const subLabel = c.familiarName ? c.name.toUpperCase() : null;
     const isPrimary = PRIMARY_CONSTELLATIONS.has(c.id);
     const isSecondary = SECONDARY_CONSTELLATIONS.has(c.id);
-    const zoomedIn = zoom >= SECONDARY_REVEAL_ZOOM;
+    const band: ConstellationLabelBand = isPrimary ? "primary" : isSecondary ? "secondary" : "tertiary";
 
-    // The rest of the catalogue only appears once zoomed in — at default zoom the sky would
-    // otherwise be a wall of names competing with the ten that matter.
-    if (!isPrimary && !isSecondary && !zoomedIn) return null;
+    // This mount only draws its own priority band, so the two mounts around StarLayer do not
+    // duplicate each other.
+    if (bands && !bands.includes(band)) return null;
+
+    const zoomedIn = zoom >= MEDIUM_ZOOM;
+    // Reveal progressively: secondary names at medium zoom, the rest only at high zoom. At
+    // default zoom the sky stays a map of recognisable patterns rather than a wall of names.
+    if (band === "secondary" && zoom < MEDIUM_ZOOM) return null;
+    if (band === "tertiary" && zoom < HIGH_ZOOM) return null;
 
     const fontSize = isPrimary
       ? PRIMARY_FONT_SIZE
