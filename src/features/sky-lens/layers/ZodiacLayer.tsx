@@ -24,6 +24,15 @@ type Props = {
    * the shared priority ladder. With no placer, everything renders inline (legacy).
    */
   labelsOnly?: boolean;
+  /**
+   * Suppress the sign NAME text, keeping the glyph and its markers.
+   *
+   * The zodiac name was 15px uppercase gold, centred — visually almost identical to a
+   * constellation name, and drawn near the same centroid. With both layers on, Leo got two
+   * near-identical labels. The constellation layer owns the name; the zodiac keeps its glyph,
+   * which is what makes it a zodiac layer rather than a second set of names.
+   */
+  hideNames?: boolean;
   onSelect: (object: SelectedObject) => void;
 };
 
@@ -35,7 +44,7 @@ const cardinalFor = (az: number) => CARDINALS[Math.round(((az % 360) + 360) % 36
 // Gold lines (brighter for the sign the Sun is in), magnitude-sized star dots, the
 // zodiac glyph + name at each center, faint boundary ticks between bands, a ☀ marker
 // on the Sun, and an optional "Your sign" marker. Tap opens the sign's info card.
-export function ZodiacLayer({ zodiac, project, palette, nightMode, sun, birthSignId, placeLabel, labelsOnly = false, onSelect }: Props) {
+export function ZodiacLayer({ zodiac, project, palette, nightMode, sun, birthSignId, placeLabel, labelsOnly = false, hideNames = false, onSelect }: Props) {
   const lineColor = nightMode ? palette.line : GOLD;
   const symbolColor = nightMode ? palette.conLabel : GOLD;
   // Names render inline (at the raw center) only when there is no placer to route them
@@ -51,9 +60,11 @@ export function ZodiacLayer({ zodiac, project, palette, nightMode, sun, birthSig
       <SvgText x={ax} y={ay - 20} textAnchor="middle" fontSize={isCurrent ? 22 : 18} fill={symbolColor} opacity={isCurrent ? 0.95 : 0.4}>
         {sign.symbol}
       </SvgText>
-      <SvgText x={ax} y={ay} textAnchor="middle" fontSize={15} fontWeight="600" fill={symbolColor} opacity={isCurrent ? 0.9 : 0.5} letterSpacing={1}>
-        {sign.name.toUpperCase()}
-      </SvgText>
+      {!hideNames && (
+        <SvgText x={ax} y={ay} textAnchor="middle" fontSize={15} fontWeight="600" fill={symbolColor} opacity={isCurrent ? 0.9 : 0.5} letterSpacing={1}>
+          {sign.name.toUpperCase()}
+        </SvgText>
+      )}
       {isCurrent && (
         <SvgText x={ax} y={ay + 7} textAnchor="middle" fontSize={8} fontWeight="800" fill={GOLD} opacity={0.85}>
           ☀ Sun is here · {sign.name} season

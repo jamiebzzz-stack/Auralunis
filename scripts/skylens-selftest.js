@@ -1156,18 +1156,21 @@ console.log("");
   // ── Readability ──
   assert("primary constellations are emphasised over the rest",
     layerSrc.includes("const PRIMARY_CONSTELLATIONS = new Set([") &&
-    /PRIMARY_OPACITY = 0\.9\d/.test(layerSrc) &&
+    /PRIMARY_OPACITY = (1|0\.9\d)/.test(layerSrc) &&
     /SECONDARY_OPACITY_FAR = 0\.\d/.test(layerSrc));
   assert("primary names are larger than secondary names", (() => {
     const p = Number(/PRIMARY_FONT_SIZE = ([\d.]+)/.exec(layerSrc)[1]);
     const q = Number(/SECONDARY_FONT_SIZE = ([\d.]+)/.exec(layerSrc)[1]);
     return p > q && p >= 14;
   })());
-  assert("labels have a dark backing so they stay legible over bright stars",
-    (layerSrc.match(/stroke="#05070F"/g) || []).length >= 3);
+  assert("labels have a multi-pass dark backing so they stay legible over the Milky Way",
+    (layerSrc.match(/stroke="#03060E"/g) || []).length >= 3);
   assert("the backing is drawn behind the fill, not over it", (() => {
-    const firstStroke = layerSrc.indexOf('stroke="#05070F"');
-    const fill = layerSrc.indexOf("fill={nightMode ? palette.conLabel : CON_LABEL_GOLD}");
+    // Scoped to the three-pass block so the Polaris anchor label (which appears earlier in
+    // the JSX and has its own backing) cannot satisfy this by accident.
+    const block = layerSrc.slice(layerSrc.indexOf("THREE-PASS BACKING"));
+    const firstStroke = block.indexOf('stroke="#03060E"');
+    const fill = block.indexOf("fill={nightMode ? palette.conLabel : CON_LABEL_GOLD}");
     return firstStroke > 0 && fill > firstStroke;
   })());
   // Every requested pattern is labelled; the tier only decides emphasis, not presence.
@@ -1219,8 +1222,36 @@ console.log("");
   }
   // Cancer was requested but the dataset has no line geometry for it; inventing one is
   // explicitly out of scope, so this records the gap rather than hiding it.
-  assert("KNOWN GAP: Cancer has no geometry in the dataset and is deliberately not labelled",
-    !catSrc.includes('id: "cancer"'));
+  // Cancer and Libra were requested but the dataset carries no line geometry for either, and
+  // inventing a pattern is out of scope. Recorded rather than hidden.
+  assert("KNOWN GAP: Cancer has no geometry in the dataset", !catSrc.includes('id: "cancer"'));
+  assert("KNOWN GAP: Libra has no geometry in the dataset", !catSrc.includes('id: "libra"'));
+  assert("Virgo IS present and labelled", catSrc.includes('id: "virgo"'));
+
+  // ── Constellation names must not read as star names ──
+  const starSrcForStyle = fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/layers/StarLayer.tsx"), "utf8");
+  const starFont = Number(/<SvgText[^>]*?fontSize=\{(\d+)\}[^>]*?fontWeight="600"/.exec(starSrcForStyle)?.[1] ?? 16);
+  const conFont = Number(/PRIMARY_FONT_SIZE = ([\d.]+)/.exec(layerSrc)[1]);
+  assert("constellation names are LARGER than star names",
+    conFont > starFont, `constellation ${conFont}px vs star ${starFont}px`);
+  assert("constellation names are heavier than star names", /LABEL_WEIGHT = "800"/.test(layerSrc));
+  assert("constellation names are widely tracked, unlike star names", (() => {
+    const t = Number(/LABEL_TRACKING = ([\d.]+)/.exec(layerSrc)[1]);
+    return t >= 2;
+  })());
+  assert("constellation names are centred on the pattern, star names are not",
+    layerSrc.includes('textAnchor="middle"') && !starSrcForStyle.includes('textAnchor="middle"'));
+  assert("constellation names are drawn at full opacity when primary",
+    /PRIMARY_OPACITY = 1\b/.test(layerSrc));
+
+  // ── Every requested pattern that EXISTS is a primary (prominent) label ──
+  assert("all 17 available requested patterns are primary", (() => {
+    const want = ["ursa-major", "ursa-minor", "orion", "cassiopeia", "leo", "gemini", "taurus",
+      "virgo", "scorpius", "sagittarius", "cygnus", "lyra", "aquila", "pegasus", "andromeda",
+      "bootes", "corona-borealis"];
+    const block = /PRIMARY_CONSTELLATIONS = new Set\(\[([\s\S]*?)\]\)/.exec(layerSrc)[1];
+    return want.every((id) => block.includes(`"${id}"`));
+  })());
 
   // ── Asterism handling: familiar name leads, official name supports ──
   assert("an asterism's primary label is the familiar name alone",
@@ -1249,10 +1280,17 @@ console.log("");
   const canvasSrcLabels = fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/SkyLensCanvas.tsx"), "utf8");
   assert("zodiac-duplicated constellations are enumerated", geoSrc.includes("ZODIAC_CONSTELLATION_IDS"));
   assert("Leo is in the zodiac duplicate set (the reported case)", /ZODIAC_CONSTELLATION_IDS[\s\S]*?"leo"/.test(geoSrc));
-  assert("the constellation layer suppresses names another layer owns",
-    layerSrc.includes("if (suppressNameIds?.has(c.id)) return null;"));
-  assert("suppression is applied only while the zodiac layer is on",
-    canvasSrcLabels.includes('activeLayers.has("zodiac") ? ZODIAC_CONSTELLATION_IDS : undefined'));
+  // The CONSTELLATION name now wins the duplicate. The zodiac keeps its glyph — which is
+  // what makes it a zodiac layer — but drops its near-identical uppercase name text.
+  const zodiacSrc = fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/layers/ZodiacLayer.tsx"), "utf8");
+  assert("the zodiac layer can suppress its own sign names", zodiacSrc.includes("hideNames"));
+  assert("the zodiac keeps its glyph when names are hidden",
+    /\{!hideNames && \(/.test(zodiacSrc) &&
+    zodiacSrc.includes("{sign.symbol}"));
+  assert("zodiac names are hidden whenever the constellation layer is on",
+    canvasSrcLabels.includes('hideNames={activeLayers.has("constellations")}'));
+  assert("the constellation layer no longer yields its names to the zodiac",
+    !canvasSrcLabels.includes("suppressNameIds={"));
 
   // ── Zoom-dependent priority ──
   assert("three priority tiers exist",
