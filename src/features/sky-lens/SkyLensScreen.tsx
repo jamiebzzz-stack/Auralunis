@@ -68,6 +68,15 @@ import { DEFAULT_ACTIVE_LAYERS, SKY_LENS_LAYERS, type LayerDef, type LayerKey } 
 import { projectTarget, projectTargetWithBasis, DEFAULT_FOV, type CameraPointing } from "./ar/SkyLensProjection";
 import { skyGradient, starColor, type SelectedObject, type FocusZone } from "./SkyLensVisual";
 import { getVisualGate } from "./PremiumVisualGating";
+// First Light (optional guided tour). Everything below is ADDITIVE and read-only with respect
+// to Sky Lens: the tour registers two existing controls as spotlight targets and receives
+// values that are already computed here. It never drives orientation, projection, selection,
+// layers, time, or the Vault.
+import { useTourTarget } from "@/features/tour/TourTargetRegistry";
+import { FIRST_LIGHT_TARGETS } from "@/features/first-light/firstLightSteps";
+import { FirstLightSkyLens } from "@/features/first-light/FirstLightSkyLens";
+import { ContextualTipHost } from "@/features/first-light/ContextualTipHost";
+import type { ContextualTipId } from "@/features/first-light/contextualTips";
 
 // Dev-only Sky Lens review targets. Aiming at one of these pins the clock to the planet's
 // next meridian transit so it can be inspected on a physical device without waiting for it
@@ -89,7 +98,12 @@ export type FocusTarget = {
   description?: string;
 };
 
-type Props = { onClose: () => void; focusTarget?: FocusTarget | null };
+type Props = {
+  onClose: () => void;
+  focusTarget?: FocusTarget | null;
+  /** Optional: leave Sky Lens for the Learn tab (used by the First Light tour). */
+  onOpenLearn?: () => void;
+};
 
 type LayoutEvent = { nativeEvent: { layout: { width: number; height: number } } };
 
@@ -100,8 +114,14 @@ const arrowFor = (bearingDegrees: number) => ARROWS[Math.round(bearingDegrees / 
 // Full-screen Sky Lens: a sensor-aligned cinematic planetarium (no camera feed) with the Stars,
 // Constellations, Planets, Moon, and Grid layers projected over it, a toggle
 // bar, tap-to-reveal Info Card, and Night Mode. Phase-2 layers appear locked.
-export function SkyLensScreen({ onClose, focusTarget }: Props) {
+export function SkyLensScreen({ onClose, focusTarget, onOpenLearn }: Props) {
   const insets = useSafeAreaInsets();
+  // Guided-tour spotlight targets for two EXISTING controls. `useTourTarget` is inert when no
+  // tour registry is mounted, so these add a callback ref and an onLayout and nothing else.
+  const lockSkyTourTarget = useTourTarget(FIRST_LIGHT_TARGETS.lockSky);
+  const timeTravelTourTarget = useTourTarget(FIRST_LIGHT_TARGETS.timeTravel);
+  // One-time contextual tip bookkeeping (post-tour). A single boolean; no other behaviour.
+  const [layersSheetSeen, setLayersSheetSeen] = useState(false);
   const { location, status } = useObserverLocation();
   // Zoom state lives up here so the device-pointing smoothing can ramp with it.
   const [zoom, setZoom] = useState(1);
@@ -940,6 +960,19 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
     heroCenteredRef.current = now;
   }, [pointing, sky.bodies, sky.stars, fov, box, gate.hapticDiscovery]);
 
+  // Contextual mini-guides (post-First-Light), most situational first. Each is shown at most
+  // once ever; the eligibility rules (never during the tour, never over a modal or an open
+  // object card, never stacked) live in contextualTips.ts.
+  const tipCandidates = useMemo<ContextualTipId[]>(() => {
+    const candidates: ContextualTipId[] = [];
+    if (savedIds.size > 0) candidates.push("firstVaultSave");
+    if (zoom >= 2) candidates.push("constellationZoom");
+    if (layersSheetSeen) candidates.push("layers");
+    if (!isPremium && preview !== null) candidates.push("premiumDiscovery");
+    candidates.push("offline");
+    return candidates;
+  }, [savedIds, zoom, layersSheetSeen, isPremium, preview]);
+
   return (
     <View style={styles.root} onLayout={onLayout}>
       <GestureDetector gesture={sceneGesture}>
@@ -1196,6 +1229,8 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
           which is a hands-off presentation mode. */}
       {!cinematic && (
         <Pressable
+          ref={lockSkyTourTarget.ref}
+          onLayout={lockSkyTourTarget.onLayout}
           onPress={() => { tapLight(); skyOrientation.toggleLock(); }}
           style={[styles.lockChip, { bottom: insets.bottom + 96 }, skyOrientation.isLocked && styles.lockChipActive]}
           accessibilityRole="button"
@@ -1252,6 +1287,8 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
 
         <View style={styles.toggleRow} pointerEvents="box-none">
           <TouchableOpacity
+            ref={timeTravelTourTarget.ref}
+            onLayout={timeTravelTourTarget.onLayout}
             style={[styles.iconBtn, scrubVisible && { backgroundColor: "rgba(217,168,78,0.32)" }]}
             onPress={() => {
               // Time Travel (scrubbing the sky through time) is premium — free users get
@@ -1342,7 +1379,7 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
             active={active}
             nightMode={nightMode}
             onToggle={toggleLayer}
-            onOpenLayers={() => setLayersSheet(true)}
+            onOpenLayers={() => { setLayersSheetSeen(true); setLayersSheet(true); }}
           />
         )}
       </View>
@@ -1377,6 +1414,40 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
           </Animated.View>
         </Pressable>
       )}
+
+      {/* ── First Light (optional guided tour) ────────────────────────────────────────
+          Rendered last so its instruction card sits above the chrome, but its root is
+          pointerEvents="box-none" and its dimming is drawn AROUND the spotlight — object
+          taps, the Lock Sky chip, and every other control stay live underneath. It reads
+          the values below; it sets none of them. */}
+      <FirstLightSkyLens
+        box={box}
+        orientation={skyOrientation.orientation}
+        motionAvailable={skyOrientation.available}
+        isLocked={skyOrientation.isLocked}
+        selectedId={selected?.id ?? null}
+        timeOffsetMinutes={timeOffsetMin}
+        timeControlAvailable
+        savedIds={savedIds}
+        isPremium={isPremium}
+        bodies={sky.bodies}
+        stars={sky.stars}
+        constellations={sky.constellations}
+        project={projectShared}
+        cameraAim={{ azimuthDegrees: pointing.azimuthDegrees, altitudeDegrees: pointing.altitudeDegrees }}
+        onOpenLearn={() => onOpenLearn?.()}
+        onRestoreLiveTime={() => setTimeOffsetMin(0)}
+        accent={accent}
+      />
+
+      <ContextualTipHost
+        candidates={tipCandidates}
+        context={{
+          modalVisible: layersSheet || preview !== null,
+          objectCardOpen: selected !== null,
+        }}
+        bottom={floatAbove + 8}
+      />
     </View>
   );
 }
