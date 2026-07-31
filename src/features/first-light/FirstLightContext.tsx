@@ -27,12 +27,14 @@ import React, {
 import { trackTutorialEvent } from "@/services/AnalyticsService";
 import {
   DEFAULT_FIRST_LIGHT_STATE,
+  isResumable,
   markCompleted,
   markSkipped,
   markStarted,
   markStep,
   markTipSeen as markTipSeenPure,
   resetForReplay,
+  resolveResumeStepId,
   shouldOfferFirstLight,
   type FirstLightState,
 } from "./firstLightState";
@@ -50,6 +52,7 @@ import {
   canContinue as machineCanContinue,
   canGoBack as machineCanGoBack,
   currentStep as machineCurrentStep,
+  isPaused as machineIsPaused,
   INITIAL_TOUR_STATE,
   reanchorIndex,
   tourReducer,
@@ -72,12 +75,25 @@ type FirstLightContextValue = {
   overlayVisible: boolean;
   /** True when the "Begin First Light / Skip for now" choice should be presented. */
   offerVisible: boolean;
+  /**
+   * True when the persisted document says the user was mid-tour AND that position still exists
+   * in this user's mission — the offer then leads with Resume instead of Begin.
+   */
+  resumable: boolean;
+  /** The tour is parked (its host screen went away) and can be resumed from the Sky tab. */
+  paused: boolean;
   /** Which shape the save step took for this user, or null when it was omitted. */
   saveVariant: SaveStepVariant | null;
   capabilities: FirstLightCapabilities;
 
   reportCapabilities: (capabilities: Partial<FirstLightCapabilities>) => void;
+  /** Called once by the app root when entitlement has resolved — see capabilitiesResolved. */
+  markCapabilitiesResolved: () => void;
   beginTour: () => void;
+  resumeTour: () => void;
+  restartTour: () => void;
+  pauseTour: () => void;
+  dismissPausedTour: () => void;
   declineOffer: () => void;
   next: () => void;
   back: () => void;
@@ -109,6 +125,13 @@ export function FirstLightProvider({
   const [capabilities, setCapabilities] = useState<FirstLightCapabilities>(DEFAULT_CAPABILITIES);
   /** The offer was answered in this session — don't re-present it before the next launch. */
   const [offerAnswered, setOfferAnswered] = useState(false);
+  /**
+   * Entitlement (and therefore the FULL step list) has resolved. The offer waits for this so
+   * the progress indicator can never open on a provisional total and then jump.
+   */
+  const [capabilitiesResolved, setCapabilitiesResolved] = useState(false);
+  /** A paused tour was dismissed for this session — don't keep nagging from the Sky tab. */
+  const [pausedDismissed, setPausedDismissed] = useState(false);
 
   // ── Hydrate once ────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -173,6 +196,8 @@ export function FirstLightProvider({
     );
   }, [hydrated, machine.status, step?.id]);
 
+  const markCapabilitiesResolved = useCallback(() => setCapabilitiesResolved(true), []);
+
   const reportCapabilities = useCallback((next: Partial<FirstLightCapabilities>) => {
     setCapabilities((current) => {
       const merged = { ...current, ...next };
@@ -183,12 +208,46 @@ export function FirstLightProvider({
     });
   }, []);
 
+  const stepIds = useMemo(() => steps.map((s) => s.id), [steps]);
+  const resumeStepId = resolveResumeStepId(document, stepIds);
+  const resumable = hydrated && isResumable(document) && resumeStepId !== null;
+
   const beginTour = useCallback(() => {
     setOfferAnswered(true);
-    dispatch({ type: "start" });
+    setPausedDismissed(false);
+    dispatch({ type: "restart" });
     setDocument((current) => markStarted(current, "welcome", nowISO()));
     trackTutorialEvent("first_light_started");
   }, [dispatch]);
+
+  /**
+   * Pick up an interrupted tour where it actually stopped. The machine lives only in memory, so
+   * after a relaunch it is idle at index 0 — without this, a user interrupted on step 6 was
+   * silently returned to step 1 even though the position had been persisted all along.
+   */
+  const resumeTour = useCallback(() => {
+    setOfferAnswered(true);
+    setPausedDismissed(false);
+    if (resumeStepId) dispatch({ type: "goto", stepId: resumeStepId });
+    else dispatch({ type: "start" }); // corrupt / unknown pointer → open at Welcome
+    trackTutorialEvent("first_light_started", { reason: "resumed", stepId: resumeStepId ?? "welcome" });
+  }, [dispatch, resumeStepId]);
+
+  const restartTour = useCallback(() => {
+    setOfferAnswered(true);
+    setPausedDismissed(false);
+    dispatch({ type: "restart" });
+    setDocument((current) => markStarted(current, "welcome", nowISO()));
+    trackTutorialEvent("first_light_replayed", { reason: "restart_from_offer" });
+  }, [dispatch]);
+
+  /** Park the tour when its host screen goes away, instead of leaving it running with no UI. */
+  const pauseTour = useCallback(() => {
+    dispatch({ type: "pause" });
+    trackTutorialEvent("first_light_step_completed", { reason: "paused" });
+  }, [dispatch]);
+
+  const dismissPausedTour = useCallback(() => setPausedDismissed(true), []);
 
   const declineOffer = useCallback(() => {
     setOfferAnswered(true);
@@ -254,8 +313,17 @@ export function FirstLightProvider({
     [steps]
   );
 
+  // The offer waits for capabilities so the mission length is final before the tour opens.
   const offerVisible =
-    enabled && hydrated && !offerAnswered && machine.status !== "running" && shouldOfferFirstLight(document);
+    enabled &&
+    hydrated &&
+    capabilitiesResolved &&
+    !offerAnswered &&
+    machine.status !== "running" &&
+    machine.status !== "paused" &&
+    shouldOfferFirstLight(document);
+
+  const paused = machineIsPaused(machine) && !pausedDismissed;
 
   const value = useMemo<FirstLightContextValue>(
     () => ({
@@ -270,10 +338,17 @@ export function FirstLightProvider({
       canGoBack: machineCanGoBack(machine),
       overlayVisible,
       offerVisible,
+      resumable,
+      paused,
       saveVariant,
       capabilities,
       reportCapabilities,
+      markCapabilitiesResolved,
       beginTour,
+      resumeTour,
+      restartTour,
+      pauseTour,
+      dismissPausedTour,
       declineOffer,
       next,
       back,
@@ -294,10 +369,17 @@ export function FirstLightProvider({
       total,
       overlayVisible,
       offerVisible,
+      resumable,
+      paused,
       saveVariant,
       capabilities,
       reportCapabilities,
+      markCapabilitiesResolved,
       beginTour,
+      resumeTour,
+      restartTour,
+      pauseTour,
+      dismissPausedTour,
       declineOffer,
       next,
       back,

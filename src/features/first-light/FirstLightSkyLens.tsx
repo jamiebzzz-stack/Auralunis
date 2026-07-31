@@ -28,6 +28,7 @@ import {
 } from "@/features/sky-lens/ar/orientationQuaternion";
 import { useFirstLight } from "./FirstLightContext";
 import { LOOK_AROUND_NO_MOTION_HINT, NO_LIVE_TARGET_HINT } from "./firstLightSteps";
+import { isObjectStepSatisfied, shouldRestoreLiveTime } from "./firstLightRules";
 import {
   describeConstellation,
   practiceTarget,
@@ -71,6 +72,8 @@ type Props = {
   cameraAim: { azimuthDegrees: number; altitudeDegrees: number };
   onOpenLearn: () => void;
   onRestoreLiveTime: () => void;
+  /** Measured height of the Sky Lens bottom control strip the tour card must not cover. */
+  reservedBottom: number;
   accent: string;
 };
 
@@ -96,6 +99,7 @@ export function FirstLightSkyLens(props: Props) {
     cameraAim,
     onOpenLearn,
     onRestoreLiveTime,
+    reservedBottom,
     accent,
   } = props;
 
@@ -167,23 +171,30 @@ export function FirstLightSkyLens(props: Props) {
 
   useEffect(() => {
     if (!active || stepId !== "findObject" || !satisfy) return;
-    // A practice marker has no real position to hunt for — never block on it.
-    if (target?.simulated) {
-      satisfy("findObject");
-      return;
-    }
-    if (targetProjection?.onScreen && !targetProjection.behind) satisfy("findObject");
-  }, [active, stepId, target?.simulated, targetProjection, satisfy]);
+    // The rule lives in firstLightRules.isObjectStepSatisfied so the no-motion case is
+    // deterministically testable — it was only reachable by driving a simulator before.
+    const satisfied = isObjectStepSatisfied({
+      step: "findObject",
+      motionAvailable,
+      targetSimulated: target?.simulated ?? false,
+      targetOnScreen: !!targetProjection && targetProjection.onScreen && !targetProjection.behind,
+      correctCardOpen: false,
+    });
+    if (satisfied) satisfy("findObject");
+  }, [active, stepId, target?.simulated, motionAvailable, targetProjection, satisfy]);
 
   // ── Step 4: the CORRECT card opened ─────────────────────────────────────────────
   useEffect(() => {
     if (!active || stepId !== "openCard" || !satisfy) return;
-    if (target?.simulated) {
-      satisfy("openCard");
-      return;
-    }
-    if (target && selectedId === target.id) satisfy("openCard");
-  }, [active, stepId, selectedId, target, satisfy]);
+    const satisfied = isObjectStepSatisfied({
+      step: "openCard",
+      motionAvailable,
+      targetSimulated: target?.simulated ?? false,
+      targetOnScreen: !!targetProjection && targetProjection.onScreen && !targetProjection.behind,
+      correctCardOpen: !!target && selectedId === target.id,
+    });
+    if (satisfied) satisfy("openCard");
+  }, [active, stepId, selectedId, target, motionAvailable, targetProjection, satisfy]);
 
   // ── Step 6: lock AND a real drag while locked ───────────────────────────────────
   // While the sky is locked the rendered orientation changes ONLY because of drag, so the
@@ -245,12 +256,50 @@ export function FirstLightSkyLens(props: Props) {
     return () => animation.stop();
   }, [active, stepId, reduceMotion, celebrate]);
 
+  // LEAVING THE TIME STEP RESTORES THE LIVE SKY — by ANY route.
+  // Continue, Back, Skip Tour, a pause because Sky Lens closed, or the whole tour unmounting all
+  // funnel through the same observation: the step that WAS showing is no longer showing. Wiring
+  // this to the Continue handler alone left the sky frozen hours away whenever the user backed
+  // out or skipped instead.
+  const keepChangedTimeRef = useRef(keepChangedTime);
+  keepChangedTimeRef.current = keepChangedTime;
+  const restoreRef = useRef(onRestoreLiveTime);
+  restoreRef.current = onRestoreLiveTime;
+  const timeOffsetRef = useRef(timeOffsetMinutes);
+  timeOffsetRef.current = timeOffsetMinutes;
+
+  const previousStepRef = useRef<string | null>(null);
+  useEffect(() => {
+    const previous = previousStepRef.current;
+    previousStepRef.current = stepId;
+    const restore = shouldRestoreLiveTime({
+      previousStepId: previous,
+      nextStepId: stepId,
+      keepChangedTime: keepChangedTimeRef.current,
+      timeOffsetMinutes: timeOffsetRef.current,
+    });
+    if (restore) restoreRef.current();
+  }, [stepId]);
+
+  // Unmount (Sky Lens closed, tour torn down) — same rule, nextStepId of null.
+  useEffect(
+    () => () => {
+      const restore = shouldRestoreLiveTime({
+        previousStepId: previousStepRef.current,
+        nextStepId: null,
+        keepChangedTime: keepChangedTimeRef.current,
+        timeOffsetMinutes: timeOffsetRef.current,
+      });
+      if (restore) restoreRef.current();
+    },
+    []
+  );
+
   const handleContinue = useCallback(() => {
     if (!firstLight) return;
-    // Leaving the time step restores the live sky unless the user asked to keep the change.
-    if (stepId === "exploreTime" && !keepChangedTime) onRestoreLiveTime();
+    // The step-change effect above performs the restore; advancing is all this has to do.
     firstLight.next();
-  }, [firstLight, stepId, keepChangedTime, onRestoreLiveTime]);
+  }, [firstLight]);
 
   if (!firstLight || !active || !step) return null;
 
@@ -277,6 +326,7 @@ export function FirstLightSkyLens(props: Props) {
     constellationCopy,
     targetName: target?.name ?? null,
     variant: step.variant ?? null,
+    targetOnScreen: !!targetProjection && targetProjection.onScreen && !targetProjection.behind,
   });
 
   return (
@@ -301,6 +351,7 @@ export function FirstLightSkyLens(props: Props) {
         hint={hint}
         targetKey={step.targetKey}
         spotlightRect={spotlightRect}
+        reservedBottom={reservedBottom}
         index={firstLight.index}
         total={firstLight.total}
         canGoBack={firstLight.canGoBack}
@@ -401,10 +452,21 @@ function resolveHint(args: {
   constellationCopy: { title: string; subtitle: string } | null;
   targetName: string | null;
   variant: string | null;
+  targetOnScreen: boolean;
 }): string | null {
-  const { stepId, motionAvailable, simulatedTarget, constellationCopy, targetName, variant } = args;
+  const { stepId, motionAvailable, simulatedTarget, constellationCopy, targetName, variant, targetOnScreen } = args;
   if (stepId === "lookAround" && !motionAvailable) return LOOK_AROUND_NO_MOTION_HINT;
   if ((stepId === "findObject" || stepId === "openCard") && simulatedTarget) return NO_LIVE_TARGET_HINT;
+  // No motion: state plainly that the sky cannot be swept here, and that the step is not being
+  // treated as completed by pointing the phone. Nothing pretends motion was detected.
+  if (stepId === "findObject" && !motionAvailable) {
+    return targetName
+      ? `${targetName} is up tonight, but without motion the sky can’t follow your phone — continue and you’ll learn to lock and drag instead.`
+      : NO_LIVE_TARGET_HINT;
+  }
+  if (stepId === "openCard" && !motionAvailable && !targetOnScreen) {
+    return "Tapping an object needs it on screen. Continue — the next steps show you how to bring the sky to you.";
+  }
   if (stepId === "findObject" && targetName) return `Tonight’s target: ${targetName}.`;
   if (stepId === "openCard" && targetName) return `Tap ${targetName} to open its card.`;
   if (stepId === "constellation" && constellationCopy) {

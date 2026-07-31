@@ -116,10 +116,20 @@ export function cardAnchor(
   screen: Partial<TourSize>,
   insets: Partial<TourInsets> | null | undefined,
   cardHeight: number,
-  gap: number = DEFAULT_CARD_GAP
+  gap: number = DEFAULT_CARD_GAP,
+  /**
+   * Height of a host-owned control strip at the bottom of the screen that the card must not
+   * cover (in Sky Lens: the Lock Sky chip, shutter, layer bar, and time panel). The host
+   * measures this from its own layout — no screen coordinate is ever hardcoded here.
+   */
+  reservedBottom: number = 0
 ): { top: number; placement: CardPlacement } {
   const safeTop = finite(insets?.top) ? (insets as TourInsets).top : 0;
-  const safeBottom = finite(insets?.bottom) ? (insets as TourInsets).bottom : 0;
+  const rawSafeBottom = finite(insets?.bottom) ? (insets as TourInsets).bottom : 0;
+  const reserved = finite(reservedBottom) && reservedBottom > 0 ? reservedBottom : 0;
+  // The reserved strip is measured from the screen edge and already includes the home
+  // indicator, so the effective floor is whichever of the two reaches higher.
+  const safeBottom = Math.max(rawSafeBottom, reserved);
   const height = finite(cardHeight) && cardHeight > 0 ? cardHeight : 0;
   const space = finite(gap) && gap >= 0 ? gap : DEFAULT_CARD_GAP;
 

@@ -66,6 +66,7 @@ const stepsModule = requireTs(src("features/first-light/firstLightSteps.ts"));
 const targets = requireTs(src("features/first-light/firstLightTargets.ts"));
 const tips = requireTs(src("features/first-light/contextualTips.ts"));
 const storage = requireTs(src("features/first-light/firstLightStorage.ts"));
+const rules = requireTs(src("features/first-light/firstLightRules.ts"));
 
 let pass = 0;
 let fail = 0;
@@ -637,6 +638,213 @@ function geometrySection() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════════════
+function auditRegressionSection() {
+  console.log("\n── 9. Audit regressions: the no-motion trap, time restore, duplicate saves ──");
+
+  // ---- The trap: real object + no motion must NOT block the tour ----------------
+  const noMotionFind = {
+    step: "findObject",
+    motionAvailable: false,
+    targetSimulated: false,
+    targetOnScreen: false,
+    correctCardOpen: false,
+  };
+  check(
+    "REGRESSION: a real, off-screen object with NO motion cannot trap Find Object",
+    rules.isObjectStepSatisfied(noMotionFind) === true
+  );
+  check(
+    "REGRESSION: the same situation cannot trap Open Card either",
+    rules.isObjectStepSatisfied({ ...noMotionFind, step: "openCard" }) === true
+  );
+  check(
+    "with motion available, Find Object still requires the object on screen",
+    rules.isObjectStepSatisfied({ ...noMotionFind, motionAvailable: true }) === false
+  );
+  check(
+    "with motion available, the object entering view satisfies Find Object",
+    rules.isObjectStepSatisfied({ ...noMotionFind, motionAvailable: true, targetOnScreen: true }) === true
+  );
+  check(
+    "Open Card still demands the CORRECT card when the object is reachable",
+    rules.isObjectStepSatisfied({
+      step: "openCard", motionAvailable: true, targetSimulated: false, targetOnScreen: true, correctCardOpen: false,
+    }) === false
+  );
+  check(
+    "the correct card satisfies Open Card",
+    rules.isObjectStepSatisfied({
+      step: "openCard", motionAvailable: true, targetSimulated: false, targetOnScreen: true, correctCardOpen: true,
+    }) === true
+  );
+  check(
+    "a practice marker never blocks either step",
+    rules.isObjectStepSatisfied({ ...noMotionFind, targetSimulated: true, motionAvailable: true }) === true
+  );
+  check(
+    "no-motion does NOT satisfy Open Card while the object IS on screen (tap it)",
+    rules.isObjectStepSatisfied({
+      step: "openCard", motionAvailable: false, targetSimulated: false, targetOnScreen: true, correctCardOpen: false,
+    }) === false
+  );
+
+  // ---- Time restoration on every exit path -------------------------------------
+  const scrubbed = { previousStepId: "exploreTime", keepChangedTime: false, timeOffsetMinutes: 180 };
+  check("Continue out of the time step restores the live sky", rules.shouldRestoreLiveTime({ ...scrubbed, nextStepId: "saveDiscovery" }) === true);
+  check("REGRESSION: Back out of the time step restores it too", rules.shouldRestoreLiveTime({ ...scrubbed, nextStepId: "lockSky" }) === true);
+  check("REGRESSION: Skip Tour from the time step restores it (no step showing)", rules.shouldRestoreLiveTime({ ...scrubbed, nextStepId: null }) === true);
+  check("REGRESSION: unmount / pause from the time step restores it", rules.shouldRestoreLiveTime({ ...scrubbed, nextStepId: null }) === true);
+  check("staying on the time step does not restore", rules.shouldRestoreLiveTime({ ...scrubbed, nextStepId: "exploreTime" }) === false);
+  check("an explicit 'keep this time' is honoured on every exit", rules.shouldRestoreLiveTime({ ...scrubbed, nextStepId: null, keepChangedTime: true }) === false);
+  check("an unchanged clock needs no restore", rules.shouldRestoreLiveTime({ ...scrubbed, nextStepId: null, timeOffsetMinutes: 0 }) === false);
+  check("leaving any OTHER step never touches the clock", rules.shouldRestoreLiveTime({ previousStepId: "lockSky", nextStepId: null, keepChangedTime: false, timeOffsetMinutes: 180 }) === false);
+  check("a non-finite offset is ignored rather than trusted", rules.shouldRestoreLiveTime({ ...scrubbed, nextStepId: null, timeOffsetMinutes: NaN }) === false);
+
+  // ---- Duplicate Vault saves ----------------------------------------------------
+  const vault = [
+    { type: "archive", title: "Venus", detail: "x" },
+    { type: "note", title: "Cosmic Note", detail: "y" },
+  ];
+  check("REGRESSION: an object already in the Vault is detected", rules.isAlreadySavedToVault(vault, "Venus") === true);
+  check("a different object is not a duplicate", rules.isAlreadySavedToVault(vault, "Jupiter") === false);
+  check("a same-named NOTE is not mistaken for an archived object", rules.isAlreadySavedToVault([{ type: "note", title: "Venus" }], "Venus") === false);
+  check("an empty Vault has no duplicates", rules.isAlreadySavedToVault([], "Venus") === false);
+  check("an empty name is never a duplicate", rules.isAlreadySavedToVault(vault, "") === false);
+}
+
+function resumeSection() {
+  console.log("\n── 10. Cross-launch resume, restart, and pause ──");
+
+  const STEP_IDS = ["welcome", "lookAround", "findObject", "openCard", "constellation", "lockSky", "exploreTime", "saveDiscovery", "completion"];
+  const midTour = { ...DEFAULTS, status: "inProgress", currentStep: "lockSky" };
+
+  check("REGRESSION: a persisted mid-tour position resolves to that step", state.resolveResumeStepId(midTour, STEP_IDS) === "lockSky");
+  check("a completed document has nothing to resume", state.resolveResumeStepId({ ...DEFAULTS, status: "completed", currentStep: "lockSky" }, STEP_IDS) === null);
+  check("a skipped document has nothing to resume", state.resolveResumeStepId({ ...DEFAULTS, status: "skipped", currentStep: "lockSky" }, STEP_IDS) === null);
+  check("a fresh document has nothing to resume", state.resolveResumeStepId(DEFAULTS, STEP_IDS) === null);
+  check("a CORRUPT step id falls back safely to the beginning", state.resolveResumeStepId({ ...midTour, currentStep: "not-a-step" }, STEP_IDS) === null);
+  check(
+    "a step that exists for premium but not for this user falls back safely",
+    state.resolveResumeStepId({ ...midTour, currentStep: "exploreTime" }, ["welcome", "lookAround", "completion"]) === null
+  );
+
+  const STEPS = STEP_IDS.map((id) => ({ id, requiresAction: false }));
+  // persist at step 6 → terminate → relaunch (fresh machine) → resume at step 6
+  const relaunched = machine.INITIAL_TOUR_STATE;
+  const resumed = machine.tourReducer(relaunched, { type: "goto", stepId: "lockSky" }, STEPS);
+  check("REGRESSION: resuming lands on the persisted step, not step 1", resumed.index === 5 && resumed.status === "running");
+  check("resuming makes that step current", machine.currentStep(resumed, STEPS).id === "lockSky");
+  const restarted = machine.tourReducer(resumed, { type: "restart" }, STEPS);
+  check("restart begins at step 1", restarted.index === 0);
+  check("restart clears satisfied actions", restarted.satisfiedStepIds.length === 0);
+
+  // pause / resume
+  const running = machine.tourReducer(machine.INITIAL_TOUR_STATE, { type: "start" }, STEPS);
+  const advanced = machine.tourReducer(machine.tourReducer(running, { type: "next" }, STEPS), { type: "next" }, STEPS);
+  const paused = machine.tourReducer(advanced, { type: "pause" }, STEPS);
+  check("REGRESSION: pausing stops the overlay without abandoning the tour", paused.status === "paused");
+  check("a paused tour renders no step (no invisible running overlay)", machine.currentStep(paused, STEPS) === null);
+  check("isPaused reports it", machine.isPaused(paused) === true);
+  check("a paused tour keeps its position", paused.index === advanced.index);
+  const unpaused = machine.tourReducer(paused, { type: "start" }, STEPS);
+  check("resuming a paused tour returns to the SAME step", unpaused.status === "running" && unpaused.index === advanced.index);
+  check("a paused tour can still be skipped outright", machine.tourReducer(paused, { type: "skip" }, STEPS).status === "skipped");
+  check("pause is a no-op on an idle tour", machine.tourReducer(machine.INITIAL_TOUR_STATE, { type: "pause" }, STEPS).status === "idle");
+  check("pause is a no-op on a completed tour", machine.tourReducer({ status: "completed", index: 0, satisfiedStepIds: [] }, { type: "pause" }, STEPS).status === "completed");
+}
+
+function tipHoldSection() {
+  console.log("\n── 11. Contextual tips: one at a time, no self-consuming burst ──");
+
+  const candidates = ["firstVaultSave", "constellationZoom", "layers", "offline"];
+  const clear = {
+    firstLightSettled: true, tourOverlayVisible: false, modalVisible: false,
+    objectCardOpen: false, otherTipVisible: false,
+  };
+  let doc = { ...DEFAULTS, status: "completed" };
+
+  // Drive the host's real loop: select → render → record impression → re-render.
+  let held = null;
+  const shown = [];
+  for (let render = 1; render <= 8; render += 1) {
+    const chosen = tips.selectHeldTip(held, candidates, doc, clear);
+    if (chosen && chosen !== held) shown.push(chosen);
+    held = chosen;
+    if (render === 2 && held) doc = state.markTipSeen(doc, held, "t"); // impression timer fires
+  }
+  eq("REGRESSION: exactly ONE tip is shown across the whole render burst", shown, ["firstVaultSave"]);
+  check("the held tip survives its own impression being recorded", held === "firstVaultSave");
+  eq("only that one tip was consumed", doc.contextualTipsSeen, ["firstVaultSave"]);
+
+  // After the host clears the slot, the NEXT tip may take a turn — one at a time.
+  const second = tips.selectHeldTip(null, candidates, doc, clear);
+  check("once the slot is cleared the next tip becomes eligible", second === "constellationZoom");
+  check("a dismissed tip never returns after a remount", tips.selectHeldTip(null, candidates, doc, clear) !== "firstVaultSave");
+
+  // A held tip still yields to anything more important.
+  check("a held tip is dropped when a tutorial overlay appears", tips.selectHeldTip("layers", candidates, doc, { ...clear, tourOverlayVisible: true }) === null);
+  check("a held tip is dropped for a modal", tips.selectHeldTip("layers", candidates, doc, { ...clear, modalVisible: true }) === null);
+  check("a held tip is dropped for an open object card", tips.selectHeldTip("layers", candidates, doc, { ...clear, objectCardOpen: true }) === null);
+  check("nothing is held before First Light settles", tips.selectHeldTip(null, candidates, doc, { ...clear, firstLightSettled: false }) === null);
+  check("a deliberate minimum impression duration is defined", tips.TIP_MIN_IMPRESSION_MS >= 2000);
+  check("an auto-retire duration is defined and longer than the impression", tips.TIP_AUTO_HIDE_MS > tips.TIP_MIN_IMPRESSION_MS);
+}
+
+function stableTotalsSection() {
+  console.log("\n── 12. Stable progress totals under delayed capability resolution ──");
+
+  // What the app root now reports the moment entitlement resolves.
+  const rootPremium = { isPremium: true, timeControlAvailable: true, learnAvailable: true };
+  const rootFree = { isPremium: false, timeControlAvailable: true, learnAvailable: true };
+
+  const premiumAtRoot = stepsModule.buildFirstLightSteps(rootPremium).length;
+  const freeAtRoot = stepsModule.buildFirstLightSteps(rootFree).length;
+
+  // Sky Lens later adds only the things it alone can know.
+  const premiumInSkyLens = stepsModule.buildFirstLightSteps({ ...rootPremium, motionAvailable: true, vaultSaveAvailable: true }).length;
+  const premiumNoTarget = stepsModule.buildFirstLightSteps({ ...rootPremium, motionAvailable: false, vaultSaveAvailable: false }).length;
+  const freeInSkyLens = stepsModule.buildFirstLightSteps({ ...rootFree, motionAvailable: true, vaultSaveAvailable: true }).length;
+
+  check("REGRESSION: a premium total does not change when Sky Lens reports in", premiumAtRoot === premiumInSkyLens, `${premiumAtRoot} → ${premiumInSkyLens}`);
+  check("…nor when no saveable object is available", premiumAtRoot === premiumNoTarget, `${premiumAtRoot} → ${premiumNoTarget}`);
+  check("REGRESSION: a free total does not change either", freeAtRoot === freeInSkyLens, `${freeAtRoot} → ${freeInSkyLens}`);
+  check("premium sees nine steps", premiumAtRoot === 9, String(premiumAtRoot));
+  check("free sees eight (no premium time step)", freeAtRoot === 8, String(freeAtRoot));
+  check("the root capability constants exist", stepsModule.TIME_CONTROL_SHIPS_IN_SKY_LENS === true && stepsModule.LEARN_TAB_SHIPS === true);
+}
+
+function reservedDockSection() {
+  console.log("\n── 13. Tour cards keep clear of the host's bottom controls ──");
+
+  const screen = { width: 390, height: 844 };
+  const insets = { top: 59, bottom: 34, left: 0, right: 0 };
+  const DOCK = 210; // a representative Sky Lens reserved strip (dock + lock chip + shutter)
+  const CARD = 200;
+
+  const withoutReserve = geometry.cardAnchor(null, screen, insets, CARD);
+  const withReserve = geometry.cardAnchor(null, screen, insets, CARD, geometry.DEFAULT_CARD_GAP, DOCK);
+  check("REGRESSION: reserving the dock lifts an un-spotlit card above it", withReserve.top < withoutReserve.top);
+  check(
+    "REGRESSION: the card's bottom edge clears the reserved strip entirely",
+    withReserve.top + CARD <= screen.height - DOCK - 8,
+    `card bottom ${withReserve.top + CARD} vs strip top ${screen.height - DOCK}`
+  );
+  check("the card is still inside the top safe area", withReserve.top >= insets.top);
+  check("a zero reserve behaves exactly as before", geometry.cardAnchor(null, screen, insets, CARD, geometry.DEFAULT_CARD_GAP, 0).top === withoutReserve.top);
+  check("a nonsense reserve is ignored rather than trusted", geometry.cardAnchor(null, screen, insets, CARD, geometry.DEFAULT_CARD_GAP, NaN).top === withoutReserve.top);
+  check("a reserve smaller than the safe area cannot make things worse", geometry.cardAnchor(null, screen, insets, CARD, geometry.DEFAULT_CARD_GAP, 10).top === withoutReserve.top);
+
+  // A spotlit step is unaffected: the card still sits next to what it points at.
+  const spot = { x: 20, y: 120, width: 200, height: 44 };
+  const spotlit = geometry.cardAnchor(spot, screen, insets, CARD, geometry.DEFAULT_CARD_GAP, DOCK);
+  check("a spotlit card still anchors to its spotlight", spotlit.placement === "below");
+
+  // Small screen: an enormous reserve must not push the card off the top.
+  const small = { width: 320, height: 568 };
+  const squeezed = geometry.cardAnchor(null, small, insets, 400, geometry.DEFAULT_CARD_GAP, 400);
+  check("on a small screen with a huge reserve the card stays on screen", squeezed.top >= insets.top && Number.isFinite(squeezed.top));
+}
+
 (async () => {
   await storageSection();
   machineSection();
@@ -644,6 +852,11 @@ function geometrySection() {
   targetsSection();
   tipsSection();
   geometrySection();
+  auditRegressionSection();
+  resumeSection();
+  tipHoldSection();
+  stableTotalsSection();
+  reservedDockSection();
 
   console.log(`\nFirst Light behaviour self-test: ${pass} passed, ${fail} failed.`);
   process.exit(fail === 0 ? 0 : 1);

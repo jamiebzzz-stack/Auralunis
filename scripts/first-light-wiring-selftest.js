@@ -31,6 +31,9 @@ const app = read("App.tsx");
 const settings = read("src/screens/SettingsScreen.tsx");
 const skyScreen = read("src/screens/SkyScreen.tsx");
 const infoCard = read("src/features/sky-lens/SkyLensInfoCard.tsx");
+const geometrySource = read("src/features/tour/tourGeometry.ts");
+const machineSource = read("src/features/tour/tourMachine.ts");
+const rulesSource = read("src/features/first-light/firstLightRules.ts");
 
 console.log("── 1. The tour OBSERVES Sky Lens; it never drives it ──");
 for (const forbidden of [
@@ -134,9 +137,13 @@ for (const rel of [
 
 console.log("\n── 4. Premium gating: not bypassed, not duplicated, not in the required path ──");
 has(skyLens, "if (!isPremium) { openPaywall(); return; }", "the existing premium gates are still in place");
+// Window widened from 200 to 700 chars ONLY because the duplicate-save guard added an
+// explanatory comment between the intent line and the gate. What matters — that the gate runs
+// before the write — is measured guard-to-write by scripts/vault-write-gate-selftest.js, which
+// still uses its original 260-char window and still passes.
 check(
   "Sky Lens still gates the Vault save on entitlement",
-  /Saving to the \(premium\) Vault requires entitlement[\s\S]{0,200}if \(!isPremium\) \{ openPaywall\(\); return; \}/.test(skyLens),
+  /Saving to the \(premium\) Vault requires entitlement[\s\S]{0,700}if \(!isPremium\) \{ openPaywall\(\); return; \}/.test(skyLens),
   "the save gate must be unchanged"
 );
 check(
@@ -210,7 +217,7 @@ check(
 has(overlay, "Step {index + 1} of {total}", "progress is stated in words, not only in colour");
 has(overlay, "accessibilityElementsHidden", "decorative dimming is hidden from screen readers");
 check("controls meet a 44pt minimum", (overlay.match(/minHeight: 44/g) || []).length >= 2);
-has(overlay, "maxHeight: 210", "long Dynamic Type copy scrolls inside the card instead of clipping");
+has(overlay, "screen.height * 0.32", "the copy area is sized from the live viewport, not a fixed height");
 has(overlay, "ScrollView", "the copy area scrolls");
 for (const [rel, source] of [
   ["TourOverlay", overlay],
@@ -283,7 +290,7 @@ has(context, "reanchorIndex(current, previous, steps)", "a changed step list re-
 console.log("\n── 9. Wiring ──");
 has(app, "<TourTargetProvider>", "the tour target registry is mounted at the app root");
 has(app, "<FirstLightProvider enabled={route === \"app\"}>", "First Light is only enabled once the app proper is on screen");
-has(app, "<FirstLightRootOverlay onEnterSky={goToSkyTab} />", "the offer + welcome step are mounted at the root");
+has(app, "<FirstLightRootOverlay onEnterSky={() => goToSkyTab()} />", "the offer + welcome step are mounted at the root");
 has(app, "ref={navigationRef}", "the navigator exposes a ref for the tab jump");
 has(app, "navigationRef.isReady()", "navigation is guarded until the tree is ready");
 has(settings, "Replay Tutorial", "the EXISTING tutorial is still available as the quick reference");
@@ -303,7 +310,111 @@ has(rootOverlay, "Begin First Light", "the offer has a clear start");
 has(rootOverlay, "firstLight.declineOffer", "declining is remembered");
 has(context, "shouldOfferFirstLight(document)", "the offer respects the persisted decision");
 
-console.log("\n── 10. First Light owns exactly one storage key ──");
+console.log("\n── 10. Audit-fix wiring ──");
+
+// F1 — the no-motion trap
+has(bridge, "isObjectStepSatisfied", "object-step completion goes through the pure, tested rule");
+hasnt(bridge, "if (targetProjection?.onScreen && !targetProjection.behind) satisfy", "the raw on-screen-only rule that trapped the tour is gone");
+check(
+  "the no-motion hint never claims motion was detected",
+  /without motion the sky can’t follow your phone/.test(bridge),
+  "the copy must state the opposite"
+);
+
+// F2 — contextual tips
+has(tipHost, "selectHeldTip", "the host holds one tip identity rather than re-deriving it");
+has(tipHost, "const [heldTipId, setHeldTipId]", "the held tip lives in component state");
+has(tipHost, "TIP_MIN_IMPRESSION_MS", "the impression is recorded on a timer, not on first render");
+check(
+  "the impression is NOT recorded during render/effect selection",
+  !/announcedRef\.current = tipId;[\s\S]{0,120}recordTipSeen\?\.\(tipId\);/.test(tipHost),
+  "recording at selection time is exactly what consumed every tip in a burst"
+);
+has(tipHost, "clearTimeout(impression)", "the impression timer is cleared on change/unmount");
+has(tipHost, "clearTimeout(retire)", "the auto-retire timer is cleared on change/unmount");
+has(tipHost, "firstLight.recordTipDismissed(tipId)", "dismissal records the tip so a remount cannot replay it");
+
+// F3 — reserved dock region
+has(skyLens, "const tourReservedBottom = Math.max(", "Sky Lens measures the strip the tour must avoid");
+has(skyLens, "reservedBottom={tourReservedBottom}", "…and hands it to the tour");
+has(overlay, "reservedBottom", "the overlay honours a host-reserved bottom strip");
+has(geometrySource, "reservedBottom: number = 0", "cardAnchor takes the reserve as a parameter");
+check(
+  "the reserve is derived from the live dock/insets, not hardcoded pixels",
+  /Math\.max\(\s*\n\s*box\.height - dockTop,\s*\n\s*insets\.bottom \+ LOCK_CHIP_RESERVE/.test(skyLens)
+);
+
+// F4 — Dynamic Type
+has(rootOverlay, "ScrollView", "the offer card scrolls instead of overflowing the screen");
+has(rootOverlay, 'maxHeight: "84%"', "the offer card is bounded to the viewport");
+check("offer text is bounded but still scales", (rootOverlay.match(/maxFontSizeMultiplier/g) || []).length >= 5);
+check("tour buttons cannot become multi-line blocks", (overlay.match(/maxFontSizeMultiplier/g) || []).length >= 4);
+has(overlay, "numberOfLines={1}", "button labels stay on one line");
+hasnt(rootOverlay, "allowFontScaling={false}", "Dynamic Type is never disabled");
+hasnt(overlay, "allowFontScaling={false}", "Dynamic Type is never disabled");
+
+// F5 — stable totals
+has(app, "FirstLightCapabilityBridge", "capabilities resolve at the app root");
+has(app, "markCapabilitiesResolved()", "the root marks resolution so the offer can wait for it");
+has(app, "TIME_CONTROL_SHIPS_IN_SKY_LENS", "the time-control capability is known without mounting Sky Lens");
+has(context, "capabilitiesResolved &&", "the offer waits for a final mission length");
+
+// F6 — cross-launch resume
+has(context, "resolveResumeStepId", "the persisted pointer is actually read back");
+has(context, "dispatch({ type: \"goto\", stepId: resumeStepId })", "resuming jumps to the persisted step");
+has(rootOverlay, "Resume First Light", "the offer leads with Resume when appropriate");
+has(rootOverlay, "Start from the beginning", "a clean restart is always offered too");
+has(context, "restartTour", "restart is a distinct action from resume");
+
+// F7 — time restoration
+has(bridge, "shouldRestoreLiveTime", "time restoration goes through the pure, tested rule");
+check(
+  "restoration is driven by leaving the step, not by the Continue button",
+  /previousStepRef/.test(bridge) && !/if \(stepId === "exploreTime" && !keepChangedTime\) onRestoreLiveTime/.test(bridge)
+);
+check("unmount restores too", /\(\) => \(\) => \{[\s\S]{0,400}shouldRestoreLiveTime/.test(bridge));
+
+// F8 — no orphaned invisible tour
+has(context, "pauseTour", "the tour can be paused");
+has(skyScreen, "firstLight?.pauseTour()", "closing Sky Lens mid-tour pauses instead of orphaning");
+has(skyScreen, "First Light is paused", "a paused tour is visible and recoverable from the Sky tab");
+has(skyScreen, "firstLight.resumeTour()", "…with a Resume action");
+has(skyScreen, "firstLight.dismissPausedTour()", "…and a dismiss");
+has(machineSource, '"paused"', "the machine models a paused tour");
+
+// F9 — duplicate Vault saves
+has(skyLens, "isAlreadySavedToVault", "the save path checks for an existing entry");
+// Compare positions INSIDE onSave — the file-level import of the helper appears near the top
+// and would otherwise make this comparison meaningless.
+const onSaveBlock = skyLens.slice(skyLens.indexOf("const onSave = useCallback("), skyLens.indexOf("const hud = useMemo("));
+check(
+  "the premium gate still runs BEFORE the duplicate check",
+  onSaveBlock.indexOf("if (!isPremium) { openPaywall(); return; }") >= 0 &&
+    onSaveBlock.indexOf("if (!isPremium) { openPaywall(); return; }") < onSaveBlock.indexOf("isAlreadySavedToVault"),
+  "gating must not be reordered"
+);
+check("the duplicate check is inside the save path", onSaveBlock.includes("isAlreadySavedToVault"));
+check(
+  "the duplicate check never imports or calls Vault cryptography",
+  !/from "@\/services\/VaultEncryption"|encryptVault|decryptVault|nacl|SecureStore/.test(rulesSource)
+);
+check("an existing entry is never mutated or overwritten", !/setItems|splice|\.push\(|entries\[\d/.test(rulesSource));
+
+// F10 — navigation readiness
+has(app, "NAV_READY_MAX_ATTEMPTS", "navigation readiness is retried, not silently dropped");
+check("the retry is bounded", /if \(attempt >= NAV_READY_MAX_ATTEMPTS\) return;/.test(app));
+
+// The locally mirrored tab-bar height must not drift from the real one.
+const rootTabs = read("src/navigation/RootTabs.tsx");
+const realHeight = /height:\s*(\d+)/.exec(rootTabs);
+const mirrored = /ROOT_TAB_BAR_HEIGHT = (\d+)/.exec(rootOverlay);
+check(
+  "the mirrored tab-bar height matches TAB_BAR_STYLE.height",
+  !!realHeight && !!mirrored && realHeight[1] === mirrored[1],
+  `${mirrored && mirrored[1]} vs ${realHeight && realHeight[1]}`
+);
+
+console.log("\n── 11. First Light owns exactly one storage key ──");
 const storageSource = read("src/features/first-light/firstLightStorage.ts");
 const keys = [...storageSource.matchAll(/"(auralunis\.[a-zA-Z0-9._]+)"/g)].map((m) => m[1]);
 check("only one AsyncStorage key is referenced", keys.length === 1 && keys[0].startsWith("auralunis.firstLight"), keys.join(","));

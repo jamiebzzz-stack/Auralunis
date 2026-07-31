@@ -1,16 +1,27 @@
 // One-time contextual mini-guides. A single small card, at most one at a time, shown only
 // after First Light has settled and only when nothing more important is on screen.
 //
-// The eligibility rules live in contextualTips.ts (pure, unit-tested). This component is just
-// the presentation plus the "seen" bookkeeping: whatever it shows, it records, so a tip appears
-// exactly once per install unless the tutorial state is reset.
+// WHY THE TIP IDENTITY IS HELD IN STATE.
+// Eligibility is derived from `contextualTipsSeen`. The first version recorded the impression
+// the instant a tip rendered, which made the tip that was showing ineligible on the very next
+// render; the next candidate took the slot, was recorded too, and the whole set was consumed in
+// a four-render burst with nothing readable. Now the host CHOOSES once (selectHeldTip) and
+// keeps that identity until it is dismissed or retires, and the impression is recorded on a
+// timer. A tip can no longer replace itself, so a burst is structurally impossible.
 
-import React, { useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, Animated, Pressable, StyleSheet, Text, View } from "react-native";
 import { AuraLunisColors } from "@/theme/tokens";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
 import { useFirstLight } from "./FirstLightContext";
-import { CONTEXTUAL_TIPS, nextEligibleTip, type ContextualTipId, type TipContext } from "./contextualTips";
+import {
+  CONTEXTUAL_TIPS,
+  selectHeldTip,
+  TIP_AUTO_HIDE_MS,
+  TIP_MIN_IMPRESSION_MS,
+  type ContextualTipId,
+  type TipContext,
+} from "./contextualTips";
 
 type Props = {
   /** Ordered tips this host may show, most relevant first. */
@@ -26,32 +37,51 @@ export function ContextualTipHost({ candidates, context, bottom = 24 }: Props) {
   const reduceMotion = useReducedMotion();
   const fade = useRef(new Animated.Value(0)).current;
 
+  /** The one tip this host owns right now. Never swapped out from under itself. */
+  const [heldTipId, setHeldTipId] = useState<ContextualTipId | null>(null);
+
   const settled =
     firstLight?.document.status === "completed" || firstLight?.document.status === "skipped";
 
-  const tipId = firstLight
-    ? nextEligibleTip(candidates, firstLight.document, {
-        ...context,
-        firstLightSettled: settled === true,
-        tourOverlayVisible: firstLight.overlayVisible || firstLight.offerVisible,
-        // This host renders one card at a time, so nothing can stack on itself.
-        otherTipVisible: false,
-      })
-    : null;
+  const tipContext: TipContext = {
+    ...context,
+    firstLightSettled: settled === true,
+    tourOverlayVisible: (firstLight?.overlayVisible ?? false) || (firstLight?.offerVisible ?? false),
+    // This host renders one card at a time, so nothing can stack on itself.
+    otherTipVisible: false,
+  };
 
-  // Record the impression once, when a tip actually becomes visible.
-  const announcedRef = useRef<string | null>(null);
+  const tipId = firstLight ? selectHeldTip(heldTipId, candidates, firstLight.document, tipContext) : null;
+
+  // Adopt the selection. Runs only when the resolved tip differs from what is held, so a
+  // `contextualTipsSeen` write can never bump the tip that is currently on screen.
+  useEffect(() => {
+    if (tipId !== heldTipId) setHeldTipId(tipId);
+  }, [tipId, heldTipId]);
+
   const recordTipSeen = firstLight?.recordTipSeen;
+  const announcedRef = useRef<string | null>(null);
+
+  // Announce once per tip, then record the impression only after it has genuinely been on
+  // screen — and retire it if the user never dismisses it. Both timers are cleared on change
+  // or unmount, so nothing fires against a dead component.
   useEffect(() => {
     if (!tipId) {
       announcedRef.current = null;
       return;
     }
-    if (announcedRef.current === tipId) return;
-    announcedRef.current = tipId;
-    const tip = CONTEXTUAL_TIPS[tipId];
-    AccessibilityInfo.announceForAccessibility(`${tip.heading}. ${tip.body}`);
-    recordTipSeen?.(tipId);
+    if (announcedRef.current !== tipId) {
+      announcedRef.current = tipId;
+      const tip = CONTEXTUAL_TIPS[tipId];
+      AccessibilityInfo.announceForAccessibility(`${tip.heading}. ${tip.body}`);
+    }
+
+    const impression = setTimeout(() => recordTipSeen?.(tipId), TIP_MIN_IMPRESSION_MS);
+    const retire = setTimeout(() => setHeldTipId(null), TIP_AUTO_HIDE_MS);
+    return () => {
+      clearTimeout(impression);
+      clearTimeout(retire);
+    };
   }, [tipId, recordTipSeen]);
 
   useEffect(() => {
@@ -69,6 +99,13 @@ export function ContextualTipHost({ candidates, context, bottom = 24 }: Props) {
     return () => animation.stop();
   }, [tipId, reduceMotion, fade]);
 
+  const dismiss = useCallback(() => {
+    if (!tipId || !firstLight) return;
+    // Dismissal always records the tip, so a remount cannot replay it.
+    firstLight.recordTipDismissed(tipId);
+    setHeldTipId(null);
+  }, [tipId, firstLight]);
+
   if (!firstLight || !tipId) return null;
   const tip = CONTEXTUAL_TIPS[tipId];
 
@@ -78,19 +115,23 @@ export function ContextualTipHost({ candidates, context, bottom = 24 }: Props) {
     <View style={[styles.wrap, { bottom }]} pointerEvents="box-none">
       <Animated.View style={[styles.card, { opacity: fade }]}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.heading} accessibilityRole="header">
+          <Text style={styles.heading} accessibilityRole="header" maxFontSizeMultiplier={1.6}>
             {tip.heading}
           </Text>
-          <Text style={styles.body}>{tip.body}</Text>
+          <Text style={styles.body} maxFontSizeMultiplier={1.8}>
+            {tip.body}
+          </Text>
         </View>
         <Pressable
-          onPress={() => firstLight.recordTipDismissed(tipId)}
+          onPress={dismiss}
           hitSlop={12}
           style={styles.dismiss}
           accessibilityRole="button"
           accessibilityLabel={`Dismiss tip: ${tip.heading}`}
         >
-          <Text style={styles.dismissText}>✕</Text>
+          <Text style={styles.dismissText} maxFontSizeMultiplier={1.4}>
+            ✕
+          </Text>
         </Pressable>
       </Animated.View>
     </View>

@@ -101,6 +101,46 @@ export function shouldShowTip(
   return !state.contextualTipsSeen.includes(tipId);
 }
 
+/**
+ * How long a tip must stay on screen before it counts as "seen".
+ *
+ * The original host recorded the impression the instant a tip rendered. Because eligibility is
+ * derived from the same `contextualTipsSeen` list, that write made the tip that was showing
+ * ineligible on the very next render, the next candidate took its place, and the whole set was
+ * consumed in a four-render burst with nothing readable. Impressions are now time-based, and
+ * the host holds one tip identity in state, so a tip can never replace itself.
+ */
+export const TIP_MIN_IMPRESSION_MS = 4000;
+/** After this long the tip retires on its own if the user never dismissed it. */
+export const TIP_AUTO_HIDE_MS = 12000;
+
+/**
+ * The tip a host should be showing, given the one it is already holding.
+ *
+ * PURE and total. The held tip WINS: once a tip has been chosen it keeps the slot until the
+ * host clears it, even after it has been marked seen. That is the property that makes a
+ * render-burst impossible — `shouldShowTip` alone cannot express it, because a tip becomes
+ * ineligible the moment its impression is recorded.
+ *
+ * A held tip is dropped only when the context says it must not be on screen at all (a modal, an
+ * open object card, a tutorial overlay), so a tip never covers something more important.
+ */
+export function selectHeldTip(
+  held: ContextualTipId | null,
+  candidates: ReadonlyArray<ContextualTipId>,
+  state: FirstLightState,
+  context: TipContext
+): ContextualTipId | null {
+  const blocked =
+    !context.firstLightSettled ||
+    context.tourOverlayVisible ||
+    context.modalVisible ||
+    context.objectCardOpen;
+  if (blocked) return null;
+  if (held) return held;
+  return nextEligibleTip(candidates, state, context);
+}
+
 /** The first eligible tip from a candidate list, or null. Keeps hosts from stacking tips. */
 export function nextEligibleTip(
   candidates: ReadonlyArray<ContextualTipId>,

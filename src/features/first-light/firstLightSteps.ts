@@ -74,6 +74,16 @@ export type FirstLightCapabilities = {
   learnAvailable: boolean;
 };
 
+/**
+ * Whether the Sky Lens time control ships and is release-intended. Declared here rather than
+ * discovered when Sky Lens mounts, so the app root can resolve the FULL mission length before
+ * the tour starts — otherwise the progress indicator opens at "Step 1 of 7" and jumps to
+ * "of 9" the moment Sky Lens reports in.
+ */
+export const TIME_CONTROL_SHIPS_IN_SKY_LENS = true;
+/** The Learn tab is part of the locked navigation, so the non-gated fallback always has a home. */
+export const LEARN_TAB_SHIPS = true;
+
 export const DEFAULT_CAPABILITIES: FirstLightCapabilities = {
   isPremium: false,
   motionAvailable: false,

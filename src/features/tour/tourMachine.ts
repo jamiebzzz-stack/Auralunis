@@ -5,7 +5,12 @@
 // calls another setter, never writes a ref, and never reads anything outside its arguments —
 // so React may invoke it twice (StrictMode) with identical results.
 
-export type TourStatus = "idle" | "running" | "completed" | "skipped";
+/**
+ * "paused" exists so a tour whose host screen went away (e.g. the user closed Sky Lens
+ * mid-step) stops rendering WITHOUT being silently abandoned or silently left running with no
+ * UI. A paused tour keeps its position and its satisfied actions, and "start" resumes it.
+ */
+export type TourStatus = "idle" | "running" | "paused" | "completed" | "skipped";
 
 export type TourStepSpec = {
   id: string;
@@ -34,6 +39,7 @@ export const INITIAL_TOUR_STATE: TourMachineState = {
 export type TourAction =
   | { type: "start" }
   | { type: "restart" }
+  | { type: "pause" }
   | { type: "next" }
   | { type: "back" }
   | { type: "skip" }
@@ -74,6 +80,11 @@ export function canGoBack(state: TourMachineState): boolean {
   return state.status === "running" && state.index > 0;
 }
 
+/** A paused tour is resumable: it has a position to come back to. */
+export function isPaused(state: TourMachineState): boolean {
+  return state.status === "paused";
+}
+
 export function isLastStep(
   state: TourMachineState,
   steps: ReadonlyArray<TourStepSpec>
@@ -88,9 +99,11 @@ export function tourReducer(
 ): TourMachineState {
   switch (action.type) {
     case "start":
-      // Resume where the user left off when the tour is already running; otherwise open at
-      // the first step. Never clears satisfied steps, so a resumed tour keeps its progress.
-      if (state.status === "running") return { ...state, index: clampIndex(state.index, steps) };
+      // Resume where the user left off when the tour is already running OR paused; otherwise
+      // open at the first step. Never clears satisfied steps, so a resumed tour keeps progress.
+      if (state.status === "running" || state.status === "paused") {
+        return { ...state, status: "running", index: clampIndex(state.index, steps) };
+      }
       return { status: "running", index: 0, satisfiedStepIds: state.satisfiedStepIds };
 
     case "restart":
@@ -114,8 +127,13 @@ export function tourReducer(
       return { ...state, index: index - 1 };
     }
 
-    case "skip":
+    case "pause":
+      // Only a running tour can pause. Position and satisfied actions are preserved.
       if (state.status !== "running") return state;
+      return { ...state, status: "paused" };
+
+    case "skip":
+      if (state.status !== "running" && state.status !== "paused") return state;
       return { ...state, status: "skipped" };
 
     case "complete":

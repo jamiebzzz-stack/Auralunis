@@ -208,6 +208,24 @@ export function resetForReplay(state: FirstLightState, nowISO: string): FirstLig
   };
 }
 
+/**
+ * The step id a resumed tour should open on, or null to start from the beginning.
+ *
+ * Total and defensive: a document that is not `inProgress`, has no pointer, or points at a step
+ * that does not exist in THIS user's mission (capabilities differ, or the persisted id is
+ * corrupt / from a future version) resolves to null, and the caller opens at Welcome. A tutorial
+ * must never fail to start because of a bad pointer.
+ */
+export function resolveResumeStepId(
+  state: FirstLightState,
+  availableStepIds: ReadonlyArray<string>
+): string | null {
+  if (!isResumable(state)) return null;
+  const pointer = state.currentStep;
+  if (!pointer) return null;
+  return availableStepIds.includes(pointer) ? pointer : null;
+}
+
 export function hasSeenTip(state: FirstLightState, tipId: string): boolean {
   return state.contextualTipsSeen.includes(tipId);
 }
