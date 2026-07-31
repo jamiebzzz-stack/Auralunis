@@ -688,6 +688,40 @@ function auditRegressionSection() {
     }) === false
   );
 
+  // ---- The SAME trap one step later: "Keep your discovery" ---------------------
+  const noMotionSave = {
+    variant: "vault", motionAvailable: false, targetSimulated: false,
+    targetOnScreen: false, targetSaved: false,
+  };
+  check(
+    "REGRESSION: a real, unreachable object with NO motion cannot trap the save step",
+    rules.isSaveStepSatisfied(noMotionSave) === true
+  );
+  check(
+    "with motion available, the save step still demands a real save",
+    rules.isSaveStepSatisfied({ ...noMotionSave, motionAvailable: true }) === false
+  );
+  check(
+    "…even when the object is right there on screen",
+    rules.isSaveStepSatisfied({ ...noMotionSave, motionAvailable: true, targetOnScreen: true }) === false
+  );
+  check(
+    "a genuine persisted save satisfies it",
+    rules.isSaveStepSatisfied({ ...noMotionSave, motionAvailable: true, targetOnScreen: true, targetSaved: true }) === true
+  );
+  check(
+    "no-motion does NOT skip the save while the object IS on screen",
+    rules.isSaveStepSatisfied({ ...noMotionSave, targetOnScreen: true }) === false
+  );
+  check(
+    "the non-gated Learn fallback never blocks",
+    rules.isSaveStepSatisfied({ ...noMotionSave, variant: "learn", motionAvailable: true, targetOnScreen: true }) === true
+  );
+  check(
+    "a practice marker never blocks the save step",
+    rules.isSaveStepSatisfied({ ...noMotionSave, motionAvailable: true, targetSimulated: true }) === true
+  );
+
   // ---- Time restoration on every exit path -------------------------------------
   const scrubbed = { previousStepId: "exploreTime", keepChangedTime: false, timeOffsetMinutes: 180 };
   check("Continue out of the time step restores the live sky", rules.shouldRestoreLiveTime({ ...scrubbed, nextStepId: "saveDiscovery" }) === true);

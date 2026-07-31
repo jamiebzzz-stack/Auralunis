@@ -49,6 +49,36 @@ export function isObjectStepSatisfied(situation: ObjectStepSituation): boolean {
   return !motionAvailable && !targetOnScreen;
 }
 
+export type SaveStepSituation = {
+  /** "vault" saves for real; "learn" is the non-gated fallback for free users. */
+  variant: "vault" | "learn";
+  motionAvailable: boolean;
+  targetSimulated: boolean;
+  targetOnScreen: boolean;
+  /** The tutorial object is genuinely present in the Vault. */
+  targetSaved: boolean;
+};
+
+/**
+ * Whether the "Keep your discovery" step may be treated as satisfied.
+ *
+ * SAME TRAP, ONE STEP LATER. Saving requires opening the object's card, which requires the
+ * object to be on screen — so on a device with no motion the save step blocked Continue exactly
+ * the way "Find your first object" did (observed on the simulator at step 8 of 9, Continue
+ * permanently dim with no spotlight, because the Save button only exists while a card is open).
+ * The genuine completion is unchanged: a real, persisted save. Nothing is ever simulated, and
+ * the premium gate in Sky Lens still runs before any write.
+ */
+export function isSaveStepSatisfied(situation: SaveStepSituation): boolean {
+  // The Learn fallback is informational — it never blocks.
+  if (situation.variant === "learn") return true;
+  // The real thing: the object is actually in the Vault.
+  if (situation.targetSaved) return true;
+  if (situation.targetSimulated) return true;
+  // No motion and the object is out of reach → do not demand the impossible.
+  return !situation.motionAvailable && !situation.targetOnScreen;
+}
+
 export type TimeStepExit = {
   /** The step that was showing before this change (null if none). */
   previousStepId: string | null;

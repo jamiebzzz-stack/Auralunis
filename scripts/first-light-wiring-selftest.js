@@ -321,6 +321,13 @@ check(
   "the copy must state the opposite"
 );
 
+has(bridge, "isSaveStepSatisfied", "the save step uses the pure, tested rule too");
+hasnt(bridge, "if (target && savedIds.has(target.id)) satisfy", "the raw save-only rule that trapped step 8 is gone");
+check(
+  "the save-step no-motion hint tells the truth about why",
+  /Saving needs the object on screen, which this device can’t reach without motion/.test(bridge)
+);
+
 // F2 — contextual tips
 has(tipHost, "selectHeldTip", "the host holds one tip identity rather than re-deriving it");
 has(tipHost, "const [heldTipId, setHeldTipId]", "the held tip lives in component state");
