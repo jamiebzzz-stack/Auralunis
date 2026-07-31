@@ -138,7 +138,7 @@ export function SkyLensCanvas({ box, pointing, basis, sky, fov, activeLayers, ni
         <HorizonGlowLayer project={project} centerAzimuth={centerAzimuth} box={box} nightMode={nightMode} boost={milkyWayBoost} />
 
         {activeLayers.has("grid") && !cinematic && (
-          <GridLayer project={project} centerAzimuth={centerAzimuth} box={box} palette={palette} />
+          <GridLayer project={project} centerAzimuth={centerAzimuth} box={box} palette={palette} omitMajorCardinals={!cinematic} />
         )}
         {!cinematic && <CardinalLayer project={project} box={box} nightMode={nightMode} />}
         {activeLayers.has("ecliptic") && !cinematic && (

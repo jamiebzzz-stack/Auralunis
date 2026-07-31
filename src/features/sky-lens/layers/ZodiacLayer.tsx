@@ -67,7 +67,10 @@ export function ZodiacLayer({ zodiac, project, palette, nightMode, sun, birthSig
       )}
       {isCurrent && (
         <SvgText x={ax} y={ay + 7} textAnchor="middle" fontSize={8} fontWeight="800" fill={GOLD} opacity={0.85}>
-          ☀ Sun is here · {sign.name} season
+          {/* This line embeds the sign name, so under hideNames it reintroduced exactly the
+              duplicate the flag exists to prevent — "Leo season" printed beside the LEO
+              constellation label. The sun marker still reads clearly without it. */}
+          {hideNames ? "☀ Sun is here" : `☀ Sun is here · ${sign.name} season`}
         </SvgText>
       )}
       {isBirth && (
@@ -92,10 +95,18 @@ export function ZodiacLayer({ zodiac, project, palette, nightMode, sun, birthSig
           // name itself, an optional current-sign context line 7px below, and an optional
           // "Your sign" line 42px above. Offsets mirror labelUnit() exactly, so the placed
           // anchor carries every part with it.
+          // The footprint must describe what is DRAWN. With hideNames the 15px name line is
+          // not rendered, so reserving space for it left the surviving lines sitting where
+          // nothing accounted for them — the collision seen on device.
           const footprint = unitFootprint([
             { text: sign.symbol, fontSize: isCurrent ? 22 : 18, dy: -20 },
-            { text: sign.name, fontSize: 15, dy: 0, weight: 600, letterSpacing: 1 },
-            ...(isCurrent ? [{ text: `☀ Sun is here · ${sign.name} season`, fontSize: 8, dy: 7, weight: 800 }] : []),
+            ...(hideNames ? [] : [{ text: sign.name, fontSize: 15, dy: 0, weight: 600, letterSpacing: 1 }]),
+            ...(isCurrent
+              ? [{
+                  text: hideNames ? "☀ Sun is here" : `☀ Sun is here · ${sign.name} season`,
+                  fontSize: 8, dy: 7, weight: 800
+                }]
+              : []),
             ...(isBirth ? [{ text: "✦ Your sign", fontSize: 8, dy: -42, weight: 800 }] : [])
           ]);
           // Centered unit: the placer nudges it vertically off collisions (chrome + higher

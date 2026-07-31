@@ -1701,6 +1701,52 @@ console.log("");
   })());
 }
 
+// ── Duplicate chrome labels: one cardinal, one sign name ─────────────────────────────
+{
+  const gridSrc = fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/layers/GridLayer.tsx"), "utf8");
+  const cardinalSrc = fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/layers/CardinalLayer.tsx"), "utf8");
+  const zodiacSrc = fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/layers/ZodiacLayer.tsx"), "utf8");
+  const canvasSrc = fs.readFileSync(path.resolve(__dirname, "../src/features/sky-lens/SkyLensCanvas.tsx"), "utf8");
+  console.log("");
+
+  // BOTH layers carry N/E/S/W, and both are mounted, so every major was drawn twice —
+  // observed on device as two stacked "W" labels at the horizon.
+  const majors = ["N", "E", "S", "W"];
+  assert("both layers still define the major cardinals (the overlap is real)",
+    majors.every((m) => new RegExp(`label: "${m}"`).test(gridSrc)) &&
+    majors.every((m) => new RegExp(`label: "${m}"`).test(cardinalSrc)));
+  assert("the grid can omit the majors", gridSrc.includes("omitMajorCardinals"));
+  assert("the grid filters majors by name length, keeping intercardinals",
+    gridSrc.includes("!(omitMajorCardinals && label.length === 1)"));
+  assert("the canvas hands ownership of the majors to CardinalLayer",
+    canvasSrc.includes("omitMajorCardinals={!cinematic}"));
+  assert("that condition matches exactly when CardinalLayer is mounted",
+    canvasSrc.includes("{!cinematic && <CardinalLayer"),
+    "grid omits majors on precisely the frames CardinalLayer draws them");
+  // Behavioural: the filter leaves the intercardinals intact.
+  assert("filtering majors keeps all four intercardinals", (() => {
+    const labels = [...gridSrc.matchAll(/label: "(\w+)"/g)].map((m) => m[1]);
+    const kept = labels.filter((l) => !(l.length === 1));
+    return ["NE", "SE", "SW", "NW"].every((l) => kept.includes(l)) && kept.length === 4;
+  })());
+
+  // The current-sign context line embedded the sign name, reintroducing the very duplicate
+  // hideNames exists to prevent.
+  assert("the sun-sign line drops the name when names are hidden",
+    zodiacSrc.includes('hideNames ? "☀ Sun is here" : `☀ Sun is here · ${sign.name} season`'));
+  assert("no un-gated sign name remains in the zodiac render path",
+    !/☀ Sun is here · \{sign\.name\} season/.test(zodiacSrc));
+  // The reserved footprint must describe what is actually drawn, or the placer reserves a
+  // box for text that no longer exists and the surviving lines collide.
+  assert("the footprint omits the name line when it is not drawn",
+    zodiacSrc.includes("...(hideNames ? [] : [{ text: sign.name, fontSize: 15"));
+  assert("the footprint's context line matches the rendered string",
+    zodiacSrc.includes('text: hideNames ? "☀ Sun is here" : `☀ Sun is here · ${sign.name} season`'));
+  assert("the glyph is still reserved and drawn in both modes",
+    zodiacSrc.includes("{ text: sign.symbol, fontSize: isCurrent ? 22 : 18, dy: -20 }") &&
+    zodiacSrc.includes("{sign.symbol}"));
+}
+
 console.log("");
 if (failed) {
   console.error(`Sky Lens projection self-test: ${failed} failure(s).`);

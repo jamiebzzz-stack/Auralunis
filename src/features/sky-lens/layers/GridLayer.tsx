@@ -3,6 +3,16 @@ import { G, Line, Polyline, Text as SvgText } from "react-native-svg";
 import type { ProjectFn, SkyPalette } from "../SkyLensVisual";
 
 type Props = {
+  /**
+   * Skip N/E/S/W and draw only the intercardinals.
+   *
+   * CardinalLayer is the dedicated always-on compass layer and owns the four majors. This
+   * layer carries the same four in its own CARDINALS list, so with both mounted every major
+   * was drawn twice — visible on device as two stacked "W" labels at the horizon. Ownership
+   * is explicit rather than first-come: the identity registry would hand the win to whichever
+   * mounted first, which is this layer, and the dedicated compass layer is the better label.
+   */
+  omitMajorCardinals?: boolean;
   project: ProjectFn;
   centerAzimuth: number;
   box: { width: number; height: number };
@@ -50,7 +60,7 @@ function meridianRuns(project: ProjectFn, azimuth: number): string[] {
   return runs;
 }
 
-export function GridLayer({ project, centerAzimuth, box, palette }: Props) {
+export function GridLayer({ project, centerAzimuth, box, palette, omitMajorCardinals = false }: Props) {
   const horizon = altitudeArc(project, 0, centerAzimuth);
   const arc30 = altitudeArc(project, 30, centerAzimuth);
   const arc60 = altitudeArc(project, 60, centerAzimuth);
@@ -97,7 +107,7 @@ export function GridLayer({ project, centerAzimuth, box, palette }: Props) {
       )}
 
       {/* Cardinal + intercardinal markers on the horizon */}
-      {CARDINALS.map(({ az, label }) => {
+      {CARDINALS.filter(({ label }) => !(omitMajorCardinals && label.length === 1)).map(({ az, label }) => {
         const p = project(az, 0);
         if (p.behind || p.x < -10 || p.x > box.width + 10) return null;
         const major = label.length === 1;
