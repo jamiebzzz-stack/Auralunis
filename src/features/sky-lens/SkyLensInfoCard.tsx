@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, type ReactNode } from "react";
 import { Animated, Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { AuraLunisColors } from "@/theme/tokens";
+import { useTourTarget } from "@/features/tour/TourTargetRegistry";
+import { FIRST_LIGHT_TARGETS } from "@/features/first-light/firstLightSteps";
 import type { SelectedObject } from "./SkyLensVisual";
 
 // expo-blur accessor (same resolution pattern as GlassPanel) — real system blur on
@@ -32,6 +34,9 @@ export function SkyLensInfoCard({ object, nightMode, saved, showPoetry = true, o
   // Spring entrance — declared unconditionally (the early-return below sits AFTER the
   // hooks so the rules of hooks hold). Re-springs whenever a new object is selected.
   const slide = useRef(new Animated.Value(0)).current;
+  // Lets a guided tour spotlight the real Save button. Registration is a no-op when no tour
+  // registry is mounted, so this card behaves identically outside a tour.
+  const saveTarget = useTourTarget(FIRST_LIGHT_TARGETS.infoCardSave);
   useEffect(() => {
     if (!object) return;
     slide.setValue(0);
@@ -74,6 +79,8 @@ export function SkyLensInfoCard({ object, nightMode, saved, showPoetry = true, o
       {showPoetry && object.description ? <Text style={styles.desc}>{object.description}</Text> : null}
 
       <TouchableOpacity
+        ref={saveTarget.ref}
+        onLayout={saveTarget.onLayout}
         style={[styles.saveBtn, { borderColor: accent }, saved && { backgroundColor: accent }]}
         onPress={() => onSave(object)}
         disabled={saved}
