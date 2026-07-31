@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { TAB_BAR_STYLE } from "@/navigation/RootTabs";
@@ -26,6 +26,7 @@ import { CelestialArchiveScreen } from "@/screens/CelestialArchiveScreen";
 import { CelestialCalendarScreen } from "@/screens/CelestialCalendarScreen";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { usePaywallNavigation } from "@/context/PaywallNavigationContext";
+import { useFirstLight } from "@/features/first-light/FirstLightContext";
 
 export function SkyScreen() {
   const { isPremium } = useEntitlement();
@@ -55,6 +56,17 @@ export function SkyScreen() {
     navigation.setOptions({ tabBarStyle: immersive ? { display: "none" } : TAB_BAR_STYLE });
   }, [navigation, skyLensOpen, alignmentOpen, birthSkyOpen, astroWeatherOpen, photoPlannerOpen, skyShareOpen, archiveOpen, calendarOpen]);
 
+  // First Light runs its hands-on steps inside Sky Lens. Open the lens ONCE, on the transition
+  // into that phase of the tour. If the user then closes Sky Lens the effect does not re-fire,
+  // so the tutorial can always be walked away from — it never traps anyone in a screen.
+  const firstLight = useFirstLight();
+  const tourNeedsSkyLens = firstLight?.overlayVisible === true && firstLight.step?.host === "skyLens";
+  const tourNeededSkyLensRef = useRef(false);
+  useEffect(() => {
+    if (tourNeedsSkyLens && !tourNeededSkyLensRef.current) setSkyLensOpen(true);
+    tourNeededSkyLensRef.current = tourNeedsSkyLens;
+  }, [tourNeedsSkyLens]);
+
   // A Learn lesson can deep-link here with a target ("See in Sky Lens"): open the
   // lens straight to Find Mode on that object, then clear the param so it doesn't
   // re-fire on the next focus.
@@ -77,6 +89,7 @@ export function SkyScreen() {
         <SkyLensScreen
           onClose={() => { setSkyLensOpen(false); setFocusTarget(null); }}
           focusTarget={focusTarget}
+          onOpenLearn={() => navigation.navigate("Learn")}
         />
       </ErrorBoundary>
     );

@@ -10,8 +10,11 @@ const GestureHandlerRootView = RNGestureHandlerRootView as unknown as React.Comp
   style?: object;
   children?: React.ReactNode;
 }>;
-import { NavigationContainer } from "@react-navigation/native";
-import { RootTabs } from "@/navigation/RootTabs";
+import { NavigationContainer, createNavigationContainerRef } from "@react-navigation/native";
+import { RootTabs, type RootTabParamList } from "@/navigation/RootTabs";
+import { TourTargetProvider } from "@/features/tour/TourTargetRegistry";
+import { FirstLightProvider } from "@/features/first-light/FirstLightContext";
+import { FirstLightRootOverlay } from "@/features/first-light/FirstLightRootOverlay";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ThreeTierPaywallModal } from "@/features/paywall/ThreeTierPaywallModal";
 import { AuraLunisSettingsProvider } from "@/state/AuraLunisSettingsContext";
@@ -41,6 +44,16 @@ import { EntitlementProvider, refreshEntitlement } from "@/context/EntitlementCo
 import { recordSession } from "@/services/ReviewPromptService";
 
 const ONBOARDING_SEEN_KEY = "auralunis.onboarding.seen";
+
+// Navigation handle for the First Light offer, which is rendered OUTSIDE the navigator (it is
+// a sibling of NavigationContainer, like the paywall and onboarding modals) and therefore has
+// no useNavigation() of its own. Used for exactly one thing: switching to the Sky tab when the
+// user starts the tour. Guarded by isReady(), so it is inert before the tree mounts.
+const navigationRef = createNavigationContainerRef<RootTabParamList>();
+
+function goToSkyTab() {
+  if (navigationRef.isReady()) navigationRef.navigate("Sky");
+}
 
 // Bridges the global PaywallNavigationContext to App.tsx's local paywallVisible state.
 // Mounted inside PaywallNavigationProvider so it can read the context.
@@ -241,7 +254,13 @@ export default function App() {
       <OnboardingProvider>
         <AuraLunisSettingsProvider>
           <AuraLunisVaultProvider>
-            <NavigationContainer>
+          {/* Guided-tour infrastructure. TourTargetProvider only holds a registry of measured
+              control positions; FirstLightProvider owns the (optional) First Light tour and one
+              namespaced storage key. Neither touches onboarding, entitlement, or Vault state,
+              and `enabled` keeps the First Light offer from ever sitting over onboarding. */}
+          <TourTargetProvider>
+          <FirstLightProvider enabled={route === "app"}>
+            <NavigationContainer ref={navigationRef}>
               <RootTabs />
             </NavigationContainer>
             <PaywallBridge onOpen={() => setPaywallVisible(true)} />
@@ -259,9 +278,17 @@ export default function App() {
               onDone={handleOnboardingDone}
             />
 
+            {/* First Light — the OPTIONAL hands-on tour offered after onboarding. It never
+                blocks the app: the offer has a "Skip for now" that is remembered, and the tour
+                itself can be left at any step. The existing tutorial stays exactly where it
+                was (Settings → Replay Tutorial) as the quick reference. */}
+            <FirstLightRootOverlay onEnterSky={goToSkyTab} />
+
             {/* Opaque boot cover — keeps the Home/Birth Chart tab from flashing before the
                 onboarding-vs-app decision resolves. Rendered last so it sits on top. */}
             {route === "loading" && <BootSplash />}
+          </FirstLightProvider>
+          </TourTargetProvider>
           </AuraLunisVaultProvider>
         </AuraLunisSettingsProvider>
       </OnboardingProvider>
