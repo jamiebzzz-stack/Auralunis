@@ -23,6 +23,9 @@ Module._extensions[".ts"] = function (m, filename) {
 };
 const chrome = require(path.join(ROOT, "src/features/sky-lens/skyLensChromeLayout.ts"));
 const screenSource = fs.readFileSync(path.join(ROOT, "src/features/sky-lens/SkyLensScreen.tsx"), "utf8");
+const dt = require(path.join(ROOT, "src/theme/dynamicType.ts"));
+const shellSource = fs.readFileSync(path.join(ROOT, "src/components/ScreenShell.tsx"), "utf8");
+const cardSource = fs.readFileSync(path.join(ROOT, "src/components/FeatureCard.tsx"), "utf8");
 
 let pass = 0, fail = 0;
 const ok = (m) => { pass += 1; console.log("PASS " + m); };
@@ -162,6 +165,74 @@ check(
 );
 check("the chip still exposes its selected state", /accessibilityState=\{\{ selected: skyOrientation\.isLocked \}\}/.test(screenSource));
 check("the moon-finder text itself is untouched", /Turn around for the Moon ↻|☾  Turn around for the Moon/.test(screenSource));
+
+console.log("\n── 8. Shared chrome text policy ──");
+check("a single table of ceilings exists", typeof dt.CHROME_TEXT_SCALE === "object");
+for (const key of ["screenTitle", "screenSubtitle", "cardTitle", "cardStatus", "cardAction", "lockChip", "finderBanner"]) {
+  const v = dt.CHROME_TEXT_SCALE[key];
+  check(`${key} ceiling is bounded and > 1`, typeof v === "number" && v > 1 && v <= 2, String(v));
+}
+check(
+  "the Sky Lens chip ceiling mirrors the shared table",
+  chrome.LOCK_CHIP_MAX_FONT_SCALE === dt.CHROME_TEXT_SCALE.lockChip,
+  `${chrome.LOCK_CHIP_MAX_FONT_SCALE} vs ${dt.CHROME_TEXT_SCALE.lockChip}`
+);
+check(
+  "the finder ceiling mirrors the shared table",
+  chrome.FINDER_MAX_FONT_SCALE === dt.CHROME_TEXT_SCALE.finderBanner,
+  `${chrome.FINDER_MAX_FONT_SCALE} vs ${dt.CHROME_TEXT_SCALE.finderBanner}`
+);
+check("body copy has NO ceiling in the table", !("cardDescription" in dt.CHROME_TEXT_SCALE) && !("body" in dt.CHROME_TEXT_SCALE));
+check("the shared policy module stays dependency-free for the Node self-tests",
+  !/^import /m.test(fs.readFileSync(path.join(ROOT, "src/theme/dynamicType.ts"), "utf8")));
+check("the Sky Lens chrome module also stays dependency-free",
+  !/^import /m.test(fs.readFileSync(path.join(ROOT, "src/features/sky-lens/skyLensChromeLayout.ts"), "utf8")));
+
+console.log("\n── 9. ScreenShell page title fits ──");
+has(shellSource, "maxFontSizeMultiplier={CHROME_TEXT_SCALE.screenTitle}", "the page title uses the shared ceiling");
+has(shellSource, "maxFontSizeMultiplier={CHROME_TEXT_SCALE.screenSubtitle}", "the eyebrow uses the shared ceiling");
+has(shellSource, "adjustsFontSizeToFit", "a long title shrinks rather than fragmenting");
+has(shellSource, "numberOfLines={2}", "the title is capped at two lines");
+check("ScreenShell scrolls, so a tall page is still reachable", /<ScrollView/.test(shellSource));
+for (const width of [320, 402, 440]) {
+  const capped = dt.cappedFontSize(29, 3.1, dt.CHROME_TEXT_SCALE.screenTitle);
+  const lines = dt.estimateLines("Sky Lens + Archive", capped, dt.screenTitleWidth(width));
+  const before = dt.estimateLines("Sky Lens + Archive", 29 * 3.1, dt.screenTitleWidth(width));
+  check(`REGRESSION: "Sky Lens + Archive" fits two lines at ${width}pt`, lines <= 2, `${lines} lines (was ${before})`);
+  check(`…and the ceiling is what fixed it at ${width}pt`, before > 2, `uncapped was ${before} lines`);
+}
+check("other screen titles also fit", ["Settings", "Learn the Cosmos", "Cosmic Vault"].every((t) =>
+  dt.estimateLines(t, dt.cappedFontSize(29, 3.1, dt.CHROME_TEXT_SCALE.screenTitle), dt.screenTitleWidth(320)) <= 2));
+
+console.log("\n── 10. FeatureCard titles, CTAs and heights ──");
+has(cardSource, "maxFontSizeMultiplier={CHROME_TEXT_SCALE.cardTitle}", "the card heading uses the shared ceiling");
+has(cardSource, "maxFontSizeMultiplier={CHROME_TEXT_SCALE.cardAction}", "the CTA caption uses the shared ceiling");
+has(cardSource, "minHeight: CHROME_MIN_TOUCH", "the CTA keeps a real touch target");
+check("the CTA caption stays on one line", /style=\{styles\.buttonText\}[\s\S]{0,120}numberOfLines=\{1\}/.test(cardSource));
+check("the card heading is capped at two lines", /style=\{styles\.title\}[\s\S]{0,120}numberOfLines=\{2\}/.test(cardSource));
+check("REGRESSION: body copy is NOT capped", !/style=\{styles\.description\}[^>]*maxFontSizeMultiplier/.test(cardSource));
+check("the status pill cannot squeeze the title away", /status: \{[\s\S]{0,160}flexShrink: 0/.test(cardSource));
+
+const CARD_TITLES = ["AuraLunis Sky Lens", "Manual Sky Map", "Orbital Alignment", "Celestial Calendar", "Your Birth Sky"];
+for (const width of [320, 402, 440]) {
+  for (const title of CARD_TITLES) {
+    const lines = dt.estimateLines(title, dt.cappedFontSize(18, 3.1, dt.CHROME_TEXT_SCALE.cardTitle), dt.cardTitleWidth(width));
+    check(`REGRESSION: card title "${title}" fits two lines at ${width}pt`, lines <= 2, `${lines} lines`);
+  }
+}
+const LONG_DESC = "Sensor-aligned live planetarium with celestial overlays, Find Mode, Birth Overlay, guided exploration, and capture.";
+const h1 = dt.estimateCardHeight({ title: "AuraLunis Sky Lens", description: LONG_DESC, screenWidth: 402, systemScale: 1 });
+const hMax = dt.estimateCardHeight({ title: "AuraLunis Sky Lens", description: LONG_DESC, screenWidth: 402, systemScale: 3.1 });
+check("a card is a sensible height at the default size", h1 > 100 && h1 < 260, `${h1.toFixed(0)}pt`);
+check("REGRESSION: card growth at the largest size is bounded by the capped chrome", hMax < h1 * 4.5, `${hMax.toFixed(0)}pt vs ${h1.toFixed(0)}pt`);
+check("cards keep a gap so they cannot overlap", /marginBottom: 12/.test(cardSource));
+
+console.log("\n── 11. Card behaviour is untouched ──");
+has(cardSource, "onPress?.();", "the card still calls its handler");
+has(cardSource, "Haptics.selectionAsync()", "the haptic is unchanged");
+check("the haptic still cannot block the action", /void Haptics\.selectionAsync\(\)\.catch/.test(cardSource));
+check("Dynamic Type is never disabled in either component",
+  !/allowFontScaling=\{false\}/.test(cardSource) && !/allowFontScaling=\{false\}/.test(shellSource));
 
 console.log(`\nSky Lens Dynamic Type self-test: ${pass} passed, ${fail} failed.`);
 process.exit(fail === 0 ? 0 : 1);

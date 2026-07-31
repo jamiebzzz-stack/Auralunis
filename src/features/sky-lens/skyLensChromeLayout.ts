@@ -41,6 +41,10 @@ const FINDER_MAX_W = 340;
 //
 // Values are deliberately generous: 1.6× turns the 12pt chip label into ~19pt, and 1.5× turns
 // the 17pt banner into ~26pt. Both stay comfortably readable on a phone.
+// These MIRROR theme/dynamicType.CHROME_TEXT_SCALE.lockChip / .finderBanner. They are literals
+// rather than an import because this module is deliberately dependency-free — the plain-Node
+// self-tests load it directly, and a single import would break them. The self-test asserts the
+// two tables stay equal, so they cannot drift.
 export const LOCK_CHIP_MAX_FONT_SCALE = 1.6;
 export const FINDER_MAX_FONT_SCALE = 1.5;
 
