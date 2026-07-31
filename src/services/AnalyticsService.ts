@@ -84,3 +84,90 @@ export async function clearPaywallEventLog(): Promise<void> {
     // No-op.
   }
 }
+
+// ── Tutorial (First Light) events ────────────────────────────────────────────────
+//
+// Same local-only mechanism as the paywall log above — NO new analytics provider, no network
+// call, no third-party SDK. Events go to a separate namespaced AsyncStorage key and, in dev,
+// the console.
+//
+// PRIVACY: the properties are limited to the small, non-identifying set below (step id, an
+// object KIND like "moon"/"planet", a tip id, a reason string). Location, orientation samples,
+// Vault contents, notes, and anything else about the user's sky session are never recorded
+// here — and, like the paywall log, a failure is swallowed so analytics can never block or
+// crash the tour.
+
+export type TutorialEventName =
+  | "first_light_started"
+  | "first_light_step_completed"
+  | "first_light_skipped"
+  | "first_light_completed"
+  | "first_light_replayed"
+  | "contextual_tip_seen"
+  | "contextual_tip_dismissed";
+
+/** The ONLY property keys a tutorial event may carry. Anything else is dropped, not logged. */
+export const ALLOWED_TUTORIAL_EVENT_PROPERTIES: ReadonlyArray<string> = [
+  "stepId",
+  "objectKind",
+  "tipId",
+  "reason",
+  "variant",
+];
+
+const TUTORIAL_EVENT_LOG_KEY = "auralunis.analytics.tutorial_events";
+
+interface TutorialEvent {
+  name: TutorialEventName;
+  properties: Record<string, string>;
+  timestamp: string;
+}
+
+/** Keep only allow-listed keys, coerced to short strings. Defence in depth against a caller
+ *  accidentally passing a coordinate, a note body, or an object. */
+function sanitizeTutorialProperties(properties: Record<string, unknown>): Record<string, string> {
+  const clean: Record<string, string> = {};
+  for (const key of ALLOWED_TUTORIAL_EVENT_PROPERTIES) {
+    const value = properties[key];
+    if (typeof value === "string" && value.length > 0) clean[key] = value.slice(0, 64);
+    else if (typeof value === "number" && Number.isFinite(value)) clean[key] = String(value);
+    else if (typeof value === "boolean") clean[key] = String(value);
+  }
+  return clean;
+}
+
+export function trackTutorialEvent(
+  name: TutorialEventName,
+  properties: Record<string, unknown> = {}
+): void {
+  const event: TutorialEvent = {
+    name,
+    properties: sanitizeTutorialProperties(properties),
+    timestamp: new Date().toISOString(),
+  };
+  // Fire-and-forget, exactly like the paywall events — never awaited by the tour.
+  void (async () => {
+    try {
+      if (__DEV__) {
+        // eslint-disable-next-line no-console
+        console.log(`[analytics] ${event.name}`, event.properties);
+      }
+      const raw = await AsyncStorage.getItem(TUTORIAL_EVENT_LOG_KEY);
+      const log: TutorialEvent[] = raw ? JSON.parse(raw) : [];
+      log.push(event);
+      const trimmed = log.length > MAX_LOCAL_EVENTS ? log.slice(-MAX_LOCAL_EVENTS) : log;
+      await AsyncStorage.setItem(TUTORIAL_EVENT_LOG_KEY, JSON.stringify(trimmed));
+    } catch {
+      // Analytics must never break the tutorial.
+    }
+  })();
+}
+
+export async function getTutorialEventLog(): Promise<TutorialEvent[]> {
+  try {
+    const raw = await AsyncStorage.getItem(TUTORIAL_EVENT_LOG_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
