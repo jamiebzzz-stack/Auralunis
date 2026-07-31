@@ -217,7 +217,6 @@ check(
 has(overlay, "Step {index + 1} of {total}", "progress is stated in words, not only in colour");
 has(overlay, "accessibilityElementsHidden", "decorative dimming is hidden from screen readers");
 check("controls meet a 44pt minimum", (overlay.match(/minHeight: 44/g) || []).length >= 2);
-has(overlay, "screen.height * 0.32", "the copy area is sized from the live viewport, not a fixed height");
 has(overlay, "ScrollView", "the copy area scrolls");
 for (const [rel, source] of [
   ["TourOverlay", overlay],
@@ -359,6 +358,25 @@ check("tour buttons cannot become multi-line blocks", (overlay.match(/maxFontSiz
 has(overlay, "numberOfLines={1}", "button labels stay on one line");
 hasnt(rootOverlay, "allowFontScaling={false}", "Dynamic Type is never disabled");
 hasnt(overlay, "allowFontScaling={false}", "Dynamic Type is never disabled");
+
+// F11 — large Dynamic Type comfort
+has(overlay, "maxCardHeight(screen, reservedBottom, insets)", "the card height is capped from the live viewport");
+has(overlay, "maxHeight: cardCap", "…and the cap is actually applied to the card");
+check("the copy region shrinks while the actions do not",
+  /copyScroll: \{ marginTop: 10, flexShrink: 1 \}/.test(overlay) && /buttonRow: \{[^}]*flexShrink: 0/.test(overlay));
+check("the progress row and extra actions also hold their size",
+  /progressRow: \{[^}]*flexShrink: 0/.test(overlay) && /actions: \{[^}]*flexShrink: 0/.test(overlay));
+has(overlay, "paddingBottom: 14", "the last line of copy clears the action row");
+has(overlay, "showsVerticalScrollIndicator\n", "the scroll indicator signals there is more to read");
+check("the heading growth is bounded so it cannot become a billboard",
+  /maxFontSizeMultiplier=\{1\.5\}[\s\S]{0,80}\{heading\}/.test(overlay));
+check("body copy still scales generously", /style=\{styles\.copy\} maxFontSizeMultiplier=\{1\.9\}/.test(overlay));
+hasnt(overlay, "screen.height * 0.32", "the fixed fractional copy height is replaced by the card cap");
+has(geometrySource, "MIN_EXPOSED_SKY_FRACTION", "a minimum exposed-sky share is defined");
+has(geometrySource, "MAX_SPOTLIGHT_WIDTH_FRACTION", "spotlight width is capped");
+has(geometrySource, "MAX_SPOTLIGHT_HEIGHT_FRACTION", "spotlight height is capped");
+check("spotlight padding is a constant, never font-derived",
+  /const pad = finite\(padding\) && padding >= 0 \? padding : DEFAULT_SPOTLIGHT_PADDING;/.test(geometrySource));
 
 // F5 — stable totals
 has(app, "FirstLightCapabilityBridge", "capabilities resolve at the app root");

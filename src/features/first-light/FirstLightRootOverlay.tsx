@@ -57,7 +57,7 @@ export function FirstLightRootOverlay({ onEnterSky }: Props) {
               <Text style={styles.eyebrow} maxFontSizeMultiplier={1.6}>
                 FIRST LIGHT
               </Text>
-              <Text style={styles.offerTitle} accessibilityRole="header" maxFontSizeMultiplier={1.8}>
+              <Text style={styles.offerTitle} accessibilityRole="header" maxFontSizeMultiplier={1.5}>
                 {resumable ? "Pick up where you left off?" : "Want a quick guided tour?"}
               </Text>
               <Text style={styles.offerCopy} maxFontSizeMultiplier={1.8}>
@@ -166,7 +166,7 @@ const styles = StyleSheet.create({
     // Never taller than the screen: the copy scrolls inside, the buttons stay put.
     maxHeight: "84%",
   },
-  offerScroll: { flexGrow: 0 },
+  offerScroll: { flexGrow: 0, flexShrink: 1 },
   eyebrow: { color: AuraLunisColors.gold, fontSize: 10.5, letterSpacing: 3, fontWeight: "900" },
   offerTitle: { color: "#FFF", fontSize: 24, fontWeight: "900", marginTop: 10, lineHeight: 30 },
   offerCopy: { color: AuraLunisColors.silver, fontSize: 14.5, lineHeight: 21, marginTop: 10 },

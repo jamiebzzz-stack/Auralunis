@@ -34,7 +34,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AuraLunisColors } from "@/theme/tokens";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
 import { useTourTargetRegistry } from "./TourTargetRegistry";
-import { cardAnchor, DEFAULT_CARD_GAP, dimBands, spotlightFor, type TourRect } from "./tourGeometry";
+import {
+  cardAnchor,
+  DEFAULT_CARD_GAP,
+  dimBands,
+  maxCardHeight,
+  spotlightFor,
+  type TourRect,
+} from "./tourGeometry";
 
 const FADE_MS = 220;
 const DEFAULT_CARD_HEIGHT = 190;
@@ -186,7 +193,11 @@ export function TourOverlay({
 
   const spot = spotlightFor(spotlightRect ?? target, screen);
   const bands = dimBands(spot, screen);
-  const anchor = cardAnchor(spot, screen, insets, cardHeight, DEFAULT_CARD_GAP, reservedBottom);
+  // The card is CAPPED, not merely scrollable. At the largest Dynamic Type sizes it used to
+  // grow until almost no sky was left, which made "drag to explore" impractical even though
+  // every control was technically reachable.
+  const cardCap = maxCardHeight(screen, reservedBottom, insets);
+  const anchor = cardAnchor(spot, screen, insets, Math.min(cardHeight, cardCap), DEFAULT_CARD_GAP, reservedBottom);
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
@@ -223,7 +234,7 @@ export function TourOverlay({
         )}
 
         {/* Instruction card — the only interactive part of the overlay. */}
-        <View onLayout={onCardLayout} style={[styles.card, { top: anchor.top, borderColor: accent }]}>
+        <View onLayout={onCardLayout} style={[styles.card, { top: anchor.top, borderColor: accent, maxHeight: cardCap }]}>
           <View style={styles.progressRow}>
             <View style={styles.dots} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
               {Array.from({ length: total }, (_, i) => (
@@ -244,9 +255,11 @@ export function TourOverlay({
           </View>
 
           <ScrollView
-            style={[styles.copyScroll, { maxHeight: Math.max(120, screen.height * 0.32) }]}
+            style={styles.copyScroll}
             contentContainerStyle={styles.copyContent}
-            showsVerticalScrollIndicator={false}
+            // The scroll bar is the affordance that says "there is more" — without it a line
+            // cut at the scroll boundary just reads as broken text.
+            showsVerticalScrollIndicator
           >
             {/* The instruction TEXT is the single focusable element VoiceOver lands on when the
                 step changes. Grouping is applied here rather than on the whole card, because a
@@ -257,11 +270,23 @@ export function TourOverlay({
               accessible
               accessibilityLabel={`${heading}. ${copy}${hint ? ` ${hint}` : ""}`}
             >
-              <Text style={[styles.heading, { color: accent }]} accessibilityRole="header">
+              <Text
+                style={[styles.heading, { color: accent }]}
+                accessibilityRole="header"
+                // The heading is the most decorative text here; unbounded it became a billboard
+                // that pushed the body copy out of view entirely.
+                maxFontSizeMultiplier={1.5}
+              >
                 {heading}
               </Text>
-              <Text style={styles.copy}>{copy}</Text>
-              {hint ? <Text style={styles.hint}>{hint}</Text> : null}
+              <Text style={styles.copy} maxFontSizeMultiplier={1.9}>
+                {copy}
+              </Text>
+              {hint ? (
+                <Text style={styles.hint} maxFontSizeMultiplier={1.7}>
+                  {hint}
+                </Text>
+              ) : null}
             </View>
           </ScrollView>
 
@@ -340,6 +365,8 @@ const styles = StyleSheet.create({
   },
   card: {
     position: "absolute",
+    // A column whose scrollable region shrinks and whose action row never does.
+    flexDirection: "column",
     left: 14,
     right: 14,
     borderRadius: 22,
@@ -354,7 +381,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 10 },
     elevation: 12,
   },
-  progressRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  progressRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, flexShrink: 0 },
   dots: { flexDirection: "row", gap: 6, alignItems: "center", flexShrink: 1 },
   dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "rgba(199,166,106,0.28)" },
   dotDone: { backgroundColor: "rgba(199,166,106,0.6)" },
@@ -364,12 +391,15 @@ const styles = StyleSheet.create({
   // long line scrolls inside the card rather than pushing the buttons off-screen.
   // maxHeight is supplied at render time from the live viewport (see the ScrollView above);
   // this only carries the spacing.
-  copyScroll: { marginTop: 10 },
-  copyContent: { paddingBottom: 2 },
+  // flexShrink lets the copy give up space inside the capped card; the action row below has
+  // flexShrink 0, so buttons stay fixed and fully visible however large the text grows.
+  copyScroll: { marginTop: 10, flexShrink: 1 },
+  // Bottom padding so the final line clears the action row instead of sitting flush against it.
+  copyContent: { paddingBottom: 14 },
   heading: { fontSize: 19, fontWeight: "900" },
   copy: { color: AuraLunisColors.silver, fontSize: 14.5, lineHeight: 21, marginTop: 6 },
   hint: { color: AuraLunisColors.muted, fontSize: 12.5, lineHeight: 18, marginTop: 8, fontStyle: "italic" },
-  buttonRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 14 },
+  buttonRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 14, flexShrink: 0 },
   // 44pt minimum height on every control — comfortable touch targets at any text size.
   secondaryBtn: { minHeight: 44, minWidth: 64, justifyContent: "center", paddingHorizontal: 6 },
   secondaryText: { color: AuraLunisColors.muted, fontSize: 13.5, fontWeight: "800" },
@@ -384,5 +414,5 @@ const styles = StyleSheet.create({
   },
   primaryBtnDisabled: { opacity: 0.45 },
   primaryText: { color: "#17120B", fontWeight: "900", fontSize: 14.5 },
-  actions: { marginTop: 10, gap: 8 },
+  actions: { marginTop: 10, gap: 8, flexShrink: 0 },
 });

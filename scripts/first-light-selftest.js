@@ -879,6 +879,81 @@ function reservedDockSection() {
   check("on a small screen with a huge reserve the card stays on screen", squeezed.top >= insets.top && Number.isFinite(squeezed.top));
 }
 
+function largeTypeLayoutSection() {
+  console.log("\n── 14. Largest Dynamic Type: the card is capped, not just scrollable ──");
+
+  const screen = { width: 402, height: 874 };           // iPhone 17, points
+  const insets = { top: 59, bottom: 34, left: 0, right: 0 };
+  const DOCK = 214;                                     // Sky Lens reserved strip
+
+  const cap = geometry.maxCardHeight(screen, DOCK, insets);
+  check("a card cap is produced for a real viewport", cap > 120, String(cap));
+  check(
+    "REGRESSION: the cap leaves at least the minimum exposed share of the viewport",
+    cap <= screen.height - insets.top - DOCK - screen.height * geometry.MIN_EXPOSED_SKY_FRACTION + 0.001,
+    `cap ${cap.toFixed(1)} of ${screen.height}`
+  );
+  check("the minimum exposed sky share is at least 30%", geometry.MIN_EXPOSED_SKY_FRACTION >= 0.3);
+
+  // A card that WANTS to be enormous (max Dynamic Type) is clamped to the cap.
+  const wanted = 700;
+  const used = Math.min(wanted, cap);
+  const anchor = geometry.cardAnchor(null, screen, insets, used, geometry.DEFAULT_CARD_GAP, DOCK);
+  const exposed = geometry.exposedSkyFraction({ screen, cardTop: anchor.top, cardHeight: used, reservedBottom: DOCK });
+  check(
+    "REGRESSION: an oversized card still leaves ≥30% of the viewport as usable sky",
+    exposed >= 0.3,
+    `${(exposed * 100).toFixed(1)}% exposed`
+  );
+  check(
+    "the un-capped card would NOT have left that much (the cap is doing the work)",
+    geometry.exposedSkyFraction({ screen, cardTop: screen.height - DOCK - wanted, cardHeight: wanted, reservedBottom: DOCK }) < 0.3
+  );
+
+  // A usable drag region must exist OUTSIDE the card — "Hold the sky still" needs it.
+  const drag = geometry.dragRegion({ screen, cardTop: anchor.top, insets });
+  check("REGRESSION: a drag region exists above the card", drag !== null);
+  check("the drag region is a real area, not a sliver", drag && drag.height >= 120, drag && `${drag.height.toFixed(0)}pt tall`);
+  check("the drag region starts below the top safe area", drag && drag.y >= insets.top);
+  check("the drag region never overlaps the card", drag && drag.y + drag.height <= anchor.top + 0.001);
+
+  // The card must never reach into the reserved dock (Lock Sky lives there).
+  check(
+    "REGRESSION: the capped card's bottom clears the reserved dock",
+    anchor.top + used <= screen.height - DOCK - 8 + 0.001,
+    `card bottom ${(anchor.top + used).toFixed(1)} vs dock top ${screen.height - DOCK}`
+  );
+
+  console.log("\n── 15. Spotlight stays proportionate to its control ──");
+
+  // A Lock Sky chip whose label has scaled with Dynamic Type.
+  const hugeChip = { x: 40, y: 700, width: 330, height: 120 };
+  const hugeSpot = geometry.spotlightFor(hugeChip, screen);
+  check("REGRESSION: an enormous control does not produce an enormous ring", hugeSpot.height <= screen.height * geometry.MAX_SPOTLIGHT_HEIGHT_FRACTION + 0.001, `${hugeSpot.height.toFixed(0)}pt`);
+  check("…nor an over-wide one", hugeSpot.width <= screen.width * geometry.MAX_SPOTLIGHT_WIDTH_FRACTION + 0.001, `${hugeSpot.width.toFixed(0)}pt`);
+  check("the ring stays centred on the control", Math.abs((hugeSpot.x + hugeSpot.width / 2) - (hugeChip.x + hugeChip.width / 2)) < 1);
+  check("the ring stays inside the viewport", hugeSpot.x >= 0 && hugeSpot.y >= 0 && hugeSpot.x + hugeSpot.width <= screen.width && hugeSpot.y + hugeSpot.height <= screen.height);
+
+  // A normal control is still hugged closely — the cap must not loosen ordinary spotlights.
+  const normalChip = { x: 120, y: 700, width: 150, height: 44 };
+  const normalSpot = geometry.spotlightFor(normalChip, screen);
+  check("a normal control is still tightly ringed", normalSpot.width - normalChip.width <= 2 * geometry.DEFAULT_SPOTLIGHT_PADDING + 0.001);
+  check("…with the padding that does NOT scale with font size", normalSpot.height - normalChip.height <= 2 * geometry.DEFAULT_SPOTLIGHT_PADDING + 0.001);
+  check("a tiny control still gets a comfortable minimum", geometry.spotlightFor({ x: 5, y: 5, width: 8, height: 8 }, screen).width >= geometry.MIN_SPOTLIGHT_SIZE);
+
+  // Whatever the ring size, the dimming still tiles exactly and never covers the control.
+  const bands = geometry.dimBands(hugeSpot, screen);
+  const overlaps = bands.some((b) => b.x < hugeSpot.x + hugeSpot.width && b.x + b.width > hugeSpot.x && b.y < hugeSpot.y + hugeSpot.height && b.y + b.height > hugeSpot.y);
+  check("dimming still never covers the spotlit control", overlaps === false);
+
+  // Small screen at the largest type: everything must still resolve to something usable.
+  const small = { width: 320, height: 568 };
+  const smallCap = geometry.maxCardHeight(small, 180, insets);
+  check("a small screen still yields a positive card cap", smallCap >= 120, String(smallCap));
+  const smallAnchor = geometry.cardAnchor(null, small, insets, smallCap, geometry.DEFAULT_CARD_GAP, 180);
+  check("…and a finite anchor inside the safe area", Number.isFinite(smallAnchor.top) && smallAnchor.top >= insets.top);
+}
+
 (async () => {
   await storageSection();
   machineSection();
@@ -891,6 +966,7 @@ function reservedDockSection() {
   tipHoldSection();
   stableTotalsSection();
   reservedDockSection();
+  largeTypeLayoutSection();
 
   console.log(`\nFirst Light behaviour self-test: ${pass} passed, ${fail} failed.`);
   process.exit(fail === 0 ? 0 : 1);

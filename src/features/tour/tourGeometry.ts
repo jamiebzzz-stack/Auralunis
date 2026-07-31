@@ -17,6 +17,25 @@ export const MIN_SPOTLIGHT_SIZE = 44;
 /** Gap between the spotlight and the instruction card. */
 export const DEFAULT_CARD_GAP = 14;
 
+/**
+ * The share of the viewport that must stay clear of the instruction card.
+ *
+ * At the largest Dynamic Type sizes the card grew until it owned almost the whole screen: the
+ * copy was technically scrollable, but "Hold the sky still" then asked the user to drag a sky
+ * that had nowhere left to be dragged. Reachable is not the same as usable, so the card is
+ * capped and the remainder is guaranteed to the scene.
+ */
+export const MIN_EXPOSED_SKY_FRACTION = 0.34;
+
+/**
+ * A spotlight indicates a control; it does not have to enclose one at any size. A Sky Lens chip
+ * whose own label scales with Dynamic Type can become enormous, and a ring drawn tightly around
+ * it swallowed most of the dock. These caps keep the ring proportionate and centred on the
+ * control. The PADDING never scales with font size — only the measured control does.
+ */
+export const MAX_SPOTLIGHT_WIDTH_FRACTION = 0.66;
+export const MAX_SPOTLIGHT_HEIGHT_FRACTION = 0.18;
+
 const finite = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
 
 /** A measurement is usable only when every component is finite and the box has real area. */
@@ -59,8 +78,12 @@ export function spotlightFor(
 
   const centerX = target.x + target.width / 2;
   const centerY = target.y + target.height / 2;
-  const width = Math.min(screen.width, Math.max(MIN_SPOTLIGHT_SIZE, target.width + pad * 2));
-  const height = Math.min(screen.height, Math.max(MIN_SPOTLIGHT_SIZE, target.height + pad * 2));
+  // Padded, floored at a comfortable touch size, then CAPPED so an enormous (font-scaled)
+  // control cannot produce a ring that covers unrelated chrome.
+  const widthCap = Math.max(MIN_SPOTLIGHT_SIZE, screen.width * MAX_SPOTLIGHT_WIDTH_FRACTION);
+  const heightCap = Math.max(MIN_SPOTLIGHT_SIZE, screen.height * MAX_SPOTLIGHT_HEIGHT_FRACTION);
+  const width = Math.min(screen.width, widthCap, Math.max(MIN_SPOTLIGHT_SIZE, target.width + pad * 2));
+  const height = Math.min(screen.height, heightCap, Math.max(MIN_SPOTLIGHT_SIZE, target.height + pad * 2));
 
   const x = clamp(centerX - width / 2, 0, screen.width - width);
   const y = clamp(centerY - height / 2, 0, screen.height - height);
@@ -149,4 +172,69 @@ export function cardAnchor(
     }
   }
   return { top: maxTop, placement: "bottom" };
+}
+
+/**
+ * The tallest the instruction card may be on this viewport, so at least
+ * MIN_EXPOSED_SKY_FRACTION of it stays visible once the host's reserved bottom strip is also
+ * accounted for. Returns a positive height even on absurdly small viewports.
+ */
+export function maxCardHeight(
+  screen: Partial<TourSize>,
+  reservedBottom: number = 0,
+  insets: Partial<TourInsets> | null | undefined = null
+): number {
+  if (!isUsableSize(screen)) return 0;
+  const safeTop = finite(insets?.top) ? (insets as TourInsets).top : 0;
+  const reserved = finite(reservedBottom) && reservedBottom > 0 ? reservedBottom : 0;
+  const mustStayClear = screen.height * MIN_EXPOSED_SKY_FRACTION;
+  // The reserved dock is chrome, not sky, so it does not count toward the exposed share.
+  const available = screen.height - safeTop - reserved - mustStayClear;
+  return Math.max(120, available);
+}
+
+/**
+ * The share of the viewport that is neither the instruction card nor the host's reserved
+ * bottom strip — i.e. the scene the user can actually see and interact with.
+ */
+export function exposedSkyFraction(args: {
+  screen: Partial<TourSize>;
+  cardTop: number;
+  cardHeight: number;
+  reservedBottom?: number;
+}): number {
+  const { screen, cardTop, cardHeight } = args;
+  if (!isUsableSize(screen)) return 0;
+  const reserved = finite(args.reservedBottom) && (args.reservedBottom as number) > 0 ? (args.reservedBottom as number) : 0;
+  const top = finite(cardTop) ? cardTop : 0;
+  const height = finite(cardHeight) && cardHeight > 0 ? cardHeight : 0;
+
+  const cardTopClamped = clamp(top, 0, screen.height);
+  const cardBottomClamped = clamp(top + height, 0, screen.height);
+  const dockTop = clamp(screen.height - reserved, 0, screen.height);
+
+  // Everything above the card, minus any part of it hidden under the reserved strip.
+  const above = Math.max(0, Math.min(cardTopClamped, dockTop));
+  // Anything between the card's bottom and the reserved strip (rare, but real when the card
+  // is anchored above a low spotlight).
+  const below = Math.max(0, dockTop - Math.max(cardBottomClamped, 0));
+  return (above + below) / screen.height;
+}
+
+/**
+ * The usable drag region: the sky above the instruction card and below the top safe area.
+ * "Hold the sky still" asks for a drag, and the drag must not have to start on the card.
+ */
+export function dragRegion(args: {
+  screen: Partial<TourSize>;
+  cardTop: number;
+  insets?: Partial<TourInsets> | null;
+}): TourRect | null {
+  const { screen, cardTop } = args;
+  if (!isUsableSize(screen)) return null;
+  const safeTop = finite(args.insets?.top) ? (args.insets as TourInsets).top : 0;
+  const top = clamp(finite(cardTop) ? cardTop : screen.height, 0, screen.height);
+  const height = top - safeTop;
+  if (height <= 0) return null;
+  return { x: 0, y: safeTop, width: screen.width, height };
 }
