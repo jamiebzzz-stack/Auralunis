@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { TAB_BAR_STYLE } from "@/navigation/RootTabs";
@@ -26,6 +26,7 @@ import { CelestialArchiveScreen } from "@/screens/CelestialArchiveScreen";
 import { CelestialCalendarScreen } from "@/screens/CelestialCalendarScreen";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { usePaywallNavigation } from "@/context/PaywallNavigationContext";
+import { useFirstLight } from "@/features/first-light/FirstLightContext";
 
 export function SkyScreen() {
   const { isPremium } = useEntitlement();
@@ -55,6 +56,17 @@ export function SkyScreen() {
     navigation.setOptions({ tabBarStyle: immersive ? { display: "none" } : TAB_BAR_STYLE });
   }, [navigation, skyLensOpen, alignmentOpen, birthSkyOpen, astroWeatherOpen, photoPlannerOpen, skyShareOpen, archiveOpen, calendarOpen]);
 
+  // First Light runs its hands-on steps inside Sky Lens. Open the lens ONCE, on the transition
+  // into that phase of the tour. If the user then closes Sky Lens the effect does not re-fire,
+  // so the tutorial can always be walked away from — it never traps anyone in a screen.
+  const firstLight = useFirstLight();
+  const tourNeedsSkyLens = firstLight?.overlayVisible === true && firstLight.step?.host === "skyLens";
+  const tourNeededSkyLensRef = useRef(false);
+  useEffect(() => {
+    if (tourNeedsSkyLens && !tourNeededSkyLensRef.current) setSkyLensOpen(true);
+    tourNeededSkyLensRef.current = tourNeedsSkyLens;
+  }, [tourNeedsSkyLens]);
+
   // A Learn lesson can deep-link here with a target ("See in Sky Lens"): open the
   // lens straight to Find Mode on that object, then clear the param so it doesn't
   // re-fire on the next focus.
@@ -75,8 +87,15 @@ export function SkyScreen() {
       // SkyLensScreen itself, above the inner SkyLensErrorBoundary around the canvas).
       <ErrorBoundary>
         <SkyLensScreen
-          onClose={() => { setSkyLensOpen(false); setFocusTarget(null); }}
+          onClose={() => {
+            // Closing Sky Lens mid-tour PAUSES First Light rather than leaving it "running"
+            // with no UI, no overlay, and no way back in until the app restarts.
+            if (tourNeedsSkyLens) firstLight?.pauseTour();
+            setSkyLensOpen(false);
+            setFocusTarget(null);
+          }}
           focusTarget={focusTarget}
+          onOpenLearn={() => navigation.navigate("Learn")}
         />
       </ErrorBoundary>
     );
@@ -133,6 +152,33 @@ export function SkyScreen() {
   return (
     <ScreenShell title="Sky Lens + Archive" subtitle="Sky">
       {manualMapOpen ? <ManualSkyMap onClose={() => setManualMapOpen(false)} /> : null}
+
+      {/* A paused First Light is visible and recoverable, never an invisible running tour. */}
+      {firstLight?.paused ? (
+        <View style={styles.resumeTourCard}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.resumeTourTitle}>First Light is paused</Text>
+            <Text style={styles.resumeTourCopy}>Pick the guided tour back up whenever you like.</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.resumeTourBtn}
+            onPress={() => firstLight.resumeTour()}
+            accessibilityRole="button"
+            accessibilityLabel="Resume First Light"
+          >
+            <Text style={styles.resumeTourBtnText}>Resume</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => firstLight.dismissPausedTour()}
+            hitSlop={12}
+            style={styles.resumeTourDismiss}
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss the paused First Light reminder"
+          >
+            <Text style={styles.resumeTourDismissText}>✕</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
 
       <FeatureCard
         title="AuraLunis Sky Lens"
@@ -325,6 +371,29 @@ const styles = StyleSheet.create({
   skyVal: { color: AuraLunisColors.gold2, fontSize: 13, fontVariant: ["tabular-nums"] },
   skyValDim: { color: AuraLunisColors.muted, fontSize: 13 },
   skyHint: { color: AuraLunisColors.muted, fontSize: 11, marginTop: 10 },
+  resumeTourCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderRadius: 20,
+    padding: 14,
+    marginBottom: 12,
+    backgroundColor: "rgba(217,168,78,0.10)",
+    borderWidth: 1,
+    borderColor: AuraLunisColors.borderGold,
+  },
+  resumeTourTitle: { color: "#FFF", fontSize: 15, fontWeight: "900" },
+  resumeTourCopy: { color: AuraLunisColors.silver, fontSize: 12.5, lineHeight: 18, marginTop: 3 },
+  resumeTourBtn: {
+    minHeight: 44,
+    justifyContent: "center",
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    backgroundColor: AuraLunisColors.gold,
+  },
+  resumeTourBtnText: { color: "#17120B", fontWeight: "900", fontSize: 13.5 },
+  resumeTourDismiss: { minWidth: 32, minHeight: 44, alignItems: "flex-end", justifyContent: "center" },
+  resumeTourDismissText: { color: AuraLunisColors.muted, fontSize: 15, fontWeight: "800" },
   alignmentRoot: { flex: 1, backgroundColor: AuraLunisColors.cosmicBlack },
   backButton: {
     position: "absolute",

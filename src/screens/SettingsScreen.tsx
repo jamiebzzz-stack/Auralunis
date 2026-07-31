@@ -3,7 +3,9 @@ import { Alert, Image, Linking, Modal, Pressable, StyleSheet, Switch, Text, View
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { usePaywallNavigation } from "@/context/PaywallNavigationContext";
+import { useNavigation } from "@react-navigation/native";
 import { useOnboarding } from "@/context/OnboardingContext";
+import { useFirstLight } from "@/features/first-light/FirstLightContext";
 import { resolveMembershipCta } from "@/features/paywall/entitlementStatus";
 import { TermsScreen } from "@/screens/TermsScreen";
 import { PrivacyScreen } from "@/screens/PrivacyScreen";
@@ -60,6 +62,10 @@ export function SettingsScreen() {
   const { membershipKind, refresh } = useEntitlement();
   const { openPaywall } = usePaywallNavigation();
   const { replayTutorial } = useOnboarding();
+  // First Light is optional infrastructure — `useFirstLight()` returns null when the provider
+  // isn't mounted, and the row simply doesn't render rather than throwing.
+  const firstLight = useFirstLight();
+  const navigation = useNavigation<any>();
   // Single source of truth for the membership card's copy, label, and action — derived
   // from the RevenueCat-backed membershipKind (loading/unknown/error fail closed to "none").
   const membershipCta = resolveMembershipCta(membershipKind);
@@ -362,6 +368,22 @@ export function SettingsScreen() {
         >
           <Text style={styles.secondaryButtonText}>Replay Tutorial</Text>
         </Pressable>
+        {/* Restarts the optional hands-on First Light tour from step one and jumps to the Sky
+            tab, where it runs. It resets ONLY the First Light document — settings, birth data,
+            entitlement, Vault items, and the contextual tips already seen are untouched. */}
+        {firstLight ? (
+          <Pressable
+            style={styles.secondaryButton}
+            onPress={() => {
+              firstLight.replay();
+              navigation.navigate("Sky");
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Replay First Light guided tour"
+          >
+            <Text style={styles.secondaryButtonText}>Replay First Light</Text>
+          </Pressable>
+        ) : null}
         <Pressable style={styles.secondaryButton} onPress={() => setLegalModal("privacy")}>
           <Text style={styles.secondaryButtonText}>Privacy Policy</Text>
         </Pressable>
