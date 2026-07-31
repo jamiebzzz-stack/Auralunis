@@ -28,7 +28,7 @@ import {
 } from "@/features/sky-lens/ar/orientationQuaternion";
 import { useFirstLight } from "./FirstLightContext";
 import { LOOK_AROUND_NO_MOTION_HINT, NO_LIVE_TARGET_HINT } from "./firstLightSteps";
-import { isObjectStepSatisfied, shouldRestoreLiveTime } from "./firstLightRules";
+import { isObjectStepSatisfied, isSaveStepSatisfied, shouldRestoreLiveTime } from "./firstLightRules";
 import {
   describeConstellation,
   practiceTarget,
@@ -231,11 +231,17 @@ export function FirstLightSkyLens(props: Props) {
   // ── Step 8 (Vault variant): the tutorial object was really saved ────────────────
   useEffect(() => {
     if (!active || stepId !== "saveDiscovery" || !satisfy) return;
-    if (step?.variant !== "vault") return;
-    // Only a genuine persistence result satisfies this — nothing is simulated, and the tour
-    // never calls the save itself, so a duplicate save is impossible.
-    if (target && savedIds.has(target.id)) satisfy("saveDiscovery");
-  }, [active, stepId, step?.variant, savedIds, target, satisfy]);
+    // A real, persisted save is the genuine completion; the rule additionally refuses to demand
+    // the impossible when there is no motion and the object cannot be brought into view.
+    const satisfied = isSaveStepSatisfied({
+      variant: step?.variant === "learn" ? "learn" : "vault",
+      motionAvailable,
+      targetSimulated: target?.simulated ?? false,
+      targetOnScreen: !!targetProjection && targetProjection.onScreen && !targetProjection.behind,
+      targetSaved: !!target && savedIds.has(target.id),
+    });
+    if (satisfied) satisfy("saveDiscovery");
+  }, [active, stepId, step?.variant, savedIds, target, motionAvailable, targetProjection, satisfy]);
 
   // ── Completion flourish (skipped under Reduce Motion) ───────────────────────────
   const celebrate = useRef(new Animated.Value(0)).current;
@@ -473,6 +479,9 @@ function resolveHint(args: {
     return `${constellationCopy.title} — ${constellationCopy.subtitle}.`;
   }
   if (stepId === "constellation") return "No familiar pattern is well placed right now — continue when you're ready.";
+  if (stepId === "saveDiscovery" && variant !== "learn" && !motionAvailable && !targetOnScreen) {
+    return "Saving needs the object on screen, which this device can’t reach without motion. Continue — you can save any object from its card whenever you like.";
+  }
   if (stepId === "saveDiscovery" && variant === "learn") {
     return "Saving to the Vault is a Premium feature, so this step just points you at Learn instead.";
   }
