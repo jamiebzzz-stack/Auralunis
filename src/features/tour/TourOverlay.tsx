@@ -34,7 +34,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AuraLunisColors } from "@/theme/tokens";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
 import { useTourTargetRegistry } from "./TourTargetRegistry";
-import { cardAnchor, dimBands, spotlightFor, type TourRect } from "./tourGeometry";
+import { cardAnchor, DEFAULT_CARD_GAP, dimBands, spotlightFor, type TourRect } from "./tourGeometry";
 
 const FADE_MS = 220;
 const DEFAULT_CARD_HEIGHT = 190;
@@ -57,6 +57,12 @@ export type TourOverlayProps = {
    * continuously, which would otherwise invalidate the whole layout registry on every frame.
    */
   spotlightRect?: TourRect | null;
+  /**
+   * Height of a host-owned control strip at the bottom that the instruction card must not
+   * cover. Sky Lens passes its measured dock height so an un-spotlit card can never sit on top
+   * of Lock Sky, the shutter, the layer bar, or the time panel.
+   */
+  reservedBottom?: number;
   index: number;
   total: number;
   canGoBack: boolean;
@@ -79,6 +85,7 @@ export function TourOverlay({
   hint,
   targetKey,
   spotlightRect,
+  reservedBottom = 0,
   index,
   total,
   canGoBack,
@@ -179,7 +186,7 @@ export function TourOverlay({
 
   const spot = spotlightFor(spotlightRect ?? target, screen);
   const bands = dimBands(spot, screen);
-  const anchor = cardAnchor(spot, screen, insets, cardHeight);
+  const anchor = cardAnchor(spot, screen, insets, cardHeight, DEFAULT_CARD_GAP, reservedBottom);
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
@@ -231,13 +238,13 @@ export function TourOverlay({
               ))}
             </View>
             {/* Progress is also stated in words: colour is never the only indicator. */}
-            <Text style={styles.progressText} accessibilityRole="text">
+            <Text style={styles.progressText} accessibilityRole="text" numberOfLines={1} maxFontSizeMultiplier={1.4}>
               Step {index + 1} of {total}
             </Text>
           </View>
 
           <ScrollView
-            style={styles.copyScroll}
+            style={[styles.copyScroll, { maxHeight: Math.max(120, screen.height * 0.32) }]}
             contentContainerStyle={styles.copyContent}
             showsVerticalScrollIndicator={false}
           >
@@ -268,7 +275,13 @@ export function TourOverlay({
               accessibilityLabel="Go back to the previous step"
               accessibilityState={{ disabled: !canGoBack }}
             >
-              <Text style={[styles.secondaryText, !canGoBack && styles.disabledText]}>Back</Text>
+              <Text
+                style={[styles.secondaryText, !canGoBack && styles.disabledText]}
+                numberOfLines={1}
+                maxFontSizeMultiplier={1.4}
+              >
+                Back
+              </Text>
             </Pressable>
 
             <Pressable
@@ -278,7 +291,9 @@ export function TourOverlay({
               accessibilityRole="button"
               accessibilityLabel="Skip the tour"
             >
-              <Text style={styles.secondaryText}>{skipLabel}</Text>
+              <Text style={styles.secondaryText} numberOfLines={1} maxFontSizeMultiplier={1.4}>
+                {skipLabel}
+              </Text>
             </Pressable>
 
             <Pressable
@@ -297,7 +312,15 @@ export function TourOverlay({
               }
               accessibilityState={{ disabled: !canContinue }}
             >
-              <Text style={styles.primaryText}>{continueLabel}</Text>
+              <Text
+                style={styles.primaryText}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.8}
+                maxFontSizeMultiplier={1.5}
+              >
+                {continueLabel}
+              </Text>
             </Pressable>
           </View>
 
@@ -339,7 +362,9 @@ const styles = StyleSheet.create({
   progressText: { color: AuraLunisColors.muted, fontSize: 12, fontWeight: "700" },
   // Bounded height + scroll: Dynamic Type grows the text instead of clipping it, and a very
   // long line scrolls inside the card rather than pushing the buttons off-screen.
-  copyScroll: { maxHeight: 210, marginTop: 10 },
+  // maxHeight is supplied at render time from the live viewport (see the ScrollView above);
+  // this only carries the spacing.
+  copyScroll: { marginTop: 10 },
   copyContent: { paddingBottom: 2 },
   heading: { fontSize: 19, fontWeight: "900" },
   copy: { color: AuraLunisColors.silver, fontSize: 14.5, lineHeight: 21, marginTop: 6 },

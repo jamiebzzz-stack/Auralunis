@@ -73,6 +73,7 @@ import { FIRST_LIGHT_TARGETS } from "@/features/first-light/firstLightSteps";
 import { FirstLightSkyLens } from "@/features/first-light/FirstLightSkyLens";
 import { ContextualTipHost } from "@/features/first-light/ContextualTipHost";
 import type { ContextualTipId } from "@/features/first-light/contextualTips";
+import { isAlreadySavedToVault } from "@/features/first-light/firstLightRules";
 
 // Dev-only Sky Lens review targets. Aiming at one of these pins the clock to the planet's
 // next meridian transit so it can be inspected on a physical device without waiting for it
@@ -313,7 +314,7 @@ export function SkyLensScreen({ onClose, focusTarget, onOpenLearn }: Props) {
   // stars, and the cinematic/immersive/night-vision/capture modes (all below).
   const gate = useMemo(() => getVisualGate(isPremium), [isPremium]);
   const { openPaywall } = usePaywallNavigation();
-  const { addItem } = useAuraLunisVault();
+  const { addItem, items: vaultItems } = useAuraLunisVault();
 
   const [box, setBox] = useState({ width: 360, height: 720 });
   // The default scene is FIVE layers: Stars, Constellations, Milky Way, Planets, and
@@ -690,7 +691,13 @@ export function SkyLensScreen({ onClose, focusTarget, onOpenLearn }: Props) {
   const onSave = useCallback(
     (object: SelectedObject) => {
       // Saving to the (premium) Vault requires entitlement — free users get the paywall.
+      // DUPLICATE GUARD (applied just below the entitlement gate): `savedIds` only remembers
+      // this mount, so re-opening Sky Lens — or replaying First Light — used to write a second
+      // identical archive entry for the same object. An existing entry counts as already saved:
+      // nothing is written, nothing is overwritten, and the card still reads "Saved to Vault".
+      // The premium gate below is unchanged and still runs FIRST.
       if (!isPremium) { openPaywall(); return; }
+      if (isAlreadySavedToVault(vaultItems, object.name)) { setSavedIds((prev) => new Set(prev).add(object.id)); return; }
       addItem({
         type: "archive",
         title: object.name,
@@ -698,8 +705,16 @@ export function SkyLensScreen({ onClose, focusTarget, onOpenLearn }: Props) {
       });
       setSavedIds((prev) => new Set(prev).add(object.id));
     },
-    [addItem, isPremium, openPaywall]
+    [addItem, isPremium, openPaywall, vaultItems]
   );
+
+  // Reflect saves that already exist in the Vault from a previous session, so the card opens in
+  // the correct state instead of offering to save something that is already there.
+  useEffect(() => {
+    if (!selected) return;
+    const exists = isAlreadySavedToVault(vaultItems, selected.name);
+    if (exists) setSavedIds((prev) => (prev.has(selected.id) ? prev : new Set(prev).add(selected.id)));
+  }, [selected, vaultItems]);
 
   const hud = useMemo(
     () =>
@@ -823,6 +838,17 @@ export function SkyLensScreen({ onClose, focusTarget, onOpenLearn }: Props) {
   const dockTop = box.height - dockHeight - insets.bottom - 12;
   // Where floating controls perch: just above the dock, never on top of it.
   const floatAbove = insets.bottom + dockHeight + 16;
+  // The bottom strip a guided-tour card must stay clear of, measured from the live layout
+  // rather than hardcoded: the dock, the Lock Sky chip (insets.bottom + 96), and the shutter
+  // that perches at `floatAbove`. Without this the tour's instruction card sat exactly on top
+  // of Lock Sky — the one control the no-motion path needs.
+  const LOCK_CHIP_RESERVE = 96 + 44 + 10;
+  const SHUTTER_RESERVE = 60 + 10;
+  const tourReservedBottom = Math.max(
+    box.height - dockTop,
+    insets.bottom + LOCK_CHIP_RESERVE,
+    floatAbove + SHUTTER_RESERVE
+  );
 
   // LABEL AVOIDANCE FOR UI CHROME. The top HUD and bottom dock are already excluded by the
   // placer's top/bottom safe bands (topInset / bottomInset). These are the floating controls
@@ -1448,6 +1474,7 @@ export function SkyLensScreen({ onClose, focusTarget, onOpenLearn }: Props) {
         cameraAim={{ azimuthDegrees: pointing.azimuthDegrees, altitudeDegrees: pointing.altitudeDegrees }}
         onOpenLearn={() => onOpenLearn?.()}
         onRestoreLiveTime={() => setTimeOffsetMin(0)}
+        reservedBottom={tourReservedBottom}
         accent={accent}
       />
 

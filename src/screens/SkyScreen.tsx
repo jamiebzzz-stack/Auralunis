@@ -87,7 +87,13 @@ export function SkyScreen() {
       // SkyLensScreen itself, above the inner SkyLensErrorBoundary around the canvas).
       <ErrorBoundary>
         <SkyLensScreen
-          onClose={() => { setSkyLensOpen(false); setFocusTarget(null); }}
+          onClose={() => {
+            // Closing Sky Lens mid-tour PAUSES First Light rather than leaving it "running"
+            // with no UI, no overlay, and no way back in until the app restarts.
+            if (tourNeedsSkyLens) firstLight?.pauseTour();
+            setSkyLensOpen(false);
+            setFocusTarget(null);
+          }}
           focusTarget={focusTarget}
           onOpenLearn={() => navigation.navigate("Learn")}
         />
@@ -146,6 +152,33 @@ export function SkyScreen() {
   return (
     <ScreenShell title="Sky Lens + Archive" subtitle="Sky">
       {manualMapOpen ? <ManualSkyMap onClose={() => setManualMapOpen(false)} /> : null}
+
+      {/* A paused First Light is visible and recoverable, never an invisible running tour. */}
+      {firstLight?.paused ? (
+        <View style={styles.resumeTourCard}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.resumeTourTitle}>First Light is paused</Text>
+            <Text style={styles.resumeTourCopy}>Pick the guided tour back up whenever you like.</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.resumeTourBtn}
+            onPress={() => firstLight.resumeTour()}
+            accessibilityRole="button"
+            accessibilityLabel="Resume First Light"
+          >
+            <Text style={styles.resumeTourBtnText}>Resume</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => firstLight.dismissPausedTour()}
+            hitSlop={12}
+            style={styles.resumeTourDismiss}
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss the paused First Light reminder"
+          >
+            <Text style={styles.resumeTourDismissText}>✕</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
 
       <FeatureCard
         title="AuraLunis Sky Lens"
@@ -338,6 +371,29 @@ const styles = StyleSheet.create({
   skyVal: { color: AuraLunisColors.gold2, fontSize: 13, fontVariant: ["tabular-nums"] },
   skyValDim: { color: AuraLunisColors.muted, fontSize: 13 },
   skyHint: { color: AuraLunisColors.muted, fontSize: 11, marginTop: 10 },
+  resumeTourCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderRadius: 20,
+    padding: 14,
+    marginBottom: 12,
+    backgroundColor: "rgba(217,168,78,0.10)",
+    borderWidth: 1,
+    borderColor: AuraLunisColors.borderGold,
+  },
+  resumeTourTitle: { color: "#FFF", fontSize: 15, fontWeight: "900" },
+  resumeTourCopy: { color: AuraLunisColors.silver, fontSize: 12.5, lineHeight: 18, marginTop: 3 },
+  resumeTourBtn: {
+    minHeight: 44,
+    justifyContent: "center",
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    backgroundColor: AuraLunisColors.gold,
+  },
+  resumeTourBtnText: { color: "#17120B", fontWeight: "900", fontSize: 13.5 },
+  resumeTourDismiss: { minWidth: 32, minHeight: 44, alignItems: "flex-end", justifyContent: "center" },
+  resumeTourDismissText: { color: AuraLunisColors.muted, fontSize: 15, fontWeight: "800" },
   alignmentRoot: { flex: 1, backgroundColor: AuraLunisColors.cosmicBlack },
   backButton: {
     position: "absolute",

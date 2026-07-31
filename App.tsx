@@ -13,8 +13,13 @@ const GestureHandlerRootView = RNGestureHandlerRootView as unknown as React.Comp
 import { NavigationContainer, createNavigationContainerRef } from "@react-navigation/native";
 import { RootTabs, type RootTabParamList } from "@/navigation/RootTabs";
 import { TourTargetProvider } from "@/features/tour/TourTargetRegistry";
-import { FirstLightProvider } from "@/features/first-light/FirstLightContext";
+import { FirstLightProvider, useFirstLight } from "@/features/first-light/FirstLightContext";
 import { FirstLightRootOverlay } from "@/features/first-light/FirstLightRootOverlay";
+import {
+  LEARN_TAB_SHIPS,
+  TIME_CONTROL_SHIPS_IN_SKY_LENS,
+} from "@/features/first-light/firstLightSteps";
+import { useEntitlement } from "@/hooks/useEntitlement";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ThreeTierPaywallModal } from "@/features/paywall/ThreeTierPaywallModal";
 import { AuraLunisSettingsProvider } from "@/state/AuraLunisSettingsContext";
@@ -51,8 +56,50 @@ const ONBOARDING_SEEN_KEY = "auralunis.onboarding.seen";
 // user starts the tour. Guarded by isReady(), so it is inert before the tree mounts.
 const navigationRef = createNavigationContainerRef<RootTabParamList>();
 
-function goToSkyTab() {
-  if (navigationRef.isReady()) navigationRef.navigate("Sky");
+/**
+ * Switch to the Sky tab, waiting for the navigator if it has not mounted yet.
+ *
+ * A silent no-op here meant that a user who tapped "Begin First Light" during a cold start
+ * stayed on Home while the Welcome card appeared over the wrong tab. The retry is bounded, so a
+ * navigator that never becomes ready simply gives up instead of looping.
+ */
+const NAV_READY_RETRY_MS = 50;
+const NAV_READY_MAX_ATTEMPTS = 40; // ~2s
+
+function goToSkyTab(attempt = 0) {
+  if (navigationRef.isReady()) {
+    navigationRef.navigate("Sky");
+    return;
+  }
+  if (attempt >= NAV_READY_MAX_ATTEMPTS) return;
+  setTimeout(() => goToSkyTab(attempt + 1), NAV_READY_RETRY_MS);
+}
+
+/**
+ * Resolves the tour's capability set AT THE APP ROOT, as soon as entitlement is known.
+ *
+ * Previously capabilities were only reported once Sky Lens mounted, so the Welcome step opened
+ * against the 7-step default list and the indicator visibly jumped from "Step 1 of 7" to
+ * "Step 2 of 9". Reporting entitlement here means the mission length is final before the offer
+ * is even shown. Sky Lens still reports the things only it can know (motion, save target).
+ */
+function FirstLightCapabilityBridge() {
+  const { isPremium, isLoading } = useEntitlement();
+  const firstLight = useFirstLight();
+  const reportCapabilities = firstLight?.reportCapabilities;
+  const markCapabilitiesResolved = firstLight?.markCapabilitiesResolved;
+
+  useEffect(() => {
+    if (!reportCapabilities || !markCapabilitiesResolved || isLoading) return;
+    reportCapabilities({
+      isPremium,
+      timeControlAvailable: TIME_CONTROL_SHIPS_IN_SKY_LENS,
+      learnAvailable: LEARN_TAB_SHIPS,
+    });
+    markCapabilitiesResolved();
+  }, [reportCapabilities, markCapabilitiesResolved, isPremium, isLoading]);
+
+  return null;
 }
 
 // Bridges the global PaywallNavigationContext to App.tsx's local paywallVisible state.
@@ -282,7 +329,8 @@ export default function App() {
                 blocks the app: the offer has a "Skip for now" that is remembered, and the tour
                 itself can be left at any step. The existing tutorial stays exactly where it
                 was (Settings → Replay Tutorial) as the quick reference. */}
-            <FirstLightRootOverlay onEnterSky={goToSkyTab} />
+            <FirstLightCapabilityBridge />
+            <FirstLightRootOverlay onEnterSky={() => goToSkyTab()} />
 
             {/* Opaque boot cover — keeps the Home/Birth Chart tab from flashing before the
                 onboarding-vs-app decision resolves. Rendered last so it sits on top. */}
