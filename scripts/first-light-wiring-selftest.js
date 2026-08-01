@@ -1,10 +1,15 @@
 // First Light INTEGRATION guards.
 //
-// The behaviour of the tour is tested against the real modules in
+// The behaviour of the tutorial is tested against the real modules in
 // scripts/first-light-selftest.js. This file guards the things that are properties of the
-// WIRING rather than of a function — that the tour only ever observes Sky Lens, that no overlay
-// can swallow a tap, that the release-critical Sky Lens invariants are still byte-for-byte what
-// they were, and that premium gating was neither bypassed nor duplicated.
+// WIRING rather than of a function.
+//
+// THE BIG ONE, since the tutorial was simplified: First Light is now five informational screens
+// hosted at the app root, and it must have NO dependency on the sky, the sensors, the location,
+// the Vault, entitlement, or StoreKit. Section 1 proves that structurally — by the absence of
+// the modules and call sites that used to create those dependencies — because "the tutorial
+// cannot be blocked" is a claim about what is NOT wired up, and that is exactly what a
+// source-level guard can prove and a behaviour test cannot.
 
 const fs = require("fs");
 const path = require("path");
@@ -16,19 +21,17 @@ const ok = (m) => { pass += 1; console.log("PASS " + m); };
 const bad = (m) => { fail += 1; console.log("FAIL " + m); };
 const check = (name, condition, detail) => (condition ? ok(name) : bad(`${name}${detail ? " — " + detail : ""}`));
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), "utf8");
+const exists = (rel) => fs.existsSync(path.join(ROOT, rel));
 const has = (haystack, needle, name) => check(name, haystack.includes(needle), `expected present: ${needle}`);
 const hasnt = (haystack, needle, name) => check(name, !haystack.includes(needle), `should be absent: ${needle}`);
 
 const skyLens = read("src/features/sky-lens/SkyLensScreen.tsx");
-const bridge = read("src/features/first-light/FirstLightSkyLens.tsx");
 const overlay = read("src/features/tour/TourOverlay.tsx");
-const spotlightSrc = read("src/features/first-light/firstLightSpotlight.ts");
 const registry = read("src/features/tour/TourTargetRegistry.tsx");
 const tipHost = read("src/features/first-light/ContextualTipHost.tsx");
 const rootOverlay = read("src/features/first-light/FirstLightRootOverlay.tsx");
 const context = read("src/features/first-light/FirstLightContext.tsx");
-const targetsSrc = read("src/features/first-light/firstLightTargets.ts");
-const stepsSrc = read("src/features/first-light/firstLightSteps.ts");
+const stepsSource = read("src/features/first-light/firstLightSteps.ts");
 const analytics = read("src/services/AnalyticsService.ts");
 const app = read("App.tsx");
 const settings = read("src/screens/SettingsScreen.tsx");
@@ -38,126 +41,78 @@ const geometrySource = read("src/features/tour/tourGeometry.ts");
 const machineSource = read("src/features/tour/tourMachine.ts");
 const rulesSource = read("src/features/first-light/firstLightRules.ts");
 
-console.log("── 1. The tour OBSERVES Sky Lens; it never drives it ──");
-for (const forbidden of [
-  "setSelected",
-  "toggleLock",
-  "applyDrag",
-  "setZoom",
-  "setActive(",
-  "setTimeOffsetMin",
-  "addItem",
-  "openPaywall",
-  "updateSetting",
+// Every file the tutorial itself is made of. Nothing outside this set may be required for a
+// screen to advance.
+const TUTORIAL_SOURCES = [
+  ["firstLightSteps", stepsSource],
+  ["FirstLightContext", context],
+  ["FirstLightRootOverlay", rootOverlay],
+];
+
+console.log("── 1. The tutorial is informational: nothing can block a screen ──");
+
+// The interactive mission's modules are GONE, not merely unused. A deleted module cannot be
+// re-imported by accident, and its absence is the strongest available proof that no screen
+// depends on a live sky target, a projected spotlight, or a satisfaction rule.
+for (const rel of [
+  "src/features/first-light/FirstLightSkyLens.tsx",
+  "src/features/first-light/firstLightTargets.ts",
+  "src/features/first-light/firstLightSpotlight.ts",
 ]) {
-  hasnt(bridge, forbidden, `the Sky Lens tour bridge never calls ${forbidden}`);
+  check(`${rel} no longer exists`, !exists(rel), "the interactive mission module must be removed");
 }
-hasnt(bridge, "astronomy-engine", "the tour computes no astronomy of its own");
-hasnt(bridge, "SkyLensProjection", "the tour does not re-implement the projection");
-has(bridge, "project(", "the tour uses the SHARED projection passed in from Sky Lens");
-has(bridge, "angleBetweenQuaternions", "movement is measured from the rendered orientation, not from a new sensor hook");
-hasnt(bridge, "useDevicePointing", "the tour never opens its own sensor subscription");
-hasnt(bridge, "useSkyOrientation", "the tour never instantiates a second orientation source");
-hasnt(bridge, "react-native-svg", "the tour draws no sky geometry of its own");
-hasnt(bridge, "SvgText", "the tour renders no sky labels — production labels are never duplicated");
-hasnt(bridge, "ConstellationLines", "the tour adds no constellation geometry");
-has(bridge, "selectedId === target.id", "step 4 requires the CORRECT object's card, by identity");
-has(bridge, "savedIds.has(target.id)", "step 8 waits for a real persisted save, never a simulated one");
+
+for (const [name, source] of TUTORIAL_SOURCES) {
+  for (const forbidden of [
+    "useDeviceMotion", "DeviceMotion", "Magnetometer", "Accelerometer", "Gyroscope",
+    "useObserverLocation", "expo-location", "Location.",
+    "astronomy-engine", "SkyLensProjection", "projectTarget", "cameraBasis",
+    "selectVisibleTutorialTarget", "rankTutorialCandidates", "selectTutorialObject",
+    "spotlightRect", "targetKey=", "useTourTarget",
+    "useAuraLunisVault", "addItem", "VaultEncryption",
+    "useEntitlement", "openPaywall", "Purchases.", "revenuecat", "AuraLunis Premium",
+    "setTimeout", "setInterval",
+  ]) {
+    hasnt(source, forbidden, `${name} has no dependency on ${forbidden}`);
+  }
+}
+
+// Positive proof of the two properties everything else rests on.
+check(
+  "every tutorial screen declares requiresAction: false",
+  (stepsSource.match(/requiresAction: false/g) || []).length === 5 &&
+    !/requiresAction: true/.test(stepsSource),
+  "a screen with requiresAction could disable Next"
+);
+check(
+  "no tutorial screen declares a spotlight target",
+  !/targetKey: FIRST_LIGHT_TARGETS/.test(stepsSource),
+  "a targetKey would make the screen depend on a measured control"
+);
+has(rootOverlay, "canContinue", "the root overlay hardcodes Continue as enabled");
+check(
+  "Continue is passed as an unconditional literal, never a computed value",
+  /\n\s+canContinue\n/.test(rootOverlay),
+  "canContinue must not be derived from anything"
+);
+has(rootOverlay, "showSkip={!isLastScreen}", "Skip is offered on screens 1-4 and replaced by Finish on 5");
+has(overlay, "showSkip = true,", "the overlay defaults to offering Skip");
+check(
+  "the tutorial never renders inside Sky Lens",
+  !/<FirstLightSkyLens/.test(skyLens) && !/host: "skyLens"/.test(stepsSource),
+  "a screen hosted in Sky Lens could intercept its gestures"
+);
+check(
+  "no tutorial screen instructs a physical action",
+  !/move your phone|point your phone|turn around|lock the sky|drag the sky|tap the highlighted/i.test(
+    stepsSource.slice(stepsSource.indexOf("const WELCOME"), stepsSource.indexOf("export const FIRST_LIGHT_STEPS"))
+  ),
+  "the copy must not ask for something the tutorial cannot observe"
+);
 
 console.log("\n── 2. No overlay can swallow a tap or be left behind ──");
 has(overlay, 'if (!visible) return null;', "the tour overlay renders nothing at all when hidden");
 has(overlay, '<View style={StyleSheet.absoluteFill} pointerEvents="box-none">', "the overlay root is box-none");
-check(
-  "every dim band is pointerEvents=none",
-  /key={`band-\$\{i\}`}\s*\n\s*pointerEvents="none"/.test(overlay),
-  "dim bands must not receive touches"
-);
-check(
-  "the focus ring is pointerEvents=none",
-  /\{spot && \(\s*\n\s*<View\s*\n\s*pointerEvents="none"/.test(overlay),
-  "the ring must not cover the control"
-);
-has(overlay, "dimBands", "dimming is drawn AROUND the spotlight, not as a scrim over it");
-has(bridge, 'pointerEvents="none"', "the tour's directional cue never catches touches");
-check(
-  "NO view is ever mounted over the tutorial object",
-  !/style=\{\[styles\.marker/.test(bridge) && !bridge.includes("tutorialObject"),
-  "sky objects are spotlighted by rect, not by covering them with a marker view"
-);
-has(bridge, "spotlightRect={spotlightRect}", "the sky-object spotlight is an explicit rect");
-
-// ── Readiness gates (the "Venus is the HUD" defect) ──────────────────────────────────
-// Sky Lens opens on a hardcoded 360x720 placeholder canvas and at DEFAULT_OBSERVER. Projecting
-// through either put the spotlight ~94 px too high, in the top chrome, until the real values
-// arrived asynchronously. Both gates must stay wired, or the defect returns silently.
-has(skyLens, "boxMeasured={boxMeasured}", "Sky Lens tells the tour when its canvas is really measured");
-has(skyLens, 'locationReady={status !== "loading"}', "…and when the observer location has settled");
-has(skyLens, "setBoxMeasured(true)", "boxMeasured is set from a real onLayout, never assumed");
-check(
-  "readiness is only granted for a positive, finite layout",
-  /width > 0 && height > 0\)\s*\{\s*\n\s*setBoxMeasured\(true\)/.test(skyLens),
-  "a zero/NaN layout must not count as measured"
-);
-has(bridge, "resolveProjectedSpotlightRect({", "the bridge uses the PURE, gated spotlight resolver");
-has(bridge, "readiness,", "…and passes readiness into it");
-check(
-  "the projection itself is withheld until readiness, not just the rectangle",
-  /if \(!projectionTrustworthy\) return null;/.test(bridge),
-  "a placeholder viewport can report an object as on screen when it is not"
-);
-check(
-  "the old ungated local resolver is gone",
-  !bridge.includes("function resolveSpotlightRect"),
-  "two resolvers would let an ungated one be reintroduced"
-);
-
-// ── Viewport-aware, frozen target (the "Turn around for Venus" deadlock) ─────────────
-has(bridge, "selectVisibleTutorialTarget(candidates, box, { reservedBottom })",
-  "the object steps choose from what is actually rendered, using the same viewport");
-has(bridge, "rankTutorialCandidates(bodies, stars)", "candidates keep the beginner preference order");
-check(
-  "the whole-sky picker no longer drives the object steps",
-  !bridge.includes("selectTutorialObject("),
-  "ranking the whole sky is what nominated an object behind the user"
-);
-has(bridge, "if (frozenTarget) return; // locked: never re-picked mid-step",
-  "the chosen object is frozen for the duration of the object steps");
-check(
-  "Step 4 still compares against the frozen target's id",
-  /correctCardOpen: !!target && selectedId === target\.id/.test(bridge),
-  "the card check must be an identity check against the frozen object"
-);
-check(
-  "a practice marker can never be chosen as a visible object",
-  targetsSrc.includes("if (candidate.target.simulated) continue;"),
-  "a marker that is not in the sky must not stand in for finding one that is"
-);
-check(
-  "the bounded fallback can only ever unblock, never auto-complete early",
-  bridge.includes("if (stepAlreadySatisfied) return;") && bridge.includes("OBJECT_STEP_FALLBACK_MS"),
-  "a step satisfied the real way must not start the timer"
-);
-has(bridge, "OBJECT_STEP_FALLBACK_HINT", "the fallback says plainly that the step was skipped");
-check(
-  "the fallback copy does not claim the object step was completed",
-  /skipped rather than leaving you stuck/.test(stepsSrc) && !/well done|completed|you found/i.test(
-    (stepsSrc.match(/OBJECT_STEP_FALLBACK_HINT =[\s\S]*?;/) || [""])[0]
-  ),
-  "the safety net must never pretend the interaction happened"
-);
-has(overlay, "spotlightFor(spotlightRect ?? target, screen)", "an explicit rect takes precedence over measurement");
-check(
-  "a moving sky object never invalidates the layout registry",
-  !/onLayout=\{objectMarker|onLayout=\{constellationMarker/.test(bridge),
-  "measuring a per-frame-moving view would re-register targets 60x/second"
-);
-// The visibility rule moved OUT of the bridge into the pure, unit-tested resolver so the
-// readiness gate and the visibility gate live in one place. The guarantee is unchanged; only
-// its home is. Behaviour is asserted directly in scripts/first-light-selftest.js section 16.
-check(
-  "an off-screen or behind-camera object yields NO spotlight rather than a wrong one",
-  /return projection\.onScreen && !projection\.behind;/.test(spotlightSrc)
-);
 has(tipHost, 'pointerEvents="box-none"', "a contextual tip never blocks the sky around it");
 has(tipHost, "if (!firstLight || !tipId) return null;", "a tip with nothing to show renders nothing");
 
@@ -185,6 +140,7 @@ for (const rel of [
   "src/features/sky-lens/ar/useSkyOrientation.ts",
   "src/features/sky-lens/ar/SkyLensProjection.ts",
   "src/features/sky-lens/ar/orientationQuaternion.ts",
+  "src/features/sky-lens/ar/useQuaternionPointing.ts",
   "src/features/sky-lens/labelLayout.ts",
   "src/features/sky-lens/layers/ConstellationLayer.tsx",
   "src/features/sky-lens/data/constellationLines.ts",
@@ -201,12 +157,8 @@ for (const rel of [
   );
 }
 
-console.log("\n── 4. Premium gating: not bypassed, not duplicated, not in the required path ──");
+console.log("\n── 4. Premium gating: not bypassed, not duplicated, not in the tutorial ──");
 has(skyLens, "if (!isPremium) { openPaywall(); return; }", "the existing premium gates are still in place");
-// Window widened from 200 to 700 chars ONLY because the duplicate-save guard added an
-// explanatory comment between the intent line and the gate. What matters — that the gate runs
-// before the write — is measured guard-to-write by scripts/vault-write-gate-selftest.js, which
-// still uses its original 260-char window and still passes.
 check(
   "Sky Lens still gates the Vault save on entitlement",
   /Saving to the \(premium\) Vault requires entitlement[\s\S]{0,700}if \(!isPremium\) \{ openPaywall\(\); return; \}/.test(skyLens),
@@ -217,17 +169,22 @@ check(
   /Time Travel[\s\S]{0,240}if \(!isPremium\) \{ openPaywall\(\); return; \}/.test(skyLens),
   "the time-travel gate must be unchanged"
 );
-const stepsSource = read("src/features/first-light/firstLightSteps.ts");
-has(stepsSource, "if (caps.timeControlAvailable && caps.isPremium) steps.push(EXPLORE_TIME);", "the time step is premium-only, so a free user never dead-ends on a paywall");
-has(stepsSource, "if (caps.vaultSaveAvailable && caps.isPremium) steps.push(SAVE_TO_VAULT);", "the save step is premium-only");
-has(stepsSource, "else if (caps.learnAvailable) steps.push(OPEN_LEARN);", "free users get a non-gated Learn step instead");
 hasnt(stepsSource, "isPremium = true", "entitlement is never hardcoded");
-for (const source of [bridge, context, rootOverlay, stepsSource, tipHost]) {
-  hasnt(source, "AuraLunis Premium", "First Light never hardcodes the entitlement identifier");
-  hasnt(source, "revenuecat", "First Light never touches RevenueCat");
-  hasnt(source, "Purchases.", "First Light never calls the purchase SDK");
+for (const [name, source] of [...TUTORIAL_SOURCES, ["ContextualTipHost", tipHost]]) {
+  hasnt(source, "AuraLunis Premium", `${name} never hardcodes the entitlement identifier`);
+  hasnt(source, "revenuecat", `${name} never touches RevenueCat`);
+  hasnt(source, "Purchases.", `${name} never calls the purchase SDK`);
 }
-has(bridge, "isPremium,", "entitlement reaches the tour as a reported capability from useEntitlement()");
+check(
+  "the tutorial can never open the paywall",
+  TUTORIAL_SOURCES.every(([, source]) => !source.includes("openPaywall")),
+  "no screen may present a purchase"
+);
+check(
+  "the tutorial never writes to the Vault",
+  TUTORIAL_SOURCES.every(([, source]) => !/addItem|useAuraLunisVault/.test(source)),
+  "no screen may create an entry"
+);
 
 console.log("\n── 5. Analytics: existing local infrastructure only ──");
 for (const name of [
@@ -266,7 +223,6 @@ console.log("\n── 6. Accessibility ──");
 check("Back has an accessibility label", /accessibilityLabel="Go back to the previous step"/.test(overlay));
 check("Skip has an accessibility label", /accessibilityLabel="Skip the tour"/.test(overlay));
 check("Continue carries its label and disabled state", /accessibilityLabel=\{continueLabel\}/.test(overlay) && /accessibilityState=\{\{ disabled: !canContinue \}\}/.test(overlay));
-check("a blocked Continue explains itself to VoiceOver", /accessibilityHint=/.test(overlay));
 has(overlay, 'accessibilityRole="header"', "the step heading is a header for VoiceOver");
 has(overlay, "AccessibilityInfo.announceForAccessibility", "each step is announced");
 has(overlay, "AccessibilityInfo.setAccessibilityFocus", "focus moves to the instruction card");
@@ -274,7 +230,7 @@ check(
   "the announcement effect is keyed on the step, so it fires once per step",
   /\}, \[visible, stepId, heading, copy, index, total\]\);/.test(overlay)
 );
-hasnt(overlay, "accessibilityViewIsModal", "the card must NOT trap VoiceOver — the highlighted control stays reachable");
+hasnt(overlay, "accessibilityViewIsModal", "the card must NOT trap VoiceOver");
 check(
   "grouping is on the instruction TEXT, not the whole card",
   /<View\s*\n\s*ref=\{cardRef\}\s*\n\s*accessible\s*\n\s*accessibilityLabel=/.test(overlay),
@@ -284,23 +240,20 @@ has(overlay, "Step {index + 1} of {total}", "progress is stated in words, not on
 has(overlay, "accessibilityElementsHidden", "decorative dimming is hidden from screen readers");
 check("controls meet a 44pt minimum", (overlay.match(/minHeight: 44/g) || []).length >= 2);
 has(overlay, "ScrollView", "the copy area scrolls");
-for (const [rel, source] of [
+for (const [name, source] of [
   ["TourOverlay", overlay],
-  ["FirstLightSkyLens", bridge],
   ["ContextualTipHost", tipHost],
   ["FirstLightRootOverlay", rootOverlay],
 ]) {
-  has(source, "useReducedMotion", `${rel} respects Reduce Motion`);
+  has(source, "useReducedMotion", `${name} respects Reduce Motion`);
 }
 check(
   "Reduce Motion short-circuits the overlay animation entirely",
   /if \(reduceMotion\) \{\s*\n\s*fade\.setValue\(1\);\s*\n\s*return;/.test(overlay)
 );
-check(
-  "Reduce Motion short-circuits the completion flourish",
-  /if \(reduceMotion\) \{\s*\n\s*celebrate\.setValue\(1\);\s*\n\s*return;/.test(bridge)
-);
 has(tipHost, "accessibilityLabel={`Dismiss tip:", "the tip's dismiss control is labelled");
+has(rootOverlay, "useSafeAreaInsets", "the offer respects the safe area");
+has(overlay, "useSafeAreaInsets", "the tutorial card respects the safe area");
 
 console.log("\n── 7. Listeners, timers, and layout survive interruption ──");
 has(overlay, "return () => subscription.remove();", "the AppState listener is removed");
@@ -308,33 +261,20 @@ has(registry, "return () => subscription.remove();", "the Dimensions listener is
 has(registry, "clearTimeout(timer)", "the measure timeout is always cleared");
 has(registry, "MEASURE_TIMEOUT_MS", "a native measure that never calls back cannot hang the overlay");
 has(overlay, "return () => animation.stop();", "the entrance animation is stopped on unmount");
-// The 20-second target-refresh interval is GONE, not merely cleaned up. It re-picked the
-// tutorial object mid-step, which is exactly how a frozen target could be swapped out from
-// under Steps 3, 4 and 8. Its replacement is viewport-aware selection + an explicit freeze.
-check(
-  "the mid-step target-refresh interval no longer exists",
-  !bridge.includes("TARGET_REFRESH_MS") && !bridge.includes("setInterval"),
-  "a periodic re-pick can swap the target the user is working with"
-);
-has(bridge, "return () => clearTimeout(timer);", "the bounded object-step fallback timer is cleared");
 has(overlay, "cancelled = true;", "a measurement resolving after unmount is discarded");
 has(context, "active = false;", "hydration resolving after unmount is discarded");
+// No timer of any kind remains in the tutorial: the bounded object-step fallback existed only
+// because a step could be blocked, and no step can be blocked any more.
 check(
-  "the overlay re-measures after returning from the background",
-  /AppState\.addEventListener\("change", \(state\) => \{\s*\n\s*if \(state === "active"\) invalidateLayout\(\);/.test(overlay)
-);
-check(
-  "the overlay re-measures when the window changes size (rotation)",
-  /layoutNonce, screen\.width, screen\.height\]/.test(overlay)
+  "the tutorial runs no timers at all",
+  TUTORIAL_SOURCES.every(([, source]) => !/setTimeout|setInterval/.test(source)),
+  "a countdown or fallback timer would mean a screen could stall"
 );
 has(registry, "registerTarget?.(key, null);", "targets unregister when their host unmounts");
 hasnt(overlay, "Dimensions.get(", "no screen size is captured once at module load");
 
 console.log("\n── 8. State updates are StrictMode-safe ──");
 has(context, "setMachine((current) => tourReducer(current, action, steps));", "the machine updater is the pure reducer");
-// Brace-matched scan: pull out the body of every `setX((prev) => { … })` updater and prove no
-// other setter is called inside it. A nested setState in an updater is exactly the bug the
-// existing useSkyOrientation comments describe, and it misbehaves under StrictMode.
 function updaterBodies(source) {
   const bodies = [];
   const opener = /set[A-Z]\w*\(\([^)]*\)\s*=>\s*\{/g;
@@ -363,45 +303,32 @@ has(context, "reanchorIndex(current, previous, steps)", "a changed step list re-
 console.log("\n── 9. Wiring ──");
 has(app, "<TourTargetProvider>", "the tour target registry is mounted at the app root");
 has(app, "<FirstLightProvider enabled={route === \"app\"}>", "First Light is only enabled once the app proper is on screen");
-has(app, "<FirstLightRootOverlay onEnterSky={() => goToSkyTab()} />", "the offer + welcome step are mounted at the root");
-has(app, "ref={navigationRef}", "the navigator exposes a ref for the tab jump");
-has(app, "navigationRef.isReady()", "navigation is guarded until the tree is ready");
+has(app, "<FirstLightRootOverlay />", "the offer and all five screens are mounted at the root");
+check(
+  "the tutorial no longer navigates the user anywhere",
+  !/FirstLightRootOverlay onEnterSky/.test(app) && !/onEnterSky/.test(rootOverlay),
+  "informational screens have no reason to move the user to another tab"
+);
 has(settings, "Replay Tutorial", "the EXISTING tutorial is still available as the quick reference");
 has(settings, "Replay First Light", "First Light can be replayed from Settings");
-has(skyLens, "<FirstLightSkyLens", "Sky Lens hosts the hands-on steps");
+has(settings, "firstLight.replay()", "…and the replay action is wired");
 has(skyLens, "<ContextualTipHost", "Sky Lens hosts the contextual tips");
-has(skyLens, "useTourTarget(FIRST_LIGHT_TARGETS.lockSky)", "the real Lock Sky chip is registered as a target");
-has(skyLens, "useTourTarget(FIRST_LIGHT_TARGETS.timeTravel)", "the real time control is registered as a target");
-has(infoCard, "useTourTarget(FIRST_LIGHT_TARGETS.infoCardSave)", "the real Save to Vault button is registered as a target");
+// The registry keys stay wired as reusable infrastructure even though no screen measures them.
+has(skyLens, "useTourTarget(FIRST_LIGHT_TARGETS.lockSky)", "the real Lock Sky chip is still registered as a reusable target");
+has(skyLens, "useTourTarget(FIRST_LIGHT_TARGETS.timeTravel)", "the real time control is still registered");
+has(infoCard, "useTourTarget(FIRST_LIGHT_TARGETS.infoCardSave)", "the real Save to Vault button is still registered");
 has(infoCard, "ref={saveTarget.ref}", "the Save button target is attached to the real control");
-check(
-  "Sky Lens opens once on entering the hands-on phase, and is never forced open again",
-  /if \(tourNeedsSkyLens && !tourNeededSkyLensRef\.current\) setSkyLensOpen\(true\);/.test(skyScreen)
-);
 has(rootOverlay, "Skip for now", "the offer has a genuine decline");
 has(rootOverlay, "Begin First Light", "the offer has a clear start");
 has(rootOverlay, "firstLight.declineOffer", "declining is remembered");
 has(context, "shouldOfferFirstLight(document)", "the offer respects the persisted decision");
+has(context, "capabilitiesResolved &&", "the offer waits for a final screen count");
+has(app, "FirstLightCapabilityBridge", "capability resolution still happens at the app root");
+has(app, "markCapabilitiesResolved()", "…and marks resolution so the offer can wait for it");
 
-console.log("\n── 10. Audit-fix wiring ──");
+console.log("\n── 10. Retained fixes that outlived the interactive mission ──");
 
-// F1 — the no-motion trap
-has(bridge, "isObjectStepSatisfied", "object-step completion goes through the pure, tested rule");
-hasnt(bridge, "if (targetProjection?.onScreen && !targetProjection.behind) satisfy", "the raw on-screen-only rule that trapped the tour is gone");
-check(
-  "the no-motion hint never claims motion was detected",
-  /without motion the sky can’t follow your phone/.test(bridge),
-  "the copy must state the opposite"
-);
-
-has(bridge, "isSaveStepSatisfied", "the save step uses the pure, tested rule too");
-hasnt(bridge, "if (target && savedIds.has(target.id)) satisfy", "the raw save-only rule that trapped step 8 is gone");
-check(
-  "the save-step no-motion hint tells the truth about why",
-  /Saving needs the object on screen, which this device can’t reach without motion/.test(bridge)
-);
-
-// F2 — contextual tips
+// Contextual tips (a separate feature from the tutorial) are unchanged.
 has(tipHost, "selectHeldTip", "the host holds one tip identity rather than re-deriving it");
 has(tipHost, "const [heldTipId, setHeldTipId]", "the held tip lives in component state");
 has(tipHost, "TIP_MIN_IMPRESSION_MS", "the impression is recorded on a timer, not on first render");
@@ -414,17 +341,7 @@ has(tipHost, "clearTimeout(impression)", "the impression timer is cleared on cha
 has(tipHost, "clearTimeout(retire)", "the auto-retire timer is cleared on change/unmount");
 has(tipHost, "firstLight.recordTipDismissed(tipId)", "dismissal records the tip so a remount cannot replay it");
 
-// F3 — reserved dock region
-has(skyLens, "const tourReservedBottom = Math.max(", "Sky Lens measures the strip the tour must avoid");
-has(skyLens, "reservedBottom={tourReservedBottom}", "…and hands it to the tour");
-has(overlay, "reservedBottom", "the overlay honours a host-reserved bottom strip");
-has(geometrySource, "reservedBottom: number = 0", "cardAnchor takes the reserve as a parameter");
-check(
-  "the reserve is derived from the live dock/insets, not hardcoded pixels",
-  /Math\.max\(\s*\n\s*box\.height - dockTop,\s*\n\s*insets\.bottom \+ LOCK_CHIP_RESERVE/.test(skyLens)
-);
-
-// F4 — Dynamic Type
+// Dynamic Type work on the offer and the card.
 has(rootOverlay, "ScrollView", "the offer card scrolls instead of overflowing the screen");
 has(rootOverlay, 'maxHeight: "84%"', "the offer card is bounded to the viewport");
 check("offer text is bounded but still scales", (rootOverlay.match(/maxFontSizeMultiplier/g) || []).length >= 5);
@@ -432,8 +349,6 @@ check("tour buttons cannot become multi-line blocks", (overlay.match(/maxFontSiz
 has(overlay, "numberOfLines={1}", "button labels stay on one line");
 hasnt(rootOverlay, "allowFontScaling={false}", "Dynamic Type is never disabled");
 hasnt(overlay, "allowFontScaling={false}", "Dynamic Type is never disabled");
-
-// F11 — large Dynamic Type comfort
 has(overlay, "maxCardHeight(screen, reservedBottom, insets)", "the card height is capped from the live viewport");
 has(overlay, "maxHeight: cardCap", "…and the cap is actually applied to the card");
 check("the copy region shrinks while the actions do not",
@@ -441,50 +356,24 @@ check("the copy region shrinks while the actions do not",
 check("the progress row and extra actions also hold their size",
   /progressRow: \{[^}]*flexShrink: 0/.test(overlay) && /actions: \{[^}]*flexShrink: 0/.test(overlay));
 has(overlay, "paddingBottom: 14", "the last line of copy clears the action row");
-has(overlay, "showsVerticalScrollIndicator\n", "the scroll indicator signals there is more to read");
 check("the heading growth is bounded so it cannot become a billboard",
   /maxFontSizeMultiplier=\{1\.5\}[\s\S]{0,80}\{heading\}/.test(overlay));
 check("body copy still scales generously", /style=\{styles\.copy\} maxFontSizeMultiplier=\{1\.9\}/.test(overlay));
-hasnt(overlay, "screen.height * 0.32", "the fixed fractional copy height is replaced by the card cap");
 has(geometrySource, "MIN_EXPOSED_SKY_FRACTION", "a minimum exposed-sky share is defined");
-has(geometrySource, "MAX_SPOTLIGHT_WIDTH_FRACTION", "spotlight width is capped");
-has(geometrySource, "MAX_SPOTLIGHT_HEIGHT_FRACTION", "spotlight height is capped");
-check("spotlight padding is a constant, never font-derived",
-  /const pad = finite\(padding\) && padding >= 0 \? padding : DEFAULT_SPOTLIGHT_PADDING;/.test(geometrySource));
+has(geometrySource, "reservedBottom: number = 0", "cardAnchor takes a host reserve as a parameter");
+// The tutorial card runs over the app shell, so the strip it must clear is the tab bar.
+has(rootOverlay, "reservedBottom={ROOT_TAB_BAR_HEIGHT}", "the tutorial card stays clear of the tab bar");
 
-// F5 — stable totals
-has(app, "FirstLightCapabilityBridge", "capabilities resolve at the app root");
-has(app, "markCapabilitiesResolved()", "the root marks resolution so the offer can wait for it");
-has(app, "TIME_CONTROL_SHIPS_IN_SKY_LENS", "the time-control capability is known without mounting Sky Lens");
-has(context, "capabilitiesResolved &&", "the offer waits for a final mission length");
-
-// F6 — cross-launch resume
+// Cross-launch resume.
 has(context, "resolveResumeStepId", "the persisted pointer is actually read back");
 has(context, "dispatch({ type: \"goto\", stepId: resumeStepId })", "resuming jumps to the persisted step");
 has(rootOverlay, "Resume First Light", "the offer leads with Resume when appropriate");
 has(rootOverlay, "Start from the beginning", "a clean restart is always offered too");
 has(context, "restartTour", "restart is a distinct action from resume");
+has(machineSource, '"paused"', "the machine still models a paused tour");
 
-// F7 — time restoration
-has(bridge, "shouldRestoreLiveTime", "time restoration goes through the pure, tested rule");
-check(
-  "restoration is driven by leaving the step, not by the Continue button",
-  /previousStepRef/.test(bridge) && !/if \(stepId === "exploreTime" && !keepChangedTime\) onRestoreLiveTime/.test(bridge)
-);
-check("unmount restores too", /\(\) => \(\) => \{[\s\S]{0,400}shouldRestoreLiveTime/.test(bridge));
-
-// F8 — no orphaned invisible tour
-has(context, "pauseTour", "the tour can be paused");
-has(skyScreen, "firstLight?.pauseTour()", "closing Sky Lens mid-tour pauses instead of orphaning");
-has(skyScreen, "First Light is paused", "a paused tour is visible and recoverable from the Sky tab");
-has(skyScreen, "firstLight.resumeTour()", "…with a Resume action");
-has(skyScreen, "firstLight.dismissPausedTour()", "…and a dismiss");
-has(machineSource, '"paused"', "the machine models a paused tour");
-
-// F9 — duplicate Vault saves
+// Duplicate Vault saves — a Sky Lens fix, unaffected by the tutorial rewrite.
 has(skyLens, "isAlreadySavedToVault", "the save path checks for an existing entry");
-// Compare positions INSIDE onSave — the file-level import of the helper appears near the top
-// and would otherwise make this comparison meaningless.
 const onSaveBlock = skyLens.slice(skyLens.indexOf("const onSave = useCallback("), skyLens.indexOf("const hud = useMemo("));
 check(
   "the premium gate still runs BEFORE the duplicate check",
@@ -498,8 +387,13 @@ check(
   !/from "@\/services\/VaultEncryption"|encryptVault|decryptVault|nacl|SecureStore/.test(rulesSource)
 );
 check("an existing entry is never mutated or overwritten", !/setItems|splice|\.push\(|entries\[\d/.test(rulesSource));
+check(
+  "the interactive satisfaction rules are gone from the rules module",
+  !/isObjectStepSatisfied|isSaveStepSatisfied|shouldRestoreLiveTime/.test(rulesSource),
+  "nothing is left that could refuse to advance a screen"
+);
 
-// F10 — navigation readiness
+// Navigation readiness helper (unchanged app infrastructure).
 has(app, "NAV_READY_MAX_ATTEMPTS", "navigation readiness is retried, not silently dropped");
 check("the retry is bounded", /if \(attempt >= NAV_READY_MAX_ATTEMPTS\) return;/.test(app));
 
@@ -517,8 +411,8 @@ console.log("\n── 11. First Light owns exactly one storage key ──");
 const storageSource = read("src/features/first-light/firstLightStorage.ts");
 const keys = [...storageSource.matchAll(/"(auralunis\.[a-zA-Z0-9._]+)"/g)].map((m) => m[1]);
 check("only one AsyncStorage key is referenced", keys.length === 1 && keys[0].startsWith("auralunis.firstLight"), keys.join(","));
-for (const source of [context, bridge, rootOverlay, tipHost]) {
-  hasnt(source, "AsyncStorage", "only the storage module touches AsyncStorage");
+for (const [name, source] of [...TUTORIAL_SOURCES, ["ContextualTipHost", tipHost]]) {
+  hasnt(source, "AsyncStorage", `${name} does not touch AsyncStorage directly`);
 }
 hasnt(storageSource, "multiRemove", "clearing never removes a set of keys");
 hasnt(storageSource, "clear()", "the tutorial never wipes storage");

@@ -308,10 +308,9 @@ export function FirstLightProvider({
     trackTutorialEvent("contextual_tip_dismissed", { tipId });
   }, []);
 
-  const saveVariant = useMemo<SaveStepVariant | null>(
-    () => steps.find((s) => s.id === "saveDiscovery")?.variant ?? null,
-    [steps]
-  );
+  // The interactive save step no longer exists, so no user ever gets a save variant. Kept in the
+  // context shape because the persisted document and its consumers are unchanged.
+  const saveVariant: SaveStepVariant | null = null;
 
   // The offer waits for capabilities so the mission length is final before the tour opens.
   const offerVisible =

@@ -1,5 +1,9 @@
-// The app-root half of First Light: the optional offer, and the "Welcome" step that precedes
-// Sky Lens. Everything from "Look around" onward lives inside Sky Lens (FirstLightSkyLens).
+// First Light: the optional offer, and ALL FIVE tutorial screens.
+//
+// The tutorial is purely informational — five screens, and the only inputs are Next, Back, Skip
+// and Finish. Nothing here reads a sensor, waits for a location fix, measures a control,
+// projects a sky object, gates on entitlement, or writes to the Vault. It renders over the app
+// shell and never inside Sky Lens, so it cannot intercept a Sky Lens gesture.
 //
 // The offer is a genuine choice, presented once. "Skip for now" is remembered, so the user is
 // never asked again — Settings → Replay First Light is the way back in. Nothing here requests a
@@ -24,19 +28,17 @@ import { useFirstLight } from "./FirstLightContext";
  */
 export const ROOT_TAB_BAR_HEIGHT = 82;
 
-type Props = {
-  /** Bring the user to the Sky tab (and therefore Sky Lens) when the tour starts. */
-  onEnterSky?: () => void;
-};
-
-export function FirstLightRootOverlay({ onEnterSky }: Props) {
+// No props: the tutorial is self-contained. It used to take a callback for jumping to the Sky
+// tab, because the tour ran its hands-on steps there — informational screens have no reason to
+// move the user anywhere, so the tutorial no longer navigates at all.
+export function FirstLightRootOverlay() {
   const firstLight = useFirstLight();
   const insets = useSafeAreaInsets();
   const reduceMotion = useReducedMotion();
 
   if (!firstLight) return null;
 
-  const { offerVisible, overlayVisible, step, steps, index, total, canGoBack, resumable } = firstLight;
+  const { offerVisible, overlayVisible, step, index, total, canGoBack, resumable } = firstLight;
 
   // ── The offer ────────────────────────────────────────────────────────────────────
   if (offerVisible) {
@@ -63,7 +65,7 @@ export function FirstLightRootOverlay({ onEnterSky }: Props) {
               <Text style={styles.offerCopy} maxFontSizeMultiplier={1.8}>
                 {resumable
                   ? "You were partway through First Light. Carry on from where you stopped, or start again from the beginning."
-                  : "First Light walks you through the sky by doing, not reading. It takes a couple of minutes and you can leave at any time."}
+                  : "A quick five-screen walkthrough of what AuraLunis does. It takes about a minute, and you can leave at any time."}
               </Text>
               <Text style={styles.offerNote} maxFontSizeMultiplier={1.6}>
                 You can start it later from Settings → Replay First Light.
@@ -75,7 +77,6 @@ export function FirstLightRootOverlay({ onEnterSky }: Props) {
               onPress={() => {
                 if (resumable) firstLight.resumeTour();
                 else firstLight.beginTour();
-                onEnterSky?.();
               }}
               accessibilityRole="button"
               accessibilityLabel={resumable ? "Resume First Light" : "Begin First Light"}
@@ -94,10 +95,7 @@ export function FirstLightRootOverlay({ onEnterSky }: Props) {
             {resumable ? (
               <Pressable
                 style={styles.secondaryBtn}
-                onPress={() => {
-                  firstLight.restartTour();
-                  onEnterSky?.();
-                }}
+                onPress={() => firstLight.restartTour()}
                 accessibilityRole="button"
                 accessibilityLabel="Restart First Light from the beginning"
               >
@@ -123,8 +121,10 @@ export function FirstLightRootOverlay({ onEnterSky }: Props) {
     );
   }
 
-  // ── The Welcome step ─────────────────────────────────────────────────────────────
-  if (!overlayVisible || !step || step.host !== "root") return null;
+  // ── The tutorial screens ─────────────────────────────────────────────────────────
+  if (!overlayVisible || !step) return null;
+
+  const isLastScreen = index >= total - 1;
 
   return (
     <TourOverlay
@@ -135,17 +135,19 @@ export function FirstLightRootOverlay({ onEnterSky }: Props) {
       index={index}
       total={total}
       canGoBack={canGoBack}
+      // ALWAYS enabled. No tutorial screen has a condition to satisfy, so Next/Finish can never
+      // be dead — that dead button is exactly what stranded users in the interactive version.
       canContinue
-      // Keep the card clear of the tab bar — the Welcome step runs over the live app.
+      // Keep the card clear of the tab bar — the tutorial runs over the live app.
       reservedBottom={ROOT_TAB_BAR_HEIGHT}
-      continueLabel={step.continueLabel ?? "Continue"}
+      continueLabel={step.continueLabel ?? "Next"}
+      // Skip is offered on every screen EXCEPT the last: there, Finish is the same gesture and
+      // records completion rather than abandonment.
+      showSkip={!isLastScreen}
       onBack={firstLight.back}
       onSkip={firstLight.skip}
-      onContinue={() => {
-        firstLight.next();
-        // The next step lives in Sky Lens, so take the user there.
-        if (steps[index + 1]?.host === "skyLens") onEnterSky?.();
-      }}
+      // `next()` on the final screen is what persists completion (see FirstLightContext).
+      onContinue={firstLight.next}
     />
   );
 }

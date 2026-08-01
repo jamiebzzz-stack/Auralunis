@@ -79,7 +79,6 @@ import { getVisualGate } from "./PremiumVisualGating";
 // layers, time, or the Vault.
 import { useTourTarget } from "@/features/tour/TourTargetRegistry";
 import { FIRST_LIGHT_TARGETS } from "@/features/first-light/firstLightSteps";
-import { FirstLightSkyLens } from "@/features/first-light/FirstLightSkyLens";
 import { ContextualTipHost } from "@/features/first-light/ContextualTipHost";
 import type { ContextualTipId } from "@/features/first-light/contextualTips";
 import { isAlreadySavedToVault } from "@/features/first-light/firstLightRules";
@@ -326,8 +325,6 @@ export function SkyLensScreen({ onClose, focusTarget, onOpenLearn }: Props) {
   const { addItem, items: vaultItems } = useAuraLunisVault();
 
   const [box, setBox] = useState({ width: 360, height: 720 });
-  /** False until onLayout reports the REAL canvas size — see the onLayout note below. */
-  const [boxMeasured, setBoxMeasured] = useState(false);
   // The default scene is FIVE layers: Stars, Constellations, Milky Way, Planets, and
   // Nebulae — the entries with defaultOn: true (Nebulae ships on as a curated 2-hero
   // accent; see the note above). The four analytical overlays (zodiac/grid/satellites/
@@ -640,12 +637,6 @@ export function SkyLensScreen({ onClose, focusTarget, onOpenLearn }: Props) {
   const onLayout = useCallback((e: LayoutEvent) => {
     const { width, height } = e.nativeEvent.layout;
     setBox({ width, height });
-    // First Light must never project through the placeholder `box` above: on a 430x932 device
-    // the placeholder puts the vertical centre 106 px too high and the scale 16% short, which
-    // ringed the top chrome and called it a planet. Only a real, positive layout counts.
-    if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
-      setBoxMeasured(true);
-    }
   }, []);
 
   const toggleLayer = useCallback((key: LayerKey) => {
@@ -855,18 +846,6 @@ export function SkyLensScreen({ onClose, focusTarget, onOpenLearn }: Props) {
   const dockTop = box.height - dockHeight - insets.bottom - 12;
   // Where floating controls perch: just above the dock, never on top of it.
   const floatAbove = insets.bottom + dockHeight + 16;
-  // The bottom strip a guided-tour card must stay clear of, measured from the live layout
-  // rather than hardcoded: the dock, the Lock Sky chip (insets.bottom + 96), and the shutter
-  // that perches at `floatAbove`. Without this the tour's instruction card sat exactly on top
-  // of Lock Sky — the one control the no-motion path needs.
-  const LOCK_CHIP_RESERVE = 96 + 44 + 10;
-  const SHUTTER_RESERVE = 60 + 10;
-  const tourReservedBottom = Math.max(
-    box.height - dockTop,
-    insets.bottom + LOCK_CHIP_RESERVE,
-    floatAbove + SHUTTER_RESERVE
-  );
-
   // LABEL AVOIDANCE FOR UI CHROME. The top HUD and bottom dock are already excluded by the
   // placer's top/bottom safe bands (topInset / bottomInset). These are the floating controls
   // those bands don't cover — the shutter, the guidance banner, the zoom chip — reserved so
@@ -1500,35 +1479,9 @@ export function SkyLensScreen({ onClose, focusTarget, onOpenLearn }: Props) {
         </Pressable>
       )}
 
-      {/* ── First Light (optional guided tour) ────────────────────────────────────────
-          Rendered last so its instruction card sits above the chrome, but its root is
-          pointerEvents="box-none" and its dimming is drawn AROUND the spotlight — object
-          taps, the Lock Sky chip, and every other control stay live underneath. It reads
-          the values below; it sets none of them. */}
-      <FirstLightSkyLens
-        box={box}
-        boxMeasured={boxMeasured}
-        // "Settled", not "granted": a user who declines location keeps DEFAULT_OBSERVER for the
-        // whole app, so the tutorial then agrees with the sky actually rendered. Gating on
-        // "granted" would suppress the spotlight forever for them.
-        locationReady={status !== "loading"}
-        orientation={skyOrientation.orientation}
-        motionAvailable={skyOrientation.available}
-        isLocked={skyOrientation.isLocked}
-        selectedId={selected?.id ?? null}
-        timeOffsetMinutes={timeOffsetMin}
-        timeControlAvailable
-        savedIds={savedIds}
-        isPremium={isPremium}
-        bodies={sky.bodies}
-        stars={sky.stars}
-        constellations={sky.constellations}
-        project={projectShared}
-        onOpenLearn={() => onOpenLearn?.()}
-        onRestoreLiveTime={() => setTimeOffsetMin(0)}
-        reservedBottom={tourReservedBottom}
-        accent={accent}
-      />
+      {/* First Light no longer renders inside Sky Lens. The tutorial is five informational
+          screens hosted at the app root (FirstLightRootOverlay), so nothing here can intercept a
+          Sky Lens gesture, measure an object, or gate a step on the sky. */}
 
       <ContextualTipHost
         candidates={tipCandidates}

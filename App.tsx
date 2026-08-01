@@ -15,10 +15,6 @@ import { RootTabs, type RootTabParamList } from "@/navigation/RootTabs";
 import { TourTargetProvider } from "@/features/tour/TourTargetRegistry";
 import { FirstLightProvider, useFirstLight } from "@/features/first-light/FirstLightContext";
 import { FirstLightRootOverlay } from "@/features/first-light/FirstLightRootOverlay";
-import {
-  LEARN_TAB_SHIPS,
-  TIME_CONTROL_SHIPS_IN_SKY_LENS,
-} from "@/features/first-light/firstLightSteps";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ThreeTierPaywallModal } from "@/features/paywall/ThreeTierPaywallModal";
@@ -91,11 +87,10 @@ function FirstLightCapabilityBridge() {
 
   useEffect(() => {
     if (!reportCapabilities || !markCapabilitiesResolved || isLoading) return;
-    reportCapabilities({
-      isPremium,
-      timeControlAvailable: TIME_CONTROL_SHIPS_IN_SKY_LENS,
-      learnAvailable: LEARN_TAB_SHIPS,
-    });
+    // The tutorial is the same five screens for everyone, so nothing here changes its shape.
+    // This exists only so the offer waits for entitlement to SETTLE before presenting — which
+    // is what stops "Step 1 of 5" opening on a provisional total.
+    reportCapabilities({ isPremium });
     markCapabilitiesResolved();
   }, [reportCapabilities, markCapabilitiesResolved, isPremium, isLoading]);
 
@@ -330,7 +325,7 @@ export default function App() {
                 itself can be left at any step. The existing tutorial stays exactly where it
                 was (Settings → Replay Tutorial) as the quick reference. */}
             <FirstLightCapabilityBridge />
-            <FirstLightRootOverlay onEnterSky={() => goToSkyTab()} />
+            <FirstLightRootOverlay />
 
             {/* Opaque boot cover — keeps the Home/Birth Chart tab from flashing before the
                 onboarding-vs-app decision resolves. Rendered last so it sits on top. */}

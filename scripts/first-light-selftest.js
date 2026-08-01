@@ -63,11 +63,9 @@ const geometry = requireTs(src("features/tour/tourGeometry.ts"));
 const machine = requireTs(src("features/tour/tourMachine.ts"));
 const state = requireTs(src("features/first-light/firstLightState.ts"));
 const stepsModule = requireTs(src("features/first-light/firstLightSteps.ts"));
-const targets = requireTs(src("features/first-light/firstLightTargets.ts"));
 const tips = requireTs(src("features/first-light/contextualTips.ts"));
 const storage = requireTs(src("features/first-light/firstLightStorage.ts"));
 const rules = requireTs(src("features/first-light/firstLightRules.ts"));
-const spotlight = requireTs(src("features/first-light/firstLightSpotlight.ts"));
 
 let pass = 0;
 let fail = 0;
@@ -278,246 +276,86 @@ function machineSection() {
 
 // ══════════════════════════════════════════════════════════════════════════════════════
 function stepsSection() {
-  console.log("\n── 4. The mission: capability-driven shape and exact copy ──");
+  console.log("\n── 4. The tutorial: five informational screens, identical for everyone ──");
 
-  const free = stepsModule.buildFirstLightSteps({
-    isPremium: false,
-    motionAvailable: true,
-    timeControlAvailable: true,
-    vaultSaveAvailable: true,
-    learnAvailable: true,
-  });
-  const freeIds = free.map((s) => s.id);
-  check("a FREE user never gets the premium time step", !freeIds.includes("exploreTime"), freeIds.join(","));
-  const freeSave = free.find((s) => s.id === "saveDiscovery");
-  check("a FREE user's save step becomes the non-gated Learn step", freeSave && freeSave.variant === "learn");
-  check("the free fallback step requires no action (no dead end)", freeSave && freeSave.requiresAction === false);
+  const steps = stepsModule.buildFirstLightSteps();
+  const ids = steps.map((s) => s.id);
 
-  const premium = stepsModule.buildFirstLightSteps({
-    isPremium: true,
-    motionAvailable: true,
-    timeControlAvailable: true,
-    vaultSaveAvailable: true,
-    learnAvailable: true,
-  });
-  const premiumIds = premium.map((s) => s.id);
-  eq("a PREMIUM user gets the full nine-step mission", premiumIds, [
-    "welcome",
-    "lookAround",
-    "findObject",
-    "openCard",
-    "constellation",
-    "lockSky",
-    "exploreTime",
-    "saveDiscovery",
-    "completion",
-  ]);
-  const premiumSave = premium.find((s) => s.id === "saveDiscovery");
-  check("a PREMIUM user's save step really saves", premiumSave && premiumSave.variant === "vault");
-  check("the save step requires a real save", premiumSave && premiumSave.requiresAction === true);
+  eq("exactly five screens, in order", ids,
+    ["welcome", "exploreSky", "learnAstronomy", "saveDiscoveries", "ready"]);
+  check("FIRST_LIGHT_STEP_COUNT agrees", stepsModule.FIRST_LIGHT_STEP_COUNT === 5);
 
-  const noTimeControl = stepsModule.buildFirstLightSteps({ isPremium: true, timeControlAvailable: false, vaultSaveAvailable: true, learnAvailable: true });
-  check("an unavailable time control omits the step cleanly", !noTimeControl.some((s) => s.id === "exploreTime"));
+  // ── The core property: NOTHING can block a screen ──────────────────────────────
+  check("REGRESSION: no screen requires an in-app interaction",
+    steps.every((s) => s.requiresAction === false),
+    steps.filter((s) => s.requiresAction).map((s) => s.id).join(",") || "none");
+  check("REGRESSION: no screen spotlights a control",
+    steps.every((s) => s.targetKey === undefined));
+  check("REGRESSION: every screen is hosted at the app root, never inside Sky Lens",
+    steps.every((s) => s.host === "root"));
+  check("REGRESSION: no screen carries a save variant", steps.every((s) => s.variant === undefined));
 
-  const nothingToSave = stepsModule.buildFirstLightSteps({ isPremium: true, vaultSaveAvailable: false, learnAvailable: false });
-  check("with neither a save nor Learn, the step is omitted entirely", !nothingToSave.some((s) => s.id === "saveDiscovery"));
-  check("the completion step always survives", nothingToSave[nothingToSave.length - 1].id === "completion");
-
-  eq("no capabilities still yields a usable tour", stepsModule.buildFirstLightSteps().map((s) => s.id), [
-    "welcome",
-    "lookAround",
-    "findObject",
-    "openCard",
-    "constellation",
-    "lockSky",
-    "completion",
-  ]);
-
-  // Exact copy from the specification.
-  const byId = Object.fromEntries(premium.map((s) => [s.id, s]));
-  const EXPECTED_COPY = {
-    welcome: ["Welcome to First Light", "Let’s explore the sky together. You can leave the tour at any time."],
-    lookAround: ["Look around", "Move your phone slowly. The sky follows where you point."],
-    findObject: ["Find your first object", "Follow the guide until the highlighted object enters view."],
-    openCard: ["Tap to learn more", "Every object has a story. Tap the highlighted object to open its card."],
-    constellation: ["Connect the stars", "Constellation lines help familiar patterns stand out."],
-    lockSky: ["Hold the sky still", "Lock the view, then drag to explore comfortably."],
-    exploreTime: ["Move through time", "Slide forward or backward to see how the sky changes."],
-    saveDiscovery: ["Keep your discovery", "Save objects you want to revisit later."],
-    completion: ["Your first light", "You’re ready to explore. The sky is yours."],
-  };
-  for (const [id, [heading, copy]] of Object.entries(EXPECTED_COPY)) {
-    check(`${id}: heading copy is exact`, byId[id] && byId[id].heading === heading, byId[id] && byId[id].heading);
-    check(`${id}: body copy is exact`, byId[id] && byId[id].copy === copy, byId[id] && byId[id].copy);
+  // Continue is derived from requiresAction, so prove it directly through the machine.
+  const running = { status: "running", index: 0, satisfiedStepIds: [] };
+  for (let i = 0; i < steps.length; i += 1) {
+    check(`Next/Finish is enabled on screen ${i + 1} with NOTHING satisfied`,
+      machine.canContinue({ ...running, index: i }, steps) === true, steps[i].id);
   }
 
-  // Tone rules: one short heading, at most two short sentences.
-  for (const step of [...premium, ...free]) {
-    const sentences = step.copy.split(/(?<=[.!?])\s+/).filter(Boolean);
-    check(`${step.id}/${step.variant ?? "default"}: heading is one short line`, !step.heading.includes("\n") && step.heading.length <= 40, step.heading);
-    check(`${step.id}/${step.variant ?? "default"}: at most two sentences`, sentences.length <= 2, `${sentences.length} sentences`);
+  // ── The tutorial is the SAME for everyone ─────────────────────────────────────
+  const shapes = [
+    {}, { isPremium: true }, { isPremium: false },
+    { isPremium: true, motionAvailable: true, timeControlAvailable: true, vaultSaveAvailable: true, learnAvailable: true },
+    { isPremium: false, motionAvailable: false, timeControlAvailable: false, vaultSaveAvailable: false, learnAvailable: false },
+  ].map((c) => stepsModule.buildFirstLightSteps(c).map((s) => s.id).join(","));
+  check("REGRESSION: capabilities cannot change the tutorial's shape",
+    new Set(shapes).size === 1, shapes.join(" | "));
+  check("…so premium and free see the same five screens",
+    stepsModule.buildFirstLightSteps({ isPremium: true }).length === 5 &&
+    stepsModule.buildFirstLightSteps({ isPremium: false }).length === 5);
+
+  // ── Copy: every screen has real, readable content ─────────────────────────────
+  for (const s of steps) {
+    check(`${s.id} has a heading and substantial copy`,
+      typeof s.heading === "string" && s.heading.length > 3 &&
+      typeof s.copy === "string" && s.copy.length > 40, s.id);
+  }
+  check("screen 1 welcomes by product name", /AuraLunis/.test(steps[0].heading + steps[0].copy));
+  check("screen 2 covers Sky Lens, the map, objects and cards",
+    /Sky Lens/.test(steps[1].copy) && /map/i.test(steps[1].copy) && /card/i.test(steps[1].copy));
+  check("screen 2 says tapping is available WITHOUT asking for it now",
+    /Tap any object/i.test(steps[1].copy) && /Nothing to do now/i.test(steps[1].copy));
+  check("screen 3 covers Learn, levels and saved progress",
+    /Learn/.test(steps[2].copy) && /progress/i.test(steps[2].copy));
+  check("screen 4 covers the Vault without demanding a save",
+    /Vault/.test(steps[3].copy) && /unless you choose/i.test(steps[3].copy));
+  check("screen 4 is honest that the Vault is Premium",
+    /Premium/.test(steps[3].copy));
+  check("screen 5 is a short completion message", /ready/i.test(steps[4].heading));
+  check("screen 5 points at Settings for a replay", /Replay First Light/.test(steps[4].copy));
+
+  // ── Labels ────────────────────────────────────────────────────────────────────
+  check("screens 1-4 are labelled Next", steps.slice(0, 4).every((s) => s.continueLabel === "Next"));
+  check("screen 5 is labelled Finish", steps[4].continueLabel === "Finish");
+
+  // ── No copy asks the user to do anything physical ─────────────────────────────
+  const forbidden = /move your phone|point your phone|sweep|turn around|find the|lock the sky|drag the sky|tap the highlighted|save it now|hold the sky/i;
+  for (const s of steps) {
+    check(`${s.id} never instructs a physical action`, !forbidden.test(s.copy), s.copy.slice(0, 60));
   }
 
-  check("welcome is presented before Sky Lens", byId.welcome.host === "root");
-  check(
-    "every other step runs inside Sky Lens",
-    premium.filter((s) => s.id !== "welcome").every((s) => s.host === "skyLens")
-  );
-  check("the lock step points at the real Lock Sky control", byId.lockSky.targetKey === stepsModule.FIRST_LIGHT_TARGETS.lockSky);
-  check("the time step points at the real time control", byId.exploreTime.targetKey === stepsModule.FIRST_LIGHT_TARGETS.timeTravel);
-  check("the save step points at the real Save button", byId.saveDiscovery.targetKey === stepsModule.FIRST_LIGHT_TARGETS.infoCardSave);
-  check("the fallback hints are non-empty", stepsModule.LOOK_AROUND_NO_MOTION_HINT.length > 20 && stepsModule.NO_LIVE_TARGET_HINT.length > 20);
+  check("stepsForHost returns all five for root", stepsModule.stepsForHost(steps, "root").length === 5);
+  check("stepsForHost returns none for skyLens", stepsModule.stepsForHost(steps, "skyLens").length === 0);
+  check("findStepIndex locates by id", stepsModule.findStepIndex(steps, "learnAstronomy") === 2);
+  check("findStepIndex reports -1 for an unknown id", stepsModule.findStepIndex(steps, "findObject") === -1);
 
-  eq(
-    "stepsForHost splits the mission between its two hosts",
-    [stepsModule.stepsForHost(premium, "root").length, stepsModule.stepsForHost(premium, "skyLens").length],
-    [1, 8]
-  );
+  // The registry keys survive as reusable infrastructure, unused by the tutorial.
+  check("tour-target keys remain exported for reuse",
+    stepsModule.FIRST_LIGHT_TARGETS.lockSky === "skyLens.lockSky" &&
+    stepsModule.FIRST_LIGHT_TARGETS.infoCardSave === "skyLens.infoCard.save");
 }
 
 // ══════════════════════════════════════════════════════════════════════════════════════
-function targetsSection() {
-  console.log("\n── 5. Tutorial target selection: live sky only, never below the horizon ──");
-
-  const body = (id, name, alt, magnitude) => ({
-    id,
-    name,
-    aboveHorizon: alt > 0,
-    altitudeDegrees: alt,
-    azimuthDegrees: 120,
-    magnitude,
-  });
-  const star = (id, name, alt, magnitude) => ({
-    id,
-    name,
-    magnitude,
-    aboveHorizon: alt > 0,
-    altitudeDegrees: alt,
-    azimuthDegrees: 200,
-  });
-
-  const moonUp = [body("moon", "Moon", 40), body("venus", "Venus", 30, -4.1), body("sun", "Sun", -20)];
-  check("the Moon wins when it is up", targets.selectTutorialObject(moonUp, []).id === "moon");
-
-  const noMoon = [body("moon", "Moon", -10), body("saturn", "Saturn", 25, 0.6), body("venus", "Venus", 22, -4.1)];
-  const planet = targets.selectTutorialObject(noMoon, []);
-  check("with the Moon down, the BRIGHTEST visible planet wins", planet.id === "venus", planet.id);
-  check("the planet target is not simulated", planet.simulated === false);
-
-  const starsOnly = [star("polaris", "Polaris", 45, 1.98), star("sirius", "Sirius", 35, -1.46)];
-  check(
-    "Polaris outranks a brighter star, as specified",
-    targets.selectTutorialObject([body("moon", "Moon", -5)], starsOnly).id === "polaris"
-  );
-  check(
-    "without Polaris, the brightest prominent star wins",
-    targets.selectTutorialObject([], [star("sirius", "Sirius", 35, -1.46), star("vega", "Vega", 60, 0.03)]).id === "sirius"
-  );
-  check(
-    "a dim star is not offered as a first object",
-    targets.selectTutorialObject([], [star("dim", "Dim", 40, 3.4)]) === null
-  );
-
-  const allBelow = [body("moon", "Moon", -30), body("venus", "Venus", -12, -4.1)];
-  check(
-    "NOTHING below the horizon is ever chosen",
-    targets.selectTutorialObject(allBelow, [star("sirius", "Sirius", -3, -1.46)]) === null
-  );
-
-  const onlyLow = [body("jupiter", "Jupiter", 6, -2.2)];
-  const low = targets.selectTutorialObject(onlyLow, []);
-  check("a genuinely visible but low object is used on the relaxed pass", low && low.id === "jupiter");
-  check("the relaxed floor still excludes sub-horizon objects", targets.MINIMUM_ALTITUDE_DEGREES > 0);
-  check("the preferred floor is comfortably clear of the horizon", targets.PREFERRED_MIN_ALTITUDE_DEGREES >= 10);
-
-  const practice = targets.practiceTarget(90, 35);
-  check("the fallback marker is explicitly simulated", practice.simulated === true);
-  check("the fallback marker is labelled as tutorial-only", /tutorial only/i.test(practice.subtitle), practice.subtitle);
-  check("the fallback marker's id cannot collide with a catalog object", practice.id === "first-light-practice-marker");
-
-  console.log("\n── 6. Constellation choice + astronomically correct naming ──");
-
-  const constellation = (id, name, alt, familiarName, anchorStarName, upFraction = 1) => ({
-    id,
-    name,
-    familiarName,
-    anchorStarName,
-    centroid: { azimuthDegrees: 10, altitudeDegrees: alt, aboveHorizon: alt > 0 },
-    points: Array.from({ length: 10 }, (_, i) => ({ aboveHorizon: i < Math.round(10 * upFraction) })),
-  });
-
-  const all = [
-    constellation("orion", "Orion", 50),
-    constellation("ursa-major", "Ursa Major", 40, "Big Dipper"),
-    constellation("ursa-minor", "Ursa Minor", 35, "Little Dipper", "Polaris"),
-    constellation("cassiopeia", "Cassiopeia", 45),
-  ];
-  check("the Big Dipper is the first choice", targets.selectTutorialConstellation(all).id === "ursa-major");
-  check(
-    "the Little Dipper is second",
-    targets.selectTutorialConstellation(all.filter((c) => c.id !== "ursa-major")).id === "ursa-minor"
-  );
-  check(
-    "Orion is third",
-    targets.selectTutorialConstellation(all.filter((c) => !["ursa-major", "ursa-minor"].includes(c.id))).id === "orion"
-  );
-  check(
-    "Cassiopeia is fourth",
-    targets.selectTutorialConstellation([all[3]]).id === "cassiopeia"
-  );
-  check(
-    "another visible primary pattern is used when none of the four are up",
-    targets.selectTutorialConstellation([constellation("cygnus", "Cygnus", 60)]).id === "cygnus"
-  );
-  check(
-    "a non-primary pattern is never chosen",
-    targets.selectTutorialConstellation([constellation("delphinus", "Delphinus", 60)]) === null
-  );
-  check(
-    "a mostly-below-horizon figure is rejected as a fragment",
-    targets.selectTutorialConstellation([constellation("orion", "Orion", 30, undefined, undefined, 0.3)]) === null
-  );
-  check(
-    "a below-horizon centroid is rejected",
-    targets.selectTutorialConstellation([constellation("orion", "Orion", -5)]) === null
-  );
-
-  const bigDipper = targets.describeConstellation(all[1]);
-  check("the Big Dipper leads with the familiar name", bigDipper.title === "Big Dipper");
-  check("the Big Dipper is described as an ASTERISM, not a constellation", bigDipper.isAsterism === true && /asterism/i.test(bigDipper.subtitle));
-  check("the Big Dipper's parent constellation is carried as secondary text", /Ursa Major/.test(bigDipper.subtitle), bigDipper.subtitle);
-
-  const littleDipper = targets.describeConstellation(all[2]);
-  check("the Little Dipper is also an asterism", littleDipper.isAsterism === true);
-  check("the Little Dipper keeps its Polaris association", /Polaris/.test(littleDipper.subtitle), littleDipper.subtitle);
-  check("the Little Dipper's parent is Ursa Minor", /Ursa Minor/.test(littleDipper.subtitle));
-
-  const orion = targets.describeConstellation(all[0]);
-  check("Orion is NOT called an asterism", orion.isAsterism === false && orion.subtitle === "Constellation");
-  check("Orion keeps its own name", orion.title === "Orion");
-
-  // The tutorial must only promise patterns the renderer actually labels, and only ids that
-  // exist in the shipping dataset.
-  const layerSource = fs.readFileSync(path.join(ROOT, "src/features/sky-lens/layers/ConstellationLayer.tsx"), "utf8");
-  const primaryBlock = layerSource.slice(
-    layerSource.indexOf("const PRIMARY_CONSTELLATIONS = new Set(["),
-    layerSource.indexOf("]);", layerSource.indexOf("const PRIMARY_CONSTELLATIONS = new Set(["))
-  );
-  const rendererPrimary = [...primaryBlock.matchAll(/"([a-z-]+)"/g)].map((m) => m[1]);
-  const tutorialPrimary = [...targets.PRIMARY_CONSTELLATION_IDS];
-  eq(
-    "the tutorial's primary set matches the renderer's PRIMARY_CONSTELLATIONS exactly",
-    [...tutorialPrimary].sort(),
-    [...rendererPrimary].sort()
-  );
-
-  const dataSource = fs.readFileSync(path.join(ROOT, "src/features/sky-lens/data/constellationLines.ts"), "utf8");
-  const datasetIds = new Set([...dataSource.matchAll(/^\s*id: "([a-z_-]+)",$/gm)].map((m) => m[1]));
-  const missing = tutorialPrimary.filter((id) => !datasetIds.has(id));
-  check("every tutorial constellation id exists in the shipping dataset", missing.length === 0, missing.join(","));
-  const missingPriority = targets.CONSTELLATION_PRIORITY.filter((id) => !datasetIds.has(id));
-  check("every prioritised constellation id exists in the dataset", missingPriority.length === 0, missingPriority.join(","));
-}
 
 // ══════════════════════════════════════════════════════════════════════════════════════
 function tipsSection() {
@@ -640,111 +478,26 @@ function geometrySection() {
 
 // ══════════════════════════════════════════════════════════════════════════════════════
 function auditRegressionSection() {
-  console.log("\n── 9. Audit regressions: the no-motion trap, time restore, duplicate saves ──");
+  console.log("\n── 9. Vault duplicate-save guard (unchanged by the tutorial rewrite) ──");
 
-  // ---- The trap: real object + no motion must NOT block the tour ----------------
-  const noMotionFind = {
-    step: "findObject",
-    motionAvailable: false,
-    targetSimulated: false,
-    targetOnScreen: false,
-    correctCardOpen: false,
-  };
-  check(
-    "REGRESSION: a real, off-screen object with NO motion cannot trap Find Object",
-    rules.isObjectStepSatisfied(noMotionFind) === true
-  );
-  check(
-    "REGRESSION: the same situation cannot trap Open Card either",
-    rules.isObjectStepSatisfied({ ...noMotionFind, step: "openCard" }) === true
-  );
-  check(
-    "with motion available, Find Object still requires the object on screen",
-    rules.isObjectStepSatisfied({ ...noMotionFind, motionAvailable: true }) === false
-  );
-  check(
-    "with motion available, the object entering view satisfies Find Object",
-    rules.isObjectStepSatisfied({ ...noMotionFind, motionAvailable: true, targetOnScreen: true }) === true
-  );
-  check(
-    "Open Card still demands the CORRECT card when the object is reachable",
-    rules.isObjectStepSatisfied({
-      step: "openCard", motionAvailable: true, targetSimulated: false, targetOnScreen: true, correctCardOpen: false,
-    }) === false
-  );
-  check(
-    "the correct card satisfies Open Card",
-    rules.isObjectStepSatisfied({
-      step: "openCard", motionAvailable: true, targetSimulated: false, targetOnScreen: true, correctCardOpen: true,
-    }) === true
-  );
-  check(
-    "a practice marker never blocks either step",
-    rules.isObjectStepSatisfied({ ...noMotionFind, targetSimulated: true, motionAvailable: true }) === true
-  );
-  check(
-    "no-motion does NOT satisfy Open Card while the object IS on screen (tap it)",
-    rules.isObjectStepSatisfied({
-      step: "openCard", motionAvailable: false, targetSimulated: false, targetOnScreen: true, correctCardOpen: false,
-    }) === false
-  );
+  // The interactive mission's satisfaction rules are GONE — there is nothing left to satisfy,
+  // so the traps they guarded against are unreachable by construction. This Vault guard is not
+  // part of that mission: Sky Lens itself uses it, and it is asserted here as before.
+  check("the interactive satisfaction rules no longer exist",
+    rules.isObjectStepSatisfied === undefined &&
+    rules.isSaveStepSatisfied === undefined &&
+    rules.shouldRestoreLiveTime === undefined);
 
-  // ---- The SAME trap one step later: "Keep your discovery" ---------------------
-  const noMotionSave = {
-    variant: "vault", motionAvailable: false, targetSimulated: false,
-    targetOnScreen: false, targetSaved: false,
-  };
-  check(
-    "REGRESSION: a real, unreachable object with NO motion cannot trap the save step",
-    rules.isSaveStepSatisfied(noMotionSave) === true
-  );
-  check(
-    "with motion available, the save step still demands a real save",
-    rules.isSaveStepSatisfied({ ...noMotionSave, motionAvailable: true }) === false
-  );
-  check(
-    "…even when the object is right there on screen",
-    rules.isSaveStepSatisfied({ ...noMotionSave, motionAvailable: true, targetOnScreen: true }) === false
-  );
-  check(
-    "a genuine persisted save satisfies it",
-    rules.isSaveStepSatisfied({ ...noMotionSave, motionAvailable: true, targetOnScreen: true, targetSaved: true }) === true
-  );
-  check(
-    "no-motion does NOT skip the save while the object IS on screen",
-    rules.isSaveStepSatisfied({ ...noMotionSave, targetOnScreen: true }) === false
-  );
-  check(
-    "the non-gated Learn fallback never blocks",
-    rules.isSaveStepSatisfied({ ...noMotionSave, variant: "learn", motionAvailable: true, targetOnScreen: true }) === true
-  );
-  check(
-    "a practice marker never blocks the save step",
-    rules.isSaveStepSatisfied({ ...noMotionSave, motionAvailable: true, targetSimulated: true }) === true
-  );
-
-  // ---- Time restoration on every exit path -------------------------------------
-  const scrubbed = { previousStepId: "exploreTime", keepChangedTime: false, timeOffsetMinutes: 180 };
-  check("Continue out of the time step restores the live sky", rules.shouldRestoreLiveTime({ ...scrubbed, nextStepId: "saveDiscovery" }) === true);
-  check("REGRESSION: Back out of the time step restores it too", rules.shouldRestoreLiveTime({ ...scrubbed, nextStepId: "lockSky" }) === true);
-  check("REGRESSION: Skip Tour from the time step restores it (no step showing)", rules.shouldRestoreLiveTime({ ...scrubbed, nextStepId: null }) === true);
-  check("REGRESSION: unmount / pause from the time step restores it", rules.shouldRestoreLiveTime({ ...scrubbed, nextStepId: null }) === true);
-  check("staying on the time step does not restore", rules.shouldRestoreLiveTime({ ...scrubbed, nextStepId: "exploreTime" }) === false);
-  check("an explicit 'keep this time' is honoured on every exit", rules.shouldRestoreLiveTime({ ...scrubbed, nextStepId: null, keepChangedTime: true }) === false);
-  check("an unchanged clock needs no restore", rules.shouldRestoreLiveTime({ ...scrubbed, nextStepId: null, timeOffsetMinutes: 0 }) === false);
-  check("leaving any OTHER step never touches the clock", rules.shouldRestoreLiveTime({ previousStepId: "lockSky", nextStepId: null, keepChangedTime: false, timeOffsetMinutes: 180 }) === false);
-  check("a non-finite offset is ignored rather than trusted", rules.shouldRestoreLiveTime({ ...scrubbed, nextStepId: null, timeOffsetMinutes: NaN }) === false);
-
-  // ---- Duplicate Vault saves ----------------------------------------------------
-  const vault = [
-    { type: "archive", title: "Venus", detail: "x" },
-    { type: "note", title: "Cosmic Note", detail: "y" },
+  const entries = [
+    { type: "archive", title: "Jupiter" },
+    { type: "note", title: "Jupiter" },
   ];
-  check("REGRESSION: an object already in the Vault is detected", rules.isAlreadySavedToVault(vault, "Venus") === true);
-  check("a different object is not a duplicate", rules.isAlreadySavedToVault(vault, "Jupiter") === false);
-  check("a same-named NOTE is not mistaken for an archived object", rules.isAlreadySavedToVault([{ type: "note", title: "Venus" }], "Venus") === false);
-  check("an empty Vault has no duplicates", rules.isAlreadySavedToVault([], "Venus") === false);
-  check("an empty name is never a duplicate", rules.isAlreadySavedToVault(vault, "") === false);
+  check("REGRESSION: an object already archived is detected", rules.isAlreadySavedToVault(entries, "Jupiter") === true);
+  check("a different object is not", rules.isAlreadySavedToVault(entries, "Saturn") === false);
+  check("a note with the same title is NOT an archive match",
+    rules.isAlreadySavedToVault([{ type: "note", title: "Mars" }], "Mars") === false);
+  check("an empty name never matches", rules.isAlreadySavedToVault(entries, "") === false);
+  check("an empty vault never matches", rules.isAlreadySavedToVault([], "Jupiter") === false);
 }
 
 function resumeSection() {
@@ -826,26 +579,22 @@ function tipHoldSection() {
 }
 
 function stableTotalsSection() {
-  console.log("\n── 12. Stable progress totals under delayed capability resolution ──");
+  console.log("\n── 12. The progress total is fixed at five and can never move ──");
 
-  // What the app root now reports the moment entitlement resolves.
-  const rootPremium = { isPremium: true, timeControlAvailable: true, learnAvailable: true };
-  const rootFree = { isPremium: false, timeControlAvailable: true, learnAvailable: true };
-
+  const rootPremium = { isPremium: true };
+  const rootFree = { isPremium: false };
   const premiumAtRoot = stepsModule.buildFirstLightSteps(rootPremium).length;
   const freeAtRoot = stepsModule.buildFirstLightSteps(rootFree).length;
 
-  // Sky Lens later adds only the things it alone can know.
-  const premiumInSkyLens = stepsModule.buildFirstLightSteps({ ...rootPremium, motionAvailable: true, vaultSaveAvailable: true }).length;
-  const premiumNoTarget = stepsModule.buildFirstLightSteps({ ...rootPremium, motionAvailable: false, vaultSaveAvailable: false }).length;
-  const freeInSkyLens = stepsModule.buildFirstLightSteps({ ...rootFree, motionAvailable: true, vaultSaveAvailable: true }).length;
-
-  check("REGRESSION: a premium total does not change when Sky Lens reports in", premiumAtRoot === premiumInSkyLens, `${premiumAtRoot} → ${premiumInSkyLens}`);
-  check("…nor when no saveable object is available", premiumAtRoot === premiumNoTarget, `${premiumAtRoot} → ${premiumNoTarget}`);
-  check("REGRESSION: a free total does not change either", freeAtRoot === freeInSkyLens, `${freeAtRoot} → ${freeInSkyLens}`);
-  check("premium sees nine steps", premiumAtRoot === 9, String(premiumAtRoot));
-  check("free sees eight (no premium time step)", freeAtRoot === 8, String(freeAtRoot));
-  check("the root capability constants exist", stepsModule.TIME_CONTROL_SHIPS_IN_SKY_LENS === true && stepsModule.LEARN_TAB_SHIPS === true);
+  check("premium sees five screens", premiumAtRoot === 5, String(premiumAtRoot));
+  check("free sees five screens", freeAtRoot === 5, String(freeAtRoot));
+  check("REGRESSION: the total cannot change once the tour has opened",
+    premiumAtRoot === freeAtRoot && premiumAtRoot === stepsModule.buildFirstLightSteps().length);
+  // Late-arriving capability news cannot reshape it, so "Step 1 of 5" never becomes "of 8".
+  const late = stepsModule.buildFirstLightSteps({ ...rootPremium, motionAvailable: true, vaultSaveAvailable: true, timeControlAvailable: true, learnAvailable: true }).length;
+  check("REGRESSION: late capability reports do not change the total", late === premiumAtRoot, `${premiumAtRoot} → ${late}`);
+  check("the removed capability constants are gone",
+    stepsModule.TIME_CONTROL_SHIPS_IN_SKY_LENS === undefined && stepsModule.LEARN_TAB_SHIPS === undefined);
 }
 
 function reservedDockSection() {
@@ -955,320 +704,78 @@ function largeTypeLayoutSection() {
   check("…and a finite anchor inside the safe area", Number.isFinite(smallAnchor.top) && smallAnchor.top >= insets.top);
 }
 
-function spotlightReadinessSection() {
-  console.log("\n── 16. Spotlight readiness: never project through provisional inputs ──");
 
-  // THE DEFECT THIS LOCKS DOWN (physical iPhone, integration/1.0.1-rc2):
-  // "Find your first object" ringed the HUD/header and called it Venus, then snapped to the
-  // real Venus a moment later. The maths was right; the inputs were provisional.
-  //
-  // Sky Lens opens on a HARDCODED 360x720 placeholder canvas until onLayout reports the truth,
-  // and the observer starts at DEFAULT_OBSERVER (39.8283 N, 98.5795 W) until the location
-  // resolver settles. Worked numbers for an object 10 degrees above the optical axis:
-  //
-  //   placeholder 360x720 → pixelsPerDegree 180/30 = 6.000, centre y 360 → y = 300
-  //   measured    430x932 → pixelsPerDegree 215/30 = 7.167, centre y 466 → y = 394.33
-  //
-  // …a 94 px upward error, straight into the top chrome. Assert the arithmetic so the reason
-  // for the gate is documented, not just its effect.
-  const PLACEHOLDER_BOX = { width: 360, height: 720 };
-  const MEASURED_BOX = { width: 430, height: 932 };
-  const halfH = 30;
 
-  const ppdPlaceholder = PLACEHOLDER_BOX.width / 2 / halfH;
-  const ppdMeasured = MEASURED_BOX.width / 2 / halfH;
-  const yPlaceholder = PLACEHOLDER_BOX.height / 2 - 10 * ppdPlaceholder;
-  const yMeasured = MEASURED_BOX.height / 2 - 10 * ppdMeasured;
+function informationalTutorialSection() {
+  console.log("\n── 16. Tap-through only: Back, Skip, Finish, and what each one persists ──");
 
-  check("the placeholder viewport really does mis-scale (6.000 vs 7.167 px/deg)",
-    Math.abs(ppdPlaceholder - 6) < 1e-9 && Math.abs(ppdMeasured - 7.16666) < 1e-4,
-    `${ppdPlaceholder} vs ${ppdMeasured}`);
-  check("…placing a 10-degree-high object ~94 px too high",
-    Math.abs((yMeasured - yPlaceholder) - 94.333) < 0.01,
-    `${(yMeasured - yPlaceholder).toFixed(2)}px`);
+  const steps = stepsModule.buildFirstLightSteps();
+  const run = (state, action) => machine.tourReducer(state, action, steps);
+  let st = machine.tourReducer(machine.INITIAL_TOUR_STATE, { type: "restart" }, steps);
 
-  // The projection Sky Lens would hand over once everything is real.
-  const venusMeasured = { x: MEASURED_BOX.width / 2, y: yMeasured, onScreen: true, behind: false };
-  // …and the one it would hand over while still on the placeholder.
-  const venusPlaceholder = { x: PLACEHOLDER_BOX.width / 2, y: yPlaceholder, onScreen: true, behind: false };
+  // ── Next walks 1 → 5 with nothing ever satisfied ───────────────────────────────
+  check("the tour opens on screen 1", st.index === 0 && st.status === "running");
+  check("Back is unavailable on screen 1", machine.canGoBack(st) === false);
+  for (let i = 1; i < 5; i += 1) {
+    st = run(st, { type: "next" });
+    check(`Next reaches screen ${i + 1}`, st.index === i && st.status === "running");
+    check(`…and Back is available there`, machine.canGoBack(st) === true);
+  }
+  check("screen 5 is the last", machine.isLastStep(st, steps) === true);
 
-  const resolve = (readiness, projection, box) =>
-    spotlight.resolveProjectedSpotlightRect({
-      stepId: "findObject",
-      targetProjection: projection,
-      constellationProjection: null,
-      box,
-      readiness,
-    });
+  // ── Finish on screen 5 completes ──────────────────────────────────────────────
+  const finished = run(st, { type: "next" });
+  check("REGRESSION: Finish on screen 5 completes the tour", finished.status === "completed");
+  check("…and no further screen is presented", machine.currentStep(finished, steps) === null);
 
-  const READY = { boxMeasured: true, locationReady: true };
+  // ── Back walks 5 → 1 ──────────────────────────────────────────────────────────
+  let backwards = { ...st };
+  for (let i = 3; i >= 0; i -= 1) {
+    backwards = run(backwards, { type: "back" });
+    check(`Back reaches screen ${i + 1}`, backwards.index === i);
+  }
+  check("Back on screen 1 stays on screen 1", run(backwards, { type: "back" }).index === 0);
 
-  // ── 1. No projected spotlight before the canvas is measured ──────────────────────
-  check("no spotlight before boxMeasured",
-    resolve({ boxMeasured: false, locationReady: true }, venusPlaceholder, PLACEHOLDER_BOX) === null);
-  check("…not even when the projection claims to be on screen",
-    resolve({ boxMeasured: false, locationReady: true }, venusMeasured, MEASURED_BOX) === null);
+  // ── Skip works from screens 1-4 ───────────────────────────────────────────────
+  for (let i = 0; i < 4; i += 1) {
+    const skipped = run({ ...st, index: i }, { type: "skip" });
+    check(`Skip works from screen ${i + 1}`, skipped.status === "skipped");
+  }
 
-  // ── 2. No projected spotlight before the observer has settled ────────────────────
-  check("no spotlight before locationReady",
-    resolve({ boxMeasured: true, locationReady: false }, venusMeasured, MEASURED_BOX) === null);
-  check("no spotlight when neither gate is open",
-    resolve({ boxMeasured: false, locationReady: false }, venusMeasured, MEASURED_BOX) === null);
-  check("a missing readiness object is treated as not ready",
-    spotlight.isProjectionTrustworthy(null) === false && spotlight.isProjectionTrustworthy(undefined) === false);
+  // ── Persistence: completion and skip both stick, and neither replays ──────────
+  const done = state.markCompleted(state.DEFAULT_FIRST_LIGHT_STATE, "2026-08-01T00:00:00.000Z");
+  check("completion persists as completed", done.status === "completed");
+  check("REGRESSION: a completed tutorial is never offered again",
+    state.shouldOfferFirstLight(done) === false);
 
-  // ── 3. The exact placeholder dimensions can never produce a tutorial spotlight ───
-  check("REGRESSION: the 360x720 placeholder cannot produce a spotlight",
-    resolve({ boxMeasured: false, locationReady: true }, venusPlaceholder, PLACEHOLDER_BOX) === null);
-  const placeholderRects = ["findObject", "openCard", "constellation"].map((stepId) =>
-    spotlight.resolveProjectedSpotlightRect({
-      stepId,
-      targetProjection: venusPlaceholder,
-      constellationProjection: venusPlaceholder,
-      box: PLACEHOLDER_BOX,
-      readiness: { boxMeasured: false, locationReady: false },
-    })
-  );
-  check("REGRESSION: no projected step draws from placeholder inputs",
-    placeholderRects.every((r) => r === null),
-    JSON.stringify(placeholderRects));
+  const bailed = state.markSkipped(state.DEFAULT_FIRST_LIGHT_STATE, "2026-08-01T00:00:00.000Z");
+  check("skipping persists as skipped", bailed.status === "skipped");
+  check("REGRESSION: a skipped tutorial is never offered again",
+    state.shouldOfferFirstLight(bailed) === false);
 
-  // ── 4. The spotlight appears once BOTH gates are open ────────────────────────────
-  const ready = resolve(READY, venusMeasured, MEASURED_BOX);
-  check("a spotlight appears once both gates are open", ready !== null);
-  check("…centred on the measured projection, not the placeholder one",
-    ready && Math.abs((ready.y + ready.height / 2) - yMeasured) < 1e-9,
-    ready ? `centre ${(ready.y + ready.height / 2).toFixed(2)} vs ${yMeasured.toFixed(2)}` : "null");
-  check("…and never at the placeholder position that ringed the HUD",
-    ready && Math.abs((ready.y + ready.height / 2) - yPlaceholder) > 90);
-  check("…sized as the documented object ring",
-    ready && ready.width === spotlight.OBJECT_SPOTLIGHT_RADIUS * 2 && ready.height === spotlight.OBJECT_SPOTLIGHT_RADIUS * 2);
+  // ── Settings → Replay First Light reopens it deliberately ────────────────────
+  const replayed = state.resetForReplay(done, "2026-08-01T01:00:00.000Z");
+  check("replay resets a completed document so the tour can run again",
+    state.shouldOfferFirstLight(replayed) === true || replayed.status === "notStarted",
+    replayed.status);
+  const replayedMachine = machine.tourReducer(finished, { type: "restart" }, steps);
+  check("replay reopens on screen 1", replayedMachine.index === 0 && replayedMachine.status === "running");
+  check("replay clears any previous satisfaction state", replayedMachine.satisfiedStepIds.length === 0);
+  check("a replayed tour is still five screens", steps.length === 5);
 
-  // An off-screen or behind-camera object still yields no ring, exactly as before the fix.
-  check("an off-screen target still yields no spotlight",
-    resolve(READY, { ...venusMeasured, onScreen: false }, MEASURED_BOX) === null);
-  check("a target behind the camera still yields no spotlight",
-    resolve(READY, { ...venusMeasured, behind: true }, MEASURED_BOX) === null);
-  check("a non-finite projection yields no spotlight",
-    resolve(READY, { ...venusMeasured, x: Number.NaN }, MEASURED_BOX) === null);
-
-  // ── 5. Going provisional → measured cannot show a STALE rectangle ────────────────
-  // The resolver is pure and holds no memory: the only way a stale rect could survive is if a
-  // caller cached one. Prove the resolver itself never replays a previous answer.
-  const beforeReady = resolve({ boxMeasured: false, locationReady: false }, venusPlaceholder, PLACEHOLDER_BOX);
-  const afterReady = resolve(READY, venusMeasured, MEASURED_BOX);
-  const readyThenNotReady = resolve({ boxMeasured: true, locationReady: false }, venusMeasured, MEASURED_BOX);
-  check("REGRESSION: nothing is drawn before readiness…", beforeReady === null);
-  check("…the first drawn rect is the MEASURED one, never a provisional one",
-    afterReady !== null && Math.abs((afterReady.y + afterReady.height / 2) - yMeasured) < 1e-9);
-  check("REGRESSION: the resolver replays no earlier answer when readiness is withdrawn",
-    readyThenNotReady === null);
-  // Same inputs → same output, every time (no hidden state between calls).
-  check("the resolver is referentially pure across repeated calls",
-    JSON.stringify(resolve(READY, venusMeasured, MEASURED_BOX)) === JSON.stringify(afterReady));
-
-  // ── 6/7. The satisfaction rules are UNCHANGED by this fix ────────────────────────
-  // Part A deliberately did not touch firstLightRules. Re-assert the two gates that matter, so
-  // a future "just let them through" edit cannot ride along with a readiness change.
-  check("REGRESSION: Step 4 still requires the CORRECT object card on a motion device",
-    rules.isObjectStepSatisfied({
-      step: "openCard", motionAvailable: true, targetSimulated: false,
-      targetOnScreen: true, correctCardOpen: false,
-    }) === false);
-  check("…and is satisfied only when that card is open",
-    rules.isObjectStepSatisfied({
-      step: "openCard", motionAvailable: true, targetSimulated: false,
-      targetOnScreen: true, correctCardOpen: true,
-    }) === true);
-  check("REGRESSION: Step 8 (vault) still requires a real, persisted save",
-    rules.isSaveStepSatisfied({
-      variant: "vault", motionAvailable: true, targetSimulated: false,
-      targetOnScreen: true, targetSaved: false,
-    }) === false);
-  check("…and is satisfied by a genuine save",
-    rules.isSaveStepSatisfied({
-      variant: "vault", motionAvailable: true, targetSimulated: false,
-      targetOnScreen: true, targetSaved: true,
-    }) === true);
-  check("REGRESSION: Step 8 (learn fallback) is still non-blocking",
-    rules.isSaveStepSatisfied({
-      variant: "learn", motionAvailable: true, targetSimulated: false,
-      targetOnScreen: false, targetSaved: false,
-    }) === true);
-  check("REGRESSION: no timeout/bypass was added to the object steps",
-    rules.isObjectStepSatisfied({
-      step: "findObject", motionAvailable: true, targetSimulated: false,
-      targetOnScreen: false, correctCardOpen: false,
-    }) === false);
-}
-
-function visibleTargetSection() {
-  console.log("\n── 17. Object steps choose something actually IN VIEW, then freeze it ──");
-
-  // THE DEFECT THIS LOCKS DOWN (physical iPhone, 5548810):
-  // "Find your first object" ranked the WHOLE SKY, picked Venus — genuinely up, genuinely
-  // behind the user — and then required Venus to enter the viewport. The copy read
-  // "Turn around for Venus" and Continue stayed disabled for the entire recording.
-  const VIEWPORT = { width: 430, height: 932 };
-  const DOCK = 168;
-
-  // FirstLightSkyLens imports react-native, so the bounded-fallback constant is read from
-  // source rather than required — the value under test is the shipping one either way.
-  const bridgeSource = fs.readFileSync(src("features/first-light/FirstLightSkyLens.tsx"), "utf8");
-  const bridgeFallbackMs = Number((bridgeSource.match(/OBJECT_STEP_FALLBACK_MS = (\d+)/) || [])[1]);
-
-  const onScreen = (x, y) => ({ x, y, onScreen: true, behind: false });
-  const offScreen = (x, y) => ({ x, y, onScreen: false, behind: false });
-  const behind = { x: 215, y: 466, onScreen: false, behind: true };
-
-  const venus = { kind: "planet", id: "venus", name: "Venus", subtitle: "Planet", azimuthDegrees: 250, altitudeDegrees: 20, simulated: false };
-  const jupiter = { kind: "planet", id: "jupiter", name: "Jupiter", subtitle: "Planet", azimuthDegrees: 100, altitudeDegrees: 40, simulated: false };
-  const vega = { kind: "star", id: "vega", name: "Vega", subtitle: "Bright star", azimuthDegrees: 90, altitudeDegrees: 55, simulated: false };
-  const marker = targets.practiceTarget(0, 30);
-
-  const pick = (candidates) => targets.selectVisibleTutorialTarget(candidates, VIEWPORT, { reservedBottom: DOCK });
-
-  // ── 1. An off-screen or behind-camera object is never selected ───────────────────
-  check("REGRESSION: an off-screen Venus is NOT selected",
-    pick([{ target: venus, projection: offScreen(-400, 466) }]) === null);
-  check("REGRESSION: a Venus behind the camera is NOT selected",
-    pick([{ target: venus, projection: behind }]) === null);
-  check("an unprojectable candidate is not selected",
-    pick([{ target: venus, projection: null }]) === null);
-  check("a non-finite projection is not selected",
-    pick([{ target: venus, projection: onScreen(Number.NaN, 466) }]) === null);
-
-  // ── 2. A genuinely visible candidate IS selected ─────────────────────────────────
-  const chosen = pick([
-    { target: venus, projection: behind },
-    { target: jupiter, projection: onScreen(215, 500) },
-    { target: vega, projection: onScreen(200, 400) },
-  ]);
-  check("the first genuinely visible candidate is selected", chosen && chosen.id === "jupiter",
-    chosen ? chosen.id : "null");
-  check("…skipping the higher-ranked but unreachable one", chosen && chosen.id !== "venus");
-
-  // ── 3. Protected chrome and edges are respected ─────────────────────────────────
-  check("an object under the top chrome is not selected",
-    pick([{ target: jupiter, projection: onScreen(215, 40) }]) === null);
-  check("an object behind the bottom dock is not selected",
-    pick([{ target: jupiter, projection: onScreen(215, VIEWPORT.height - 20) }]) === null);
-  check("an object hugging the left edge is not selected",
-    pick([{ target: jupiter, projection: onScreen(4, 500) }]) === null);
-  check("an object hugging the right edge is not selected",
-    pick([{ target: jupiter, projection: onScreen(VIEWPORT.width - 4, 500) }]) === null);
-  check("an object comfortably inside the open sky IS selected",
-    (pick([{ target: jupiter, projection: onScreen(215, 500) }]) || {}).id === "jupiter");
-  check("a degenerate viewport yields no candidate rather than relaxing the rule",
-    targets.selectVisibleTutorialTarget([{ target: jupiter, projection: onScreen(5, 5) }], { width: 10, height: 10 }) === null);
-
-  // ── 4. A practice marker is never passed off as a visible object ────────────────
-  check("REGRESSION: a practice marker is never selected as a visible target",
-    pick([{ target: marker, projection: onScreen(215, 500) }]) === null);
-
-  // ── 5. Ranking still follows the documented beginner order ──────────────────────
-  const bodies = [
-    { id: "moon", name: "Moon", aboveHorizon: true, altitudeDegrees: 30, azimuthDegrees: 120 },
-    { id: "venus", name: "Venus", aboveHorizon: true, altitudeDegrees: 20, azimuthDegrees: 250, magnitude: -4.1 },
-    { id: "mars", name: "Mars", aboveHorizon: true, altitudeDegrees: 25, azimuthDegrees: 200, magnitude: 1.2 },
-    { id: "saturn", name: "Saturn", aboveHorizon: false, altitudeDegrees: -10, azimuthDegrees: 10, magnitude: 0.7 },
-  ];
-  const stars = [
-    { id: "vega", name: "Vega", magnitude: 0.03, aboveHorizon: true, altitudeDegrees: 55, azimuthDegrees: 90 },
-    { id: "polaris", name: "Polaris", magnitude: 1.98, aboveHorizon: true, altitudeDegrees: 35, azimuthDegrees: 0 },
-    { id: "faint", name: "Faint", magnitude: 4.2, aboveHorizon: true, altitudeDegrees: 50, azimuthDegrees: 45 },
-  ];
-  const ranked = targets.rankTutorialCandidates(bodies, stars);
-  eq("candidates are ranked Moon → brightest planets → Polaris → bright stars",
-    ranked.map((t) => t.id), ["moon", "venus", "mars", "polaris", "vega"]);
-  check("a body below the horizon is never a candidate", !ranked.some((t) => t.id === "saturn"));
-  check("a faint star is never a candidate", !ranked.some((t) => t.id === "faint"));
-  check("candidates are unique", new Set(ranked.map((t) => t.id)).size === ranked.length);
-  check("every candidate is real, never simulated", ranked.every((t) => t.simulated === false));
-  eq("no candidates at all when nothing is up", targets.rankTutorialCandidates([], []), []);
-
-  // ── 6. The freeze: Steps 3, 4 and 8 act on ONE object ───────────────────────────
-  // The component holds the frozen target in state; the invariant under test is that a change
-  // of inputs cannot produce a different answer for the SAME frozen id, and that Step 4's and
-  // Step 8's checks are identity checks against it.
-  const frozen = chosen;
-  check("the frozen target has a stable id to compare against", frozen && typeof frozen.id === "string" && frozen.id.length > 0);
-  check("REGRESSION: Step 4 is satisfied only by the FROZEN object's card",
-    rules.isObjectStepSatisfied({
-      step: "openCard", motionAvailable: true, targetSimulated: false,
-      targetOnScreen: true, correctCardOpen: false,
-    }) === false);
-  check("…and opening a DIFFERENT object's card does not satisfy it",
-    ("venus" === frozen.id) === false && rules.isObjectStepSatisfied({
-      step: "openCard", motionAvailable: true, targetSimulated: false,
-      targetOnScreen: true, correctCardOpen: false,
-    }) === false);
-  check("…while opening the frozen object's card does",
-    rules.isObjectStepSatisfied({
-      step: "openCard", motionAvailable: true, targetSimulated: false,
-      targetOnScreen: true, correctCardOpen: true,
-    }) === true);
-
-  // A later location fix or layout pass changes the PROJECTIONS, not the frozen identity.
-  const afterGpsFix = pick([
-    { target: venus, projection: onScreen(215, 500) },   // Venus has now swung into view…
-    { target: jupiter, projection: onScreen(300, 480) },
-  ]);
-  check("selection alone would now prefer a different object", afterGpsFix.id === "venus");
-  check("REGRESSION: …which is exactly why the component freezes the id across Steps 3-4-8",
-    frozen.id === "jupiter" && afterGpsFix.id !== frozen.id,
-    "the freeze is what stops a GPS/layout/motion update swapping the target mid-step");
-
-  // ── 7. No candidate → the step stays open and honest, never falsely satisfied ────
-  check("no eligible candidate yields null, not a guess", pick([]) === null);
-  check("REGRESSION: an empty view never satisfies findObject",
-    rules.isObjectStepSatisfied({
-      step: "findObject", motionAvailable: true, targetSimulated: false,
-      targetOnScreen: false, correctCardOpen: false,
-    }) === false);
-  check("the waiting copy never names an object the user cannot see",
-    !/Venus|Jupiter|Mars|Saturn/.test(stepsModule.NO_VISIBLE_TARGET_HINT) &&
-    /sweep|Sweep/.test(stepsModule.NO_VISIBLE_TARGET_HINT));
-
-  // ── 8. The bounded fallback is honest and cannot deadlock ───────────────────────
-  check("the fallback interval is bounded and finite",
-    Number.isFinite(bridgeFallbackMs) && bridgeFallbackMs > 0 && bridgeFallbackMs <= 120000,
-    `${bridgeFallbackMs}ms`);
-  check("REGRESSION: the fallback copy states the step was SKIPPED, not completed",
-    /skipped/i.test(stepsModule.OBJECT_STEP_FALLBACK_HINT) &&
-    !/found|tapped|completed|well done/i.test(stepsModule.OBJECT_STEP_FALLBACK_HINT));
-  check("the fallback copy still offers the real action later",
-    /tap any object/i.test(stepsModule.OBJECT_STEP_FALLBACK_HINT));
-  // The satisfaction RULES are untouched by Part B — the fallback works by satisfying the step
-  // in the machine, never by relaxing what the rule demands.
-  check("REGRESSION: no bypass was added to the object rule itself",
-    rules.isObjectStepSatisfied({
-      step: "findObject", motionAvailable: true, targetSimulated: false,
-      targetOnScreen: false, correctCardOpen: false,
-    }) === false);
-  check("REGRESSION: Step 8 still requires a real, persisted save",
-    rules.isSaveStepSatisfied({
-      variant: "vault", motionAvailable: true, targetSimulated: false,
-      targetOnScreen: true, targetSaved: false,
-    }) === false);
-
-  // ── 9. Back and Skip are never gated on having a target ────────────────────────
-  // canGoBack depends only on position; skip only on status. Neither consults a target.
-  const midTour = { status: "running", index: 2, satisfiedStepIds: [] };
-  const missionSteps = stepsModule.buildFirstLightSteps({ isPremium: true, motionAvailable: true, timeControlAvailable: true, vaultSaveAvailable: true, learnAvailable: true });
-  check("Back stays available on a target-less object step", machine.canGoBack(midTour) === true);
-  check("Continue is correctly NOT available on it", machine.canContinue(midTour, missionSteps) === false);
-  const skipped = machine.tourReducer(midTour, { type: "skip" }, missionSteps);
-  check("Skip Tour still works with no target", skipped.status === "skipped");
-  const backed = machine.tourReducer(midTour, { type: "back" }, missionSteps);
-  check("Back still moves with no target", backed.index === 1);
+  // ── A stale pointer from the OLD interactive mission cannot strand anyone ─────
+  const legacy = { ...state.DEFAULT_FIRST_LIGHT_STATE, status: "inProgress", currentStep: "findObject" };
+  const ids = steps.map((s) => s.id);
+  check("REGRESSION: a pointer at a removed step resolves to no resume position",
+    state.resolveResumeStepId(legacy, ids) === null);
+  check("…so the offer leads with a clean start rather than a missing screen",
+    machine.tourReducer(machine.INITIAL_TOUR_STATE, { type: "goto", stepId: "findObject" }, steps).status !== "running");
 }
 
 (async () => {
   await storageSection();
   machineSection();
   stepsSection();
-  targetsSection();
   tipsSection();
   geometrySection();
   auditRegressionSection();
@@ -1277,8 +784,7 @@ function visibleTargetSection() {
   stableTotalsSection();
   reservedDockSection();
   largeTypeLayoutSection();
-  spotlightReadinessSection();
-  visibleTargetSection();
+  informationalTutorialSection();
 
   console.log(`\nFirst Light behaviour self-test: ${pass} passed, ${fail} failed.`);
   process.exit(fail === 0 ? 0 : 1);

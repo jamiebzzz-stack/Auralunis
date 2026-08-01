@@ -1,37 +1,59 @@
-// The First Light mission — PURE step definitions plus the capability-driven builder that
-// decides which steps this particular user actually gets. No react-native imports, so the
-// whole flow is unit-testable in plain Node (scripts/first-light-selftest.js).
+// The First Light tutorial — PURE step definitions. No react-native imports, so the whole flow
+// is unit-testable in plain Node (scripts/first-light-selftest.js).
 //
-// Two product rules shape the builder, and both exist to keep a purchase out of the required
-// tutorial path:
+// WHAT THIS IS NOW, AND WHY IT CHANGED
 //
-//   TIME TRAVEL is premium in Sky Lens (the 🕐 control opens the paywall for a free user).
-//   Highlighting it during First Light would hand a free user a paywall as the only way to
-//   finish a step, so the step is OMITTED for non-entitled users rather than shown and blocked.
+// First Light used to be a hands-on mission: look around, find a live object, tap it, lock the
+// sky, drag it, save to the Vault. Each of those steps gated Continue on observing the real
+// action, and on a physical device that turned out to be a trap. The tour would nominate an
+// object that was genuinely up but behind the user ("Turn around for Venus"), and Continue
+// stayed disabled until they happened to turn around — which, in testing, they did not. Earlier
+// rounds also had it ringing the HUD and calling it a planet, because the projection ran before
+// the viewport and the observer location were real.
 //
-//   SAVING TO THE VAULT is premium (every Vault write entry point is). The step therefore has
-//   two shapes: the real save for entitled users, and a non-gated "open Learn" step otherwise.
-//   Nothing here weakens, bypasses, or duplicates the existing gates — it only chooses which
-//   step to show.
+// Those were symptoms of one decision: a TUTORIAL that cannot finish unless the SKY cooperates.
+// Clouds, a ceiling, a denied location permission, a device with no magnetometer, or simply
+// facing the wrong way were all enough to strand a first-time user inside onboarding.
+//
+// So the tutorial is now purely informational: five screens, four buttons, no conditions. It
+// explains what the app does and gets out of the way. Everything it describes — Sky Lens, the
+// sky map, object cards, Learn, the Vault — is still there to be used the moment the tutorial
+// closes; the tutorial simply no longer insists on watching you do it.
+//
+// INVARIANTS (asserted in the self-tests):
+//   • Exactly five screens, all informational, all hosted at the app root.
+//   • No step has requiresAction, so Continue is ALWAYS enabled.
+//   • No step has a targetKey, so nothing is measured, spotlit, or highlighted.
+//   • Nothing here reads sensors, location, entitlement, the Vault, or StoreKit.
 
 export type FirstLightStepId =
   | "welcome"
-  | "lookAround"
-  | "findObject"
-  | "openCard"
-  | "constellation"
-  | "lockSky"
-  | "exploreTime"
-  | "saveDiscovery"
-  | "completion";
+  | "exploreSky"
+  | "learnAstronomy"
+  | "saveDiscoveries"
+  | "ready";
 
-/** Where a step is presented. The welcome step precedes Sky Lens; the rest live inside it. */
+/**
+ * Where a step is presented. Every tutorial screen is "root" — it renders over the app shell
+ * and never inside Sky Lens, so the tutorial cannot intercept a Sky Lens gesture or depend on
+ * that screen being mounted. The type is kept because TourOverlay hosts are a general idea.
+ */
 export type FirstLightHost = "root" | "skyLens";
 
-/** Which shape the save step took — reported back so the summary can be honest about it. */
+/**
+ * Retained only for compatibility with the persisted document shape. The save step no longer
+ * exists, so nothing produces a variant; FirstLightContext resolves it to null.
+ */
 export type SaveStepVariant = "vault" | "learn";
 
-/** Registered tour-target keys. Controls opt in with `useTourTarget(<key>)`. */
+/**
+ * Registered tour-target keys.
+ *
+ * The TUTORIAL no longer uses these — no screen highlights a control. They remain because the
+ * TourTargetRegistry is reusable infrastructure and Sky Lens still registers these controls
+ * (SkyLensScreen, SkyLensInfoCard), so any future guided flow has them available. Registering a
+ * target is inert unless something asks to measure it.
+ */
 export const FIRST_LIGHT_TARGETS = {
   /** The existing "Lock Sky" chip in Sky Lens. */
   lockSky: "skyLens.lockSky",
@@ -41,12 +63,6 @@ export const FIRST_LIGHT_TARGETS = {
   infoCardSave: "skyLens.infoCard.save",
 } as const;
 
-// Sky objects are NOT registered targets. Their position comes from the live projection, which
-// changes every frame, and registering a continuously-moving view would invalidate the whole
-// layout registry sixty times a second. The Sky Lens host instead hands the overlay an explicit
-// spotlight rect (TourOverlay's `spotlightRect`), computed from the same projection the scene
-// is drawn with.
-
 export type FirstLightTargetKey = (typeof FIRST_LIGHT_TARGETS)[keyof typeof FIRST_LIGHT_TARGETS];
 
 export type FirstLightStep = {
@@ -54,35 +70,32 @@ export type FirstLightStep = {
   host: FirstLightHost;
   heading: string;
   copy: string;
-  /** Continue stays disabled until the real action is observed. */
+  /**
+   * Always false for every tutorial screen. The field is kept because the shared tour machine
+   * understands it, and keeping it makes "no screen requires an action" a directly assertable
+   * property rather than an absence.
+   */
   requiresAction: boolean;
+  /** Never set by the tutorial — no screen spotlights a control. */
   targetKey?: FirstLightTargetKey;
   continueLabel?: string;
   variant?: SaveStepVariant;
 };
 
+/**
+ * Capability inputs. The tutorial is identical for everyone now, so nothing here changes its
+ * shape — no screen is added or removed for premium, sensors, or anything else. The type and the
+ * reporting path are kept because FirstLightContext still waits for capabilities to RESOLVE
+ * before presenting the offer, which is what stops the progress indicator opening on a
+ * provisional total.
+ */
 export type FirstLightCapabilities = {
-  /** From the shared useEntitlement() — the single source of truth. Never inferred. */
   isPremium: boolean;
-  /** Device motion is delivering orientation (false on a simulator or with motion denied). */
   motionAvailable: boolean;
-  /** The existing Sky Lens time control is mounted and intended for release. */
   timeControlAvailable: boolean;
-  /** An object can actually be saved through the existing Vault flow. */
   vaultSaveAvailable: boolean;
-  /** The Learn tab is reachable, so the non-gated fallback step has somewhere to go. */
   learnAvailable: boolean;
 };
-
-/**
- * Whether the Sky Lens time control ships and is release-intended. Declared here rather than
- * discovered when Sky Lens mounts, so the app root can resolve the FULL mission length before
- * the tour starts — otherwise the progress indicator opens at "Step 1 of 7" and jumps to
- * "of 9" the moment Sky Lens reports in.
- */
-export const TIME_CONTROL_SHIPS_IN_SKY_LENS = true;
-/** The Learn tab is part of the locked navigation, so the non-gated fallback always has a home. */
-export const LEARN_TAB_SHIPS = true;
 
 export const DEFAULT_CAPABILITIES: FirstLightCapabilities = {
   isPremium: false,
@@ -95,145 +108,86 @@ export const DEFAULT_CAPABILITIES: FirstLightCapabilities = {
 const WELCOME: FirstLightStep = {
   id: "welcome",
   host: "root",
-  heading: "Welcome to First Light",
-  copy: "Let’s explore the sky together. You can leave the tour at any time.",
+  heading: "Welcome to AuraLunis",
+  copy:
+    "AuraLunis turns your phone into a window on the real sky above you. Track the Sun, Moon, planets and stars in real time, learn the astronomy behind them, and keep the discoveries that matter to you. This quick tour takes about a minute — you can leave it at any point.",
   requiresAction: false,
-  continueLabel: "Begin",
+  continueLabel: "Next",
 };
 
-const LOOK_AROUND: FirstLightStep = {
-  id: "lookAround",
-  host: "skyLens",
-  heading: "Look around",
-  copy: "Move your phone slowly. The sky follows where you point.",
-  requiresAction: true,
-};
-
-const FIND_OBJECT: FirstLightStep = {
-  id: "findObject",
-  host: "skyLens",
-  heading: "Find your first object",
-  copy: "Follow the guide until the highlighted object enters view.",
-  requiresAction: true,
-};
-
-const OPEN_CARD: FirstLightStep = {
-  id: "openCard",
-  host: "skyLens",
-  heading: "Tap to learn more",
-  copy: "Every object has a story. Tap the highlighted object to open its card.",
-  requiresAction: true,
-};
-
-const CONSTELLATION: FirstLightStep = {
-  id: "constellation",
-  host: "skyLens",
-  heading: "Connect the stars",
-  copy: "Constellation lines help familiar patterns stand out.",
+const EXPLORE_SKY: FirstLightStep = {
+  id: "exploreSky",
+  host: "root",
+  heading: "Explore the sky",
+  copy:
+    "Sky Lens renders the sky as it is right now, aligned to where you point. Planets, bright stars and constellation patterns are drawn in their true positions, and there is a manual sky map for browsing without moving at all. Tap any object while you explore and its card opens with the details behind it. Nothing to do now — it is all waiting when the tour ends.",
   requiresAction: false,
+  continueLabel: "Next",
 };
 
-const LOCK_SKY: FirstLightStep = {
-  id: "lockSky",
-  host: "skyLens",
-  heading: "Hold the sky still",
-  copy: "Lock the view, then drag to explore comfortably.",
-  requiresAction: true,
-  targetKey: FIRST_LIGHT_TARGETS.lockSky,
-};
-
-const EXPLORE_TIME: FirstLightStep = {
-  id: "exploreTime",
-  host: "skyLens",
-  heading: "Move through time",
-  copy: "Slide forward or backward to see how the sky changes.",
-  requiresAction: true,
-  targetKey: FIRST_LIGHT_TARGETS.timeTravel,
-};
-
-const SAVE_TO_VAULT: FirstLightStep = {
-  id: "saveDiscovery",
-  host: "skyLens",
-  heading: "Keep your discovery",
-  copy: "Save objects you want to revisit later.",
-  requiresAction: true,
-  targetKey: FIRST_LIGHT_TARGETS.infoCardSave,
-  variant: "vault",
-};
-
-const OPEN_LEARN: FirstLightStep = {
-  id: "saveDiscovery",
-  host: "skyLens",
-  heading: "Go deeper",
-  copy: "Learn has short guides to tonight’s sky. Open it whenever you want more.",
+const LEARN_ASTRONOMY: FirstLightStep = {
+  id: "learnAstronomy",
+  host: "root",
+  heading: "Learn astronomy",
+  copy:
+    "The Learn tab holds short, readable lessons that start from the beginning and build up to deeper material. Your progress is remembered as you go, so you can read one lesson at a time and pick the thread back up whenever you like.",
   requiresAction: false,
-  variant: "learn",
+  continueLabel: "Next",
 };
 
-const COMPLETION: FirstLightStep = {
-  id: "completion",
-  host: "skyLens",
-  heading: "Your first light",
-  copy: "You’re ready to explore. The sky is yours.",
+const SAVE_DISCOVERIES: FirstLightStep = {
+  id: "saveDiscoveries",
+  host: "root",
+  heading: "Save your discoveries",
+  copy:
+    "Found something you want to remember? Your Vault keeps sky notes and saved objects encrypted on your device, alongside the lessons you have marked. The Vault is a Premium feature, and nothing is ever saved unless you choose to save it.",
+  requiresAction: false,
+  continueLabel: "Next",
+};
+
+const READY: FirstLightStep = {
+  id: "ready",
+  host: "root",
+  heading: "You’re ready",
+  copy:
+    "That is everything you need to start. Head to the Sky tab whenever you are ready to look up — and if you want this tour again, it is in Settings under Replay First Light.",
   requiresAction: false,
   continueLabel: "Finish",
 };
 
+/** The tutorial, in order. Deliberately fixed: the same five screens for every user. */
+export const FIRST_LIGHT_STEPS: ReadonlyArray<FirstLightStep> = [
+  WELCOME,
+  EXPLORE_SKY,
+  LEARN_ASTRONOMY,
+  SAVE_DISCOVERIES,
+  READY,
+];
+
+/** How many screens the tutorial has. Exported so the total can be asserted directly. */
+export const FIRST_LIGHT_STEP_COUNT = FIRST_LIGHT_STEPS.length;
+
 /**
- * The ordered mission for these capabilities. Steps that the app cannot support safely are
- * omitted entirely — never shown as a dead end, and never replaced by a new release-critical
- * control invented for the tutorial.
+ * The tutorial for these capabilities.
+ *
+ * The parameter is accepted and ignored: every user gets the same five screens. It is kept so
+ * FirstLightContext's capability-resolution gate — which exists to stop "Step 1 of 5" opening on
+ * a provisional total — keeps working without special-casing.
  */
 export function buildFirstLightSteps(
-  capabilities: Partial<FirstLightCapabilities> = {}
+  _capabilities: Partial<FirstLightCapabilities> = {}
 ): FirstLightStep[] {
-  const caps: FirstLightCapabilities = { ...DEFAULT_CAPABILITIES, ...capabilities };
-  const steps: FirstLightStep[] = [WELCOME, LOOK_AROUND, FIND_OBJECT, OPEN_CARD, CONSTELLATION, LOCK_SKY];
-
-  // Premium-only control: omitted for a free user so the tour never dead-ends on a paywall.
-  if (caps.timeControlAvailable && caps.isPremium) steps.push(EXPLORE_TIME);
-
-  if (caps.vaultSaveAvailable && caps.isPremium) steps.push(SAVE_TO_VAULT);
-  else if (caps.learnAvailable) steps.push(OPEN_LEARN);
-
-  steps.push(COMPLETION);
-  return steps;
+  return [...FIRST_LIGHT_STEPS];
 }
 
 /** The steps this host is responsible for rendering. */
-export function stepsForHost(steps: ReadonlyArray<FirstLightStep>, host: FirstLightHost): FirstLightStep[] {
+export function stepsForHost(
+  steps: ReadonlyArray<FirstLightStep>,
+  host: FirstLightHost
+): FirstLightStep[] {
   return steps.filter((step) => step.host === host);
 }
 
 export function findStepIndex(steps: ReadonlyArray<FirstLightStep>, stepId: string): number {
   return steps.findIndex((step) => step.id === stepId);
 }
-
-/**
- * Fallback copy for "Look around" when the device cannot supply orientation (simulator, or
- * motion unavailable/denied). The sky is still explorable by locking and dragging, so the step
- * explains that and lets the user continue instead of stranding them.
- */
-export const LOOK_AROUND_NO_MOTION_HINT =
-  "Motion isn’t available on this device, so the sky won’t follow your phone. Lock the sky and drag to explore instead — you can continue either way.";
-
-/** Shown on the find/tap steps when no live object could be resolved (see firstLightTargets). */
-export const NO_LIVE_TARGET_HINT =
-  "Nothing bright is above your horizon right now, so this step uses a practice marker instead of a real object. You can continue whenever you like.";
-
-/**
- * Shown while the object steps are waiting for something worth pointing at.
- *
- * The tour used to nominate the best object in the WHOLE SKY, which could be behind the user —
- * "Turn around for Venus", with Continue disabled until they did. It now waits for an object
- * that is genuinely in view, and says so, rather than naming one they cannot see.
- */
-export const NO_VISIBLE_TARGET_HINT =
-  "Nothing bright is in view yet. Sweep your phone slowly across the sky — the moment something suitable comes into frame, it will be highlighted here.";
-
-/**
- * Shown once an object step has given up waiting. It states plainly that the step was NOT
- * completed: nothing here claims the user found or tapped anything.
- */
-export const OBJECT_STEP_FALLBACK_HINT =
-  "We couldn’t find a bright object in view for this step, so it’s being skipped rather than leaving you stuck. You can tap any object in Sky Lens to open its card whenever you like.";

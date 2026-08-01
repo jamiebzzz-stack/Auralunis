@@ -76,6 +76,12 @@ export type TourOverlayProps = {
   canContinue: boolean;
   continueLabel?: string;
   skipLabel?: string;
+  /**
+   * Whether to offer "Skip". Defaults to true. The final screen of a tour hides it, because
+   * "skip" and "finish" on the same screen mean the same thing but persist different outcomes —
+   * and skipping on the last screen would record the tour as abandoned rather than completed.
+   */
+  showSkip?: boolean;
   /** Extra controls rendered under the primary button (e.g. the completion step's choices). */
   actions?: ReactNode;
   onBack: () => void;
@@ -99,6 +105,7 @@ export function TourOverlay({
   canContinue,
   continueLabel = "Continue",
   skipLabel = "Skip Tour",
+  showSkip = true,
   actions,
   onBack,
   onSkip,
@@ -309,17 +316,19 @@ export function TourOverlay({
               </Text>
             </Pressable>
 
-            <Pressable
-              onPress={onSkip}
-              hitSlop={8}
-              style={styles.secondaryBtn}
-              accessibilityRole="button"
-              accessibilityLabel="Skip the tour"
-            >
-              <Text style={styles.secondaryText} numberOfLines={1} maxFontSizeMultiplier={1.4}>
-                {skipLabel}
-              </Text>
-            </Pressable>
+            {showSkip ? (
+              <Pressable
+                onPress={onSkip}
+                hitSlop={8}
+                style={styles.secondaryBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Skip the tour"
+              >
+                <Text style={styles.secondaryText} numberOfLines={1} maxFontSizeMultiplier={1.4}>
+                  {skipLabel}
+                </Text>
+              </Pressable>
+            ) : null}
 
             <Pressable
               onPress={onContinue}
