@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatMediumDate } from "@/utils/formatting";
-import { Alert, Animated, Pressable, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Alert, Animated, PixelRatio, Pressable, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import * as Sharing from "expo-sharing";
 
 // react-native-view-shot isn't bundled in Expo Go — load it lazily (guarded require,
@@ -38,7 +38,16 @@ import { computeAzimuthElevation } from "@/utils/alignmentEngine";
 import type { SkyLensSatellite } from "./layers/SatelliteLayer";
 import { useSkyData } from "./hooks/useSkyProjection";
 import { SkyLensCanvas } from "./SkyLensCanvas";
-import { chromeAvoidRects, chromeTopInset } from "./skyLensChromeLayout";
+import {
+  chromeAvoidRects,
+  chromeTopInset,
+  finderBottomOffset,
+  finderMaxWidth,
+  FINDER_MAX_FONT_SCALE,
+  FINDER_MAX_LINES,
+  lockChipMaxWidth,
+  LOCK_CHIP_MAX_FONT_SCALE,
+} from "./skyLensChromeLayout";
 import { SolidSkyBackgroundLayer } from "./SolidSkyBackgroundLayer";
 import { NebulaImageLayer } from "./layers/NebulaImageLayer";
 import { ClusterLayer } from "./layers/ClusterLayer";
@@ -64,6 +73,15 @@ import { DEFAULT_ACTIVE_LAYERS, SKY_LENS_LAYERS, type LayerDef, type LayerKey } 
 import { projectTarget, projectTargetWithBasis, DEFAULT_FOV, type CameraPointing } from "./ar/SkyLensProjection";
 import { skyGradient, starColor, type SelectedObject, type FocusZone } from "./SkyLensVisual";
 import { getVisualGate } from "./PremiumVisualGating";
+// First Light (optional guided tour). Everything below is ADDITIVE and read-only with respect
+// to Sky Lens: the tour registers two existing controls as spotlight targets and receives
+// values that are already computed here. It never drives orientation, projection, selection,
+// layers, time, or the Vault.
+import { useTourTarget } from "@/features/tour/TourTargetRegistry";
+import { TOUR_TARGETS } from "@/features/tour/tourTargets";
+import { ContextualTipHost } from "@/features/first-light/ContextualTipHost";
+import type { ContextualTipId } from "@/features/first-light/contextualTips";
+import { isAlreadySavedToVault } from "@/features/first-light/firstLightRules";
 
 // Dev-only Sky Lens review targets. Aiming at one of these pins the clock to the planet's
 // next meridian transit so it can be inspected on a physical device without waiting for it
@@ -85,7 +103,12 @@ export type FocusTarget = {
   description?: string;
 };
 
-type Props = { onClose: () => void; focusTarget?: FocusTarget | null };
+type Props = {
+  onClose: () => void;
+  focusTarget?: FocusTarget | null;
+  /** Optional: leave Sky Lens for the Learn tab (used by the First Light tour). */
+  onOpenLearn?: () => void;
+};
 
 type LayoutEvent = { nativeEvent: { layout: { width: number; height: number } } };
 
@@ -96,8 +119,14 @@ const arrowFor = (bearingDegrees: number) => ARROWS[Math.round(bearingDegrees / 
 // Full-screen Sky Lens: a sensor-aligned cinematic planetarium (no camera feed) with the Stars,
 // Constellations, Planets, Moon, and Grid layers projected over it, a toggle
 // bar, tap-to-reveal Info Card, and Night Mode. Phase-2 layers appear locked.
-export function SkyLensScreen({ onClose, focusTarget }: Props) {
+export function SkyLensScreen({ onClose, focusTarget, onOpenLearn }: Props) {
   const insets = useSafeAreaInsets();
+  // Guided-tour spotlight targets for two EXISTING controls. `useTourTarget` is inert when no
+  // tour registry is mounted, so these add a callback ref and an onLayout and nothing else.
+  const lockSkyTourTarget = useTourTarget(TOUR_TARGETS.lockSky);
+  const timeTravelTourTarget = useTourTarget(TOUR_TARGETS.timeTravel);
+  // One-time contextual tip bookkeeping (post-tour). A single boolean; no other behaviour.
+  const [layersSheetSeen, setLayersSheetSeen] = useState(false);
   const { location, status } = useObserverLocation();
   // Zoom state lives up here so the device-pointing smoothing can ramp with it.
   const [zoom, setZoom] = useState(1);
@@ -293,7 +322,7 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
   // stars, and the cinematic/immersive/night-vision/capture modes (all below).
   const gate = useMemo(() => getVisualGate(isPremium), [isPremium]);
   const { openPaywall } = usePaywallNavigation();
-  const { addItem } = useAuraLunisVault();
+  const { addItem, items: vaultItems } = useAuraLunisVault();
 
   const [box, setBox] = useState({ width: 360, height: 720 });
   // The default scene is FIVE layers: Stars, Constellations, Milky Way, Planets, and
@@ -670,7 +699,13 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
   const onSave = useCallback(
     (object: SelectedObject) => {
       // Saving to the (premium) Vault requires entitlement — free users get the paywall.
+      // DUPLICATE GUARD (applied just below the entitlement gate): `savedIds` only remembers
+      // this mount, so re-opening Sky Lens — or replaying First Light — used to write a second
+      // identical archive entry for the same object. An existing entry counts as already saved:
+      // nothing is written, nothing is overwritten, and the card still reads "Saved to Vault".
+      // The premium gate below is unchanged and still runs FIRST.
       if (!isPremium) { openPaywall(); return; }
+      if (isAlreadySavedToVault(vaultItems, object.name)) { setSavedIds((prev) => new Set(prev).add(object.id)); return; }
       addItem({
         type: "archive",
         title: object.name,
@@ -678,8 +713,16 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
       });
       setSavedIds((prev) => new Set(prev).add(object.id));
     },
-    [addItem, isPremium, openPaywall]
+    [addItem, isPremium, openPaywall, vaultItems]
   );
+
+  // Reflect saves that already exist in the Vault from a previous session, so the card opens in
+  // the correct state instead of offering to save something that is already there.
+  useEffect(() => {
+    if (!selected) return;
+    const exists = isAlreadySavedToVault(vaultItems, selected.name);
+    if (exists) setSavedIds((prev) => (prev.has(selected.id) ? prev : new Set(prev).add(selected.id)));
+  }, [selected, vaultItems]);
 
   const hud = useMemo(
     () =>
@@ -803,18 +846,26 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
   const dockTop = box.height - dockHeight - insets.bottom - 12;
   // Where floating controls perch: just above the dock, never on top of it.
   const floatAbove = insets.bottom + dockHeight + 16;
-
   // LABEL AVOIDANCE FOR UI CHROME. The top HUD and bottom dock are already excluded by the
   // placer's top/bottom safe bands (topInset / bottomInset). These are the floating controls
   // those bands don't cover — the shutter, the guidance banner, the zoom chip — reserved so
   // no celestial label renders under or behind them. Visibility mirrors the render
   // conditions below exactly, so hidden chrome never suppresses a label. Geometry comes from
   // skyLensChromeLayout (shared source of truth), not per-call magic numbers.
+  // System text size. Decorative chrome is bounded against it (issue #216): at
+  // accessibility-extra-extra-extra-large the Lock Sky chip used to grow until it spanned
+  // most of the viewport, and the guidance banner drifted into it.
+  const chromeFontScale = PixelRatio.getFontScale();
+  const finderBottom = finderBottomOffset({ insets, dockHeight, fontScale: chromeFontScale });
+  const lockChipWidthCap = lockChipMaxWidth(box);
+  const finderWidthCap = finderMaxWidth(box);
+
   const labelTopInset = chromeTopInset(insets);
   const chromeRects = chromeAvoidRects({
     box,
     insets,
     dockHeight,
+    fontScale: chromeFontScale,
     visible: {
       shutter: !cinematic && !selected && gate.photoCapture,
       finder: !cinematic && !selected && (!!targetFinder || (!scrubVisible && !!moonFinder)),
@@ -950,6 +1001,19 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
     for (const s of sky.stars) if (s.aboveHorizon && s.magnitude < 1.3) check(s.id, s.azimuthDegrees, s.altitudeDegrees);
     heroCenteredRef.current = now;
   }, [pointing, sky.bodies, sky.stars, fov, box, gate.hapticDiscovery]);
+
+  // Contextual mini-guides (post-First-Light), most situational first. Each is shown at most
+  // once ever; the eligibility rules (never during the tour, never over a modal or an open
+  // object card, never stacked) live in contextualTips.ts.
+  const tipCandidates = useMemo<ContextualTipId[]>(() => {
+    const candidates: ContextualTipId[] = [];
+    if (savedIds.size > 0) candidates.push("firstVaultSave");
+    if (zoom >= 2) candidates.push("constellationZoom");
+    if (layersSheetSeen) candidates.push("layers");
+    if (!isPremium && preview !== null) candidates.push("premiumDiscovery");
+    candidates.push("offline");
+    return candidates;
+  }, [savedIds, zoom, layersSheetSeen, isPremium, preview]);
 
   return (
     <View style={styles.root} onLayout={onLayout}>
@@ -1207,14 +1271,26 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
           which is a hands-off presentation mode. */}
       {!cinematic && (
         <Pressable
+          ref={lockSkyTourTarget.ref}
+          onLayout={lockSkyTourTarget.onLayout}
           onPress={() => { tapLight(); skyOrientation.toggleLock(); }}
-          style={[styles.lockChip, { bottom: insets.bottom + 96 }, skyOrientation.isLocked && styles.lockChipActive]}
+          style={[
+            styles.lockChip,
+            { bottom: insets.bottom + 96, maxWidth: lockChipWidthCap },
+            skyOrientation.isLocked && styles.lockChipActive,
+          ]}
           accessibilityRole="button"
           accessibilityState={{ selected: skyOrientation.isLocked }}
           accessibilityLabel={skyOrientation.isLocked ? "Unlock the sky and resume live tracking" : "Lock the sky so it stops moving"}
           hitSlop={10}
         >
-          <Text style={[styles.lockChipText, skyOrientation.isLocked && styles.lockChipTextActive]}>
+          {/* Decorative label only — the accessibilityLabel above carries the full sentence
+              for VoiceOver, so bounding this text costs nothing in comprehension. */}
+          <Text
+            style={[styles.lockChipText, skyOrientation.isLocked && styles.lockChipTextActive]}
+            maxFontSizeMultiplier={LOCK_CHIP_MAX_FONT_SCALE}
+            numberOfLines={2}
+          >
             {skyOrientation.isLocked ? "🔒  Sky Locked · drag to explore" : "🔓  Lock Sky"}
           </Text>
         </Pressable>
@@ -1263,6 +1339,8 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
 
         <View style={styles.toggleRow} pointerEvents="box-none">
           <TouchableOpacity
+            ref={timeTravelTourTarget.ref}
+            onLayout={timeTravelTourTarget.onLayout}
             style={[styles.iconBtn, scrubVisible && { backgroundColor: "rgba(217,168,78,0.32)" }]}
             onPress={() => {
               // Time Travel (scrubbing the sky through time) is premium — free users get
@@ -1300,16 +1378,28 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
 
       {/* Find-Mode target banner (from a Learn lesson) takes priority */}
       {!cinematic && !selected && targetFinder && (
-        <View style={[styles.finder, { bottom: floatAbove + 72 }]} pointerEvents="none">
-          <Text style={[styles.finderText, { color: accent }]}>{targetFinder}</Text>
+        <View style={[styles.finder, { bottom: finderBottom }]} pointerEvents="none">
+          <Text
+            style={[styles.finderText, { color: accent, maxWidth: finderWidthCap }]}
+            maxFontSizeMultiplier={FINDER_MAX_FONT_SCALE}
+            numberOfLines={FINDER_MAX_LINES}
+          >
+            {targetFinder}
+          </Text>
         </View>
       )}
       {/* Moon finder banner (hidden while an info card is open or a target is set).
           +72 clears the 60pt shutter that sits at floatAbove — at +52 the prompt was
           crossing it. Derived, so it also rides up when the time panel opens. */}
       {!cinematic && !selected && !scrubVisible && !targetFinder && moonFinder && (
-        <View style={[styles.finder, { bottom: floatAbove + 72 }]} pointerEvents="none">
-          <Text style={[styles.finderText, { color: accent }]}>{moonFinder}</Text>
+        <View style={[styles.finder, { bottom: finderBottom }]} pointerEvents="none">
+          <Text
+            style={[styles.finderText, { color: accent, maxWidth: finderWidthCap }]}
+            maxFontSizeMultiplier={FINDER_MAX_FONT_SCALE}
+            numberOfLines={FINDER_MAX_LINES}
+          >
+            {moonFinder}
+          </Text>
         </View>
       )}
 
@@ -1353,7 +1443,7 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
             active={active}
             nightMode={nightMode}
             onToggle={toggleLayer}
-            onOpenLayers={() => setLayersSheet(true)}
+            onOpenLayers={() => { setLayersSheetSeen(true); setLayersSheet(true); }}
           />
         )}
       </View>
@@ -1388,6 +1478,19 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
           </Animated.View>
         </Pressable>
       )}
+
+      {/* First Light no longer renders inside Sky Lens. The tutorial is five informational
+          screens hosted at the app root (FirstLightRootOverlay), so nothing here can intercept a
+          Sky Lens gesture, measure an object, or gate a step on the sky. */}
+
+      <ContextualTipHost
+        candidates={tipCandidates}
+        context={{
+          modalVisible: layersSheet || preview !== null,
+          objectCardOpen: selected !== null,
+        }}
+        bottom={floatAbove + 8}
+      />
     </View>
   );
 }
@@ -1414,18 +1517,19 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 30,
-    borderWidth: 2.5,
-    backgroundColor: "rgba(7,10,19,0.75)",
+    borderWidth: 1.75,
+    backgroundColor: "rgba(7,10,19,0.90)",
     alignItems: "center",
     justifyContent: "center"
   },
-  shutterIcon: { fontSize: 26 },
+  shutterIcon: { fontSize: 25, lineHeight: 30, textAlign: "center" },
   watermark: { position: "absolute", left: 18, alignItems: "flex-start" },
   watermarkBrand: { color: "#F4E3B8", fontSize: 16, fontWeight: "800", letterSpacing: 0.5 },
   watermarkSub: { color: "rgba(244,227,184,0.75)", fontSize: 11, fontWeight: "600", marginTop: 1 },
   finder: { position: "absolute", left: 0, right: 0, alignItems: "center" },
   finderText: {
     backgroundColor: "rgba(7,18,37,0.82)",
+    textAlign: "center",
     fontSize: 17,
     textShadowColor: "rgba(0,0,0,0.6)",
     textShadowRadius: 3,
@@ -1449,24 +1553,26 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: "rgba(7,18,37,0.58)",
+    backgroundColor: "rgba(7,18,37,0.70)",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(217,168,78,0.24)",
+    borderColor: "rgba(217,168,78,0.34)",
     alignItems: "center",
     justifyContent: "center"
   },
-  iconBtnText: { color: "#FFF", fontSize: 15, fontWeight: "800" },
+  // Line height pinned to the box so the glyph sits optically centred rather than riding
+  // high on its own ascender — what made ✕ and 🕐 look cramped in a 38pt circle.
+  iconBtnText: { color: "rgba(255,255,255,0.88)", fontSize: 15, fontWeight: "800", lineHeight: 18, textAlign: "center" },
   // UI CHROME — lightened. The panels were dense enough to read as opaque slabs sitting
   // ON the sky. Dropping the fills and adding a hairline gold edge lets the sky show
   // through, so the chrome reads as GLASS resting over the scene rather than as a lid.
   hudPill: {
     flex: 1,
-    marginHorizontal: 8,
+    marginHorizontal: 10,
     backgroundColor: "rgba(7,18,37,0.42)",
     borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: "rgba(217,168,78,0.14)",
-    paddingVertical: 6,
+    paddingVertical: 7,
     paddingHorizontal: 12,
     alignItems: "center"
   },
@@ -1494,6 +1600,9 @@ const styles = StyleSheet.create({
   lockChip: {
     position: "absolute",
     alignSelf: "center",
+    // A genuine 44pt touch target rather than one that depends on hitSlop.
+    minHeight: 44,
+    justifyContent: "center",
     paddingHorizontal: 16,
     paddingVertical: 9,
     borderRadius: 999,
@@ -1505,7 +1614,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(217,168,78,0.16)",
     borderColor: "rgba(217,168,78,0.42)"
   },
-  lockChipText: { color: "rgba(255,255,255,0.86)", fontSize: 12, fontWeight: "700", letterSpacing: 0.3 },
+  lockChipText: { color: "rgba(255,255,255,0.86)", fontSize: 12, fontWeight: "700", letterSpacing: 0.3, textAlign: "center" },
   lockChipTextActive: { color: "#D9A84E" },
   cinematicHint: { position: "absolute", left: 0, right: 0, alignItems: "center" },
   cinematicHintText: {
@@ -1519,8 +1628,12 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     overflow: "hidden",
   },
+  // HUD HIERARCHY. Three tiers, deliberately separated. The orientation reading is the only
+  // thing anyone looks at mid-sweep, so it keeps its size, weight and shadow untouched; the
+  // mode line and the satellite line step DOWN in size and opacity rather than the reading
+  // stepping up, which keeps the strip the same height and the chrome just as calm.
   hudText: { fontSize: 17, fontWeight: "800", fontVariant: ["tabular-nums"], textShadowColor: "rgba(0,0,0,0.55)", textShadowRadius: 2 },
-  hudSub: { color: AuraLunisColors.muted, fontSize: 13, fontWeight: "500", marginTop: 1, opacity: 0.82 },
-  hudSubSmall: { color: AuraLunisColors.muted, fontSize: 13, fontWeight: "500", marginTop: 0, opacity: 0.72 },
+  hudSub: { color: AuraLunisColors.muted, fontSize: 12.5, fontWeight: "500", marginTop: 2, opacity: 0.60, letterSpacing: 0.1 },
+  hudSubSmall: { color: AuraLunisColors.muted, fontSize: 11.5, fontWeight: "500", marginTop: 1, opacity: 0.52, letterSpacing: 0.2 },
   bottom: { position: "absolute", left: 0, right: 0, bottom: 0 },
 });

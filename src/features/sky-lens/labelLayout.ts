@@ -55,7 +55,11 @@ export function overlaps(a: Rect, b: Rect): boolean {
 
 // Small horizontal air so two labels sized right at the estimate still can't kiss. Kept
 // modest so it does not "blindly overinflate" — the weight-aware factor does the real work.
-const LABEL_H_PAD = 4;
+// Nudged 4 → 6 for crowding relief: in dense fields (Orion's belt and shoulders, the Gemini
+// twins, a planet sitting among named stars) labels were passing the collision test while
+// still reading as one clot. This is the SAME collision system with slightly more air, not a
+// new placement rule — nothing is dropped that was previously kept.
+const LABEL_H_PAD = 6;
 
 // Deterministic label box. Single source of truth so tests, the placer, and the zodiac
 // unit-footprint all use the same width math. The per-char factor is weight-aware: regular
@@ -64,9 +68,13 @@ const LABEL_H_PAD = 4;
 // inter-glyph gap the caller draws with (constellation/zodiac labels are letter-spaced).
 export function labelBoxSize(text: string, fontSize: number, metrics: LabelMetrics = {}): { w: number; h: number } {
   const { weight = 400, letterSpacing = 0 } = metrics;
-  const weightFactor = 0.58 + (Math.max(0, Math.min(300, weight - 400)) / 300) * 0.05; // 400→0.58 … 700→0.63
+  // Range extended 700 → 800 because planet labels now render at weight 800; clamping at 700
+  // would have under-reserved their box by a hair and let a neighbour creep in.
+  const weightFactor = 0.58 + (Math.max(0, Math.min(400, weight - 400)) / 400) * 0.06; // 400→0.58 … 800→0.64
   const w = text.length * fontSize * weightFactor + Math.max(0, text.length - 1) * letterSpacing + LABEL_H_PAD;
-  return { w: Math.max(8, w), h: fontSize * 1.25 };
+  // 1.25 → 1.32: a touch of vertical air between stacked rows of labels, for the same
+  // crowding reason as LABEL_H_PAD above.
+  return { w: Math.max(8, w), h: fontSize * 1.32 };
 }
 
 export function labelRect(

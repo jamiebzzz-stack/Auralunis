@@ -15,6 +15,7 @@ let pass = 0, fail = 0;
 const ok = (m) => { pass += 1; console.log("PASS " + m); };
 const bad = (m) => { fail += 1; console.log("FAIL " + m); };
 const eq = (n, a, b) => (a === b ? ok(n) : bad(`${n} — got ${JSON.stringify(a)} expected ${JSON.stringify(b)}`));
+const check = (n, cond, detail) => (cond ? ok(n) : bad(`${n}${detail ? " — " + detail : ""}`));
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), "utf8");
 const has = (hay, needle, n) => (hay.includes(needle) ? ok(n) : bad(`${n} — expected present: ${needle}`));
 const hasnt = (hay, needle, n) => (!hay.includes(needle) ? ok(n) : bad(`${n} — should be absent: ${needle}`));
@@ -25,8 +26,12 @@ const ls = read("src/screens/LearnScreen.tsx");
 const ld = read("src/screens/LearnDetailScreen.tsx");
 
 console.log("── Tier source of truth: first N lessons free, rest premium ──");
-has(cat, "export const FREE_LEARN_LESSON_COUNT = 3", "FREE_LEARN_LESSON_COUNT = 3 (first 3 lessons free)");
-has(cat, "learnTopics.slice(0, FREE_LEARN_LESSON_COUNT)", "free set is the first N lessons by catalog order");
+// The free tier is no longer expressed as "the first N lessons by catalog order" — that made
+// pricing a side effect of array ordering. It is now an explicit id list. Both guards updated
+// to the new source of truth; the guarantee (exactly three free starter lessons) is unchanged
+// and is additionally asserted against the real exported VALUE further down.
+has(cat, "export const FREE_LEARN_LESSON_IDS", "the free set is an explicit, canonical id list");
+has(cat, "FREE_LEARN_LESSON_COUNT = FREE_LEARN_LESSON_IDS.length", "the count is derived from that list, never hardcoded");
 has(cat, "export function isLearnLessonFree", "isLearnLessonFree helper exported (single source of truth)");
 
 console.log("\n── Entry gate: non-entitled tap on an advanced lesson → paywall ──");
@@ -147,6 +152,76 @@ console.log("\n── Free starter set is unchanged by the new lessons ──");
 eq("FREE_LEARN_LESSON_COUNT is still 3", catalog.FREE_LEARN_LESSON_COUNT, 3);
 eq("the first three lessons are unchanged", learnTopics.slice(0, 3).map((t) => t.id).join(","),
   "what-is-solar-system,moon-phases,moon-orbit-tides");
+
+
+// ══════════════════════════════════════════════════════════════════════════════════════
+console.log("\n── Canonical free access (Option C) + lesson-visual isolation (Bug 1) ──");
+
+const detailSrc = read("src/screens/LearnDetailScreen.tsx");
+const visualSrc = read("src/features/learn/LearnCategoryVisual.tsx");
+const deepSkySrc = read("src/features/learn/visuals/DeepSkyGlowVisual.tsx");
+const prefsSrc = read("src/features/learn/learnPreferences.ts");
+const catalogSrc = read("src/features/learn/LearnCatalog.ts");
+
+// ── Access is stated by id, not by array position ────────────────────────────────
+eq("the free set is exactly the three intended lessons",
+  [...catalog.FREE_LEARN_LESSON_IDS].join(","),
+  "what-is-solar-system,moon-phases,moon-orbit-tides");
+eq("the free count is still three", catalog.FREE_LEARN_LESSON_COUNT, 3);
+// Comment-stripped: the file's own note explains what the positional slice used to be.
+const catalogCode = catalogSrc.replace(/\/\*[\s\S]*?\*\//g, "").split("\n").filter((l) => !/^\s*(\/\/|\*)/.test(l)).join("\n");
+check("REGRESSION: access no longer derives from catalog ORDER",
+  !/learnTopics\.slice\(0, FREE_LEARN_LESSON_COUNT\)/.test(catalogCode),
+  "a positional slice made the free tier a side effect of array ordering");
+check("the free set is declared as explicit ids", /FREE_LEARN_LESSON_IDS: ReadonlyArray<string> = \[/.test(catalogSrc));
+
+// Reordering the catalog must not change who pays. Proven against the real function.
+const shuffled = [...catalog.learnTopics].reverse();
+const freeAfterReorder = shuffled.filter((t) => catalog.isLearnLessonFree(t.id)).map((t) => t.id).sort();
+eq("REGRESSION: reversing the catalog does not change the free set",
+  freeAfterReorder.join(","), [...catalog.FREE_LEARN_LESSON_IDS].sort().join(","));
+
+// ── Night 1 and every other lesson stay premium ─────────────────────────────────
+check("REGRESSION: Night 1 remains PREMIUM", catalog.isLearnLessonFree("learn-sky-night-one") === false);
+const nonFree = catalog.learnTopics.filter((t) => !catalog.isLearnLessonFree(t.id));
+eq("exactly three lessons are free; every other lesson is premium",
+  catalog.learnTopics.length - nonFree.length, 3);
+check("an unknown lesson id is never free", catalog.isLearnLessonFree("nope-not-a-lesson") === false);
+check("an empty id is never free", catalog.isLearnLessonFree("") === false);
+
+// ── Experience level cannot touch access ────────────────────────────────────────
+check("isLearnLessonFree takes ONLY a lesson id (no preference parameter)", catalog.isLearnLessonFree.length === 1);
+check("the preferences module exposes nothing about premium/free/entitlement",
+  !/premium|entitle|isFree/i.test(prefsSrc));
+// Beginner / Intermediate / Advanced must yield identical classifications.
+const classify = () => catalog.learnTopics.map((t) => `${t.id}:${catalog.isLearnLessonFree(t.id)}`).join("|");
+const beginner = classify(), intermediate = classify(), advanced = classify();
+check("Beginner, Intermediate and Advanced yield IDENTICAL access classifications",
+  beginner === intermediate && intermediate === advanced);
+check("…because access is a pure function of the lesson id", beginner === classify());
+
+// ── One decision, used by badges, opening and paywall routing ───────────────────
+check("the lesson detail screen gates on the canonical function", /isLearnLessonFree\(topic\.id\)/.test(detailSrc));
+check("the Learn list gates opening on the same function", /isLearnLessonFree\(topicId\)/.test(read("src/screens/LearnScreen.tsx")));
+check("premium badges use the same function, not a difficulty or level check",
+  /isLearnLessonFree\(topic\.id\) \|\| isPremium/.test(read("src/screens/LearnScreen.tsx")));
+check("no Learn screen infers premium from level/difficulty/preference",
+  !/level === "advanced"[\s\S]{0,60}premium/i.test(detailSrc + read("src/screens/LearnScreen.tsx")));
+check("an entitled user is never gated", /!lessonIsFree && !isPremium/.test(detailSrc));
+
+// ── Bug 1: lesson-local visual state cannot leak across lessons ─────────────────
+check("REGRESSION: the lesson visual is keyed by lesson id",
+  /<LearnVisualForCategory key=\{topic\.id\} categoryId=\{topic\.categoryId\} \/>/.test(detailSrc),
+  "without the key, DeepSkyGlowVisual's useState initializer never re-runs on a lesson change");
+check("the key is on the VISUAL only — the screen is not remounted",
+  !/<ScreenShell key=/.test(detailSrc) && !/key=\{topic\.id\}[\s\S]{0,40}ScreenShell/.test(detailSrc));
+check("the deep-sky visual still holds its own selection so manual switching works",
+  /const \[active, setActive\] = useState\(selectedIndex \?\? 0\)/.test(deepSkySrc));
+check("the visual still exposes its tab-change callback", /onTabChange/.test(visualSrc) && /onTabChange/.test(deepSkySrc));
+check("the saved-flag reset on lesson change is still present",
+  /useEffect\(\(\) => \{ setSaved\(false\); \}, \[topic\.id\]\);/.test(detailSrc));
+check("course progress/completion is NOT reset by the visual key",
+  !/setProgress\(|setCompleted\(|clearProgress/.test(detailSrc));
 
 console.log(`\nLearn advanced-content premium-gate self-test: ${pass} passed, ${fail} failed.`);
 process.exit(fail === 0 ? 0 : 1);

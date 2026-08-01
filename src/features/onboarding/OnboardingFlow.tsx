@@ -1,7 +1,15 @@
-// First-run onboarding: four short, honest screens that introduce AuraLunis, the birth
-// chart, what the chart reveals, and Sky Lens — ending with "Create My Birth Chart", which
-// completes onboarding and drops the user into the app. It is purely informational: it never
-// shows the paywall, advertises a trial, requests permissions, or touches entitlement state.
+// THE APP TOUR — the one and only first-run tutorial.
+//
+// AuraLunis used to ship two overlapping tutorials: this four-slide onboarding flow, which
+// ended by pushing the user straight into birth-chart creation, and then the First Light tour,
+// which offered itself the moment onboarding closed. A fresh install therefore met two
+// walkthroughs back to back, the second of which was a hands-on mission that could refuse to
+// advance if the sky did not cooperate.
+//
+// There is now exactly one tour: three informational screens, and the only inputs are Next,
+// Back, Skip and Done. It never shows the paywall, advertises a trial, requests a permission,
+// reads a sensor, touches entitlement, or writes to the Vault. Birth-chart setup is no longer
+// part of it — it is a separate, optional, non-blocking prompt (BirthChartPrompt).
 //
 // Sky Lens is described truthfully as a fully rendered, sensor-aligned planetarium — never as
 // AR / augmented reality / a camera overlay / a live camera (see onboarding-route-selftest.js).
@@ -13,6 +21,7 @@ import { LogoMark } from "@/components/LogoMark";
 import { AuraLunisColors } from "@/theme/tokens";
 import { tapLight } from "@/services/HapticService";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
+import { CHROME_TEXT_SCALE } from "@/theme/dynamicType";
 
 type Slide = {
   eyebrow: string;
@@ -26,35 +35,33 @@ type Slide = {
 // Copy is deliberately scoped to what AuraLunis actually delivers: Sun sign, rising sign,
 // the planets and moon over your birthplace, and a personal reading. Houses and aspects are
 // NOT introduced because the app does not compute or display them.
-const SLIDES: Slide[] = [
+// Three screens, in order. Deliberately fixed: the same tour for every user, with no capability
+// branching, no premium variant, and nothing that can be blocked.
+export const APP_TOUR_SLIDES: Slide[] = [
   {
-    eyebrow: "WELCOME",
-    title: "Welcome to AuraLunis",
-    body: "Discover your birth chart, understand what it means, and explore the real sky above you.",
+    eyebrow: "THE SKY",
+    title: "Explore the Sky",
+    body:
+      "Sky Lens is a fully rendered planetarium. It uses your device's compass and motion sensors to show the real positions of planets, bright stars and constellations above you right now — point your phone and the sky moves with you. Tap any object to open its card and read the detail behind it.",
   },
   {
-    eyebrow: "YOUR CHART",
-    title: "Create Your Birth Chart",
-    body: "Your birth date, birth time, and birthplace shape your chart. The more exact they are, the more precise your sky becomes.",
-    note: "Don't know your birth time? You'll still get your Sun sign and the planets — but your rising sign, exact horizon, and other time-sensitive details need the local time you were born.",
+    eyebrow: "LEARN",
+    title: "Learn and Discover",
+    body:
+      "The Learn tab holds short, readable astronomy lessons that start from the beginning and build up to more advanced material. Your progress is remembered as you go, and the lessons you mark are kept so you can come back to them.",
   },
   {
-    eyebrow: "YOUR BLUEPRINT",
-    title: "Understand Your Cosmic Blueprint",
-    body: "Your chart is built from real astronomy — here's what it reveals:",
-    points: [
-      { label: "Planets", text: "Where each planet stood in the sky the moment you were born." },
-      { label: "Signs", text: "Your Sun sign, and your rising sign on the eastern horizon." },
-      { label: "Your sky", text: "The moon phase and constellations overhead at your birthplace." },
-      { label: "Your reading", text: "A personal interpretation that ties it all together." },
-    ],
-  },
-  {
-    eyebrow: "SKY LENS",
-    title: "Explore Sky Lens",
-    body: "Sky Lens is a fully rendered planetarium. It aligns with your device's compass and motion sensors to show the real positions of stars, planets, and constellations — point your phone and the sky moves with you.",
+    eyebrow: "YOUR VAULT",
+    title: "Save What Matters",
+    body:
+      "Your Vault keeps the discoveries worth remembering — saved objects from the sky, the lessons you have marked, and your own sky notes — encrypted on your device. The Vault is a Premium feature, and nothing is ever saved unless you choose to save it.",
   },
 ];
+
+/** How many screens the tour has. Exported so the count can be asserted directly. */
+export const APP_TOUR_SCREEN_COUNT = APP_TOUR_SLIDES.length;
+
+const SLIDES = APP_TOUR_SLIDES;
 
 type Props = {
   visible: boolean;
@@ -128,7 +135,13 @@ export function OnboardingFlow({ visible, onDone }: Props) {
             accessibilityLabel="Back"
             accessibilityState={{ disabled: step === 0 }}
           >
-            <Text style={[styles.backText, step === 0 && styles.backTextHidden]}>‹ Back</Text>
+            <Text
+              style={[styles.backText, step === 0 && styles.backTextHidden]}
+              maxFontSizeMultiplier={CHROME_TEXT_SCALE.cardAction}
+              numberOfLines={1}
+            >
+              ‹ Back
+            </Text>
           </Pressable>
 
           <View
@@ -141,14 +154,23 @@ export function OnboardingFlow({ visible, onDone }: Props) {
             ))}
           </View>
 
-          <Pressable
-            style={styles.skipHit}
-            onPress={skip}
-            accessibilityRole="button"
-            accessibilityLabel="Skip onboarding and go to the app"
-          >
-            <Text style={styles.skipText}>Skip</Text>
-          </Pressable>
+          {/* Skip on screens 1-2; the final screen offers Done instead, which is the same
+              gesture and reads as finishing rather than abandoning. The placeholder keeps the
+              progress dots centred when Skip is absent. */}
+          {isLast ? (
+            <View style={styles.skipHit} />
+          ) : (
+            <Pressable
+              style={styles.skipHit}
+              onPress={skip}
+              accessibilityRole="button"
+              accessibilityLabel="Skip the app tour"
+            >
+              <Text style={styles.skipText} maxFontSizeMultiplier={CHROME_TEXT_SCALE.cardAction} numberOfLines={1}>
+                Skip
+              </Text>
+            </Pressable>
+          )}
         </View>
 
         <ScrollView
@@ -162,8 +184,22 @@ export function OnboardingFlow({ visible, onDone }: Props) {
                 <LogoMark size={78} />
               </View>
             )}
-            <Text style={styles.eyebrow}>{slide.eyebrow}</Text>
-            <Text style={styles.title} accessibilityRole="header">
+            <Text style={styles.eyebrow} maxFontSizeMultiplier={CHROME_TEXT_SCALE.screenSubtitle} numberOfLines={1}>
+              {slide.eyebrow}
+            </Text>
+            {/* The tour used to apply NO Dynamic Type policy at all. At AX-XXXL a 30pt title
+                grew past 100pt and fragmented mid-word ("Explor / e the / Sky"). Capped with
+                the shared screenTitle scale, held to two lines, and allowed to shrink the last
+                bit rather than break a word. Default size is unaffected: the cap only binds
+                once the system scale exceeds it. */}
+            <Text
+              style={styles.title}
+              accessibilityRole="header"
+              maxFontSizeMultiplier={CHROME_TEXT_SCALE.screenTitle}
+              numberOfLines={2}
+              adjustsFontSizeToFit
+              minimumFontScale={0.75}
+            >
               {slide.title}
             </Text>
             <Text style={styles.body}>{slide.body}</Text>
@@ -185,9 +221,19 @@ export function OnboardingFlow({ visible, onDone }: Props) {
             style={styles.cta}
             onPress={goNext}
             accessibilityRole="button"
-            accessibilityLabel={isLast ? "Create my birth chart" : "Continue"}
+            accessibilityLabel={isLast ? "Done" : "Next"}
           >
-            <Text style={styles.ctaText}>{isLast ? "Create My Birth Chart" : "Continue"}</Text>
+            {/* ALWAYS enabled: no screen has a condition to satisfy, so this button can never
+                be dead. That dead button is exactly what stranded users in the old tour. */}
+            <Text
+              style={styles.ctaText}
+              maxFontSizeMultiplier={CHROME_TEXT_SCALE.cardAction}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.8}
+            >
+              {isLast ? "Done" : "Next"}
+            </Text>
           </Pressable>
         </View>
       </View>
@@ -197,14 +243,25 @@ export function OnboardingFlow({ visible, onDone }: Props) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#040611", paddingHorizontal: 22 },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", height: 40 },
-  backHit: { minWidth: 64, minHeight: 44, justifyContent: "center" },
+  // minHeight, NOT height. A fixed 40pt row with unbounded 14pt labels overflowed at
+  // AX-XXXL and the Back/Skip text visually collided with the scrolling body beneath it.
+  // The row now grows to fit its own content, so the ScrollView always starts below it —
+  // spacing derived from the real chrome rather than a fixed offset tuned to one device.
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    minHeight: 40,
+    paddingVertical: 4,
+    flexShrink: 0,
+  },
+  backHit: { minWidth: 64, minHeight: 44, justifyContent: "center", flexShrink: 1 },
   backText: { color: AuraLunisColors.gold2, fontSize: 14, fontWeight: "800" },
   backTextHidden: { opacity: 0 },
-  dots: { flexDirection: "row", gap: 8, alignItems: "center" },
+  dots: { flexDirection: "row", gap: 8, alignItems: "center", flexShrink: 0, paddingHorizontal: 6 },
   dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "rgba(199,166,106,0.28)" },
   dotActive: { width: 22, backgroundColor: AuraLunisColors.gold },
-  skipHit: { minWidth: 64, minHeight: 44, alignItems: "flex-end", justifyContent: "center" },
+  skipHit: { minWidth: 64, minHeight: 44, alignItems: "flex-end", justifyContent: "center", flexShrink: 1 },
   skipText: { color: AuraLunisColors.muted, fontSize: 14, fontWeight: "800" },
   scroll: { flex: 1 },
   content: { paddingTop: 18, paddingBottom: 20, flexGrow: 1, justifyContent: "center" },

@@ -543,11 +543,37 @@ export function findDeepSkyLesson(
   );
 }
 
-export const FREE_LEARN_LESSON_COUNT = 3;
-const freeLearnLessonIds = new Set(
-  learnTopics.slice(0, FREE_LEARN_LESSON_COUNT).map((topic) => topic.id)
-);
+/**
+ * THE FREE STARTER LESSONS — canonical, explicit, and order-independent.
+ *
+ * This used to be `learnTopics.slice(0, FREE_LEARN_LESSON_COUNT)`: whichever three lessons
+ * happened to sit at the front of the array. That made the FREE TIER a side effect of catalog
+ * ordering — inserting or reordering a lesson silently changed what people pay for, in either
+ * direction, with nothing to catch it. Access is now stated by id.
+ *
+ * These are exactly the three lessons that were free before this change; the tier is unchanged.
+ * Everything else, including `learn-sky-night-one` ("Night 1: Find the Moon"), is premium.
+ *
+ * This is the SINGLE source of truth for lesson access. Premium badges, lesson opening, and
+ * paywall routing all read it through isLearnLessonFree(). Nothing else may decide access — in
+ * particular the learner's experience level (Beginner / Intermediate / Advanced) affects
+ * recommendations and presentation ONLY, and no filter, recommendation, category, route, or
+ * curriculum transform may derive or overwrite it.
+ */
+export const FREE_LEARN_LESSON_IDS: ReadonlyArray<string> = [
+  "what-is-solar-system",
+  "moon-phases",
+  "moon-orbit-tides",
+];
 
+export const FREE_LEARN_LESSON_COUNT = FREE_LEARN_LESSON_IDS.length;
+
+const freeLearnLessonIds = new Set(FREE_LEARN_LESSON_IDS);
+
+/**
+ * Whether this lesson is free. Takes ONLY a lesson id: there is deliberately no parameter for
+ * experience level, entitlement, route, or curriculum, so access cannot vary by any of them.
+ */
 export function isLearnLessonFree(topicId: string): boolean {
   return freeLearnLessonIds.has(topicId);
 }

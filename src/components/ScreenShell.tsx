@@ -3,6 +3,7 @@ import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AuraLunisColors, AuraLunisTypography } from "@/theme/tokens";
+import { CHROME_TEXT_SCALE } from "@/theme/dynamicType";
 import { LogoMark } from "@/components/LogoMark";
 import { StarDust } from "@/components/StarDust";
 import { useAuraLunisSettings } from "@/state/AuraLunisSettingsContext";
@@ -31,13 +32,31 @@ export function ScreenShell({ title, subtitle, children, background }: Props) {
         {/* Brand header matching mockup: [Logo] AURALUNIS */}
         <View style={styles.brandBar}>
           <LogoMark size={32} />
-          <Text style={styles.brandName}>AURALUNIS</Text>
+          <Text style={styles.brandName} maxFontSizeMultiplier={CHROME_TEXT_SCALE.screenSubtitle} numberOfLines={1}>
+            AURALUNIS
+          </Text>
           <View style={{ flex: 1 }} />
         </View>
         {/* Screen title */}
         <View style={styles.header}>
-          <Text style={[styles.subtitle, { color: palette.accent }]}>{subtitle}</Text>
-          <Text style={styles.title}>{title}</Text>
+          <Text
+            style={[styles.subtitle, { color: palette.accent }]}
+            maxFontSizeMultiplier={CHROME_TEXT_SCALE.screenSubtitle}
+            numberOfLines={1}
+          >
+            {subtitle}
+          </Text>
+          {/* Bounded, and allowed to shrink to fit rather than fragment. Without a ceiling
+              "Sky Lens + Archive" broke mid-word into four lines at the largest text size. */}
+          <Text
+            style={styles.title}
+            maxFontSizeMultiplier={CHROME_TEXT_SCALE.screenTitle}
+            numberOfLines={2}
+            adjustsFontSizeToFit
+            minimumFontScale={0.75}
+          >
+            {title}
+          </Text>
         </View>
         {children}
       </ScrollView>

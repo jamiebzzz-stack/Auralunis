@@ -116,10 +116,14 @@ check("Birth Sky stores local date and time separately", birthSky.includes("BIRT
 check("Birth Sky labels unknown-time horizon as approximate", birthSky.includes('"Approx. eastern sky"') && birthSky.includes("approximationNote"));
 
 const onboarding = read("src/features/onboarding/OnboardingFlow.tsx");
-// First-run onboarding is now purely informational (no in-flow date-only birth-sky preview);
-// it must stay truthful that an unknown birth time limits the rising sign / time-sensitive detail.
-check("onboarding is truthful that unknown birth time limits time-sensitive detail", onboarding.includes("rising sign") && onboarding.includes("time-sensitive"));
-check("onboarding explains exact birthplace and time are still needed", onboarding.includes("birthplace") && onboarding.includes("birth time"));
+// Birth-chart setup is no longer a screen inside the app tour — it is a separate, optional
+// prompt. The truthfulness guards move WITH the copy: wherever the chart is offered, it must
+// still say plainly that an unknown birth time costs the rising sign and other time-sensitive
+// detail.
+const birthPrompt = read("src/features/onboarding/BirthChartPrompt.tsx");
+check("birth-chart prompt is truthful that unknown birth time limits time-sensitive detail", birthPrompt.includes("rising sign") && birthPrompt.includes("time-sensitive"));
+check("birth-chart prompt explains exact birthplace and time are still needed", birthPrompt.includes("birthplace") && birthPrompt.includes("birth time"));
+check("birth-chart setup stays optional and skippable", birthPrompt.includes("Maybe Later"));
 check("onboarding does not advertise removed camera AR", !onboarding.includes("Point your phone at the sky"));
 
 const monetization = read("src/features/paywall/MonetizationCatalog.ts");

@@ -3,6 +3,7 @@ import { Alert, Image, Linking, Modal, Pressable, StyleSheet, Switch, Text, View
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { usePaywallNavigation } from "@/context/PaywallNavigationContext";
+import { useNavigation } from "@react-navigation/native";
 import { useOnboarding } from "@/context/OnboardingContext";
 import { resolveMembershipCta } from "@/features/paywall/entitlementStatus";
 import { TermsScreen } from "@/screens/TermsScreen";
@@ -60,6 +61,7 @@ export function SettingsScreen() {
   const { membershipKind, refresh } = useEntitlement();
   const { openPaywall } = usePaywallNavigation();
   const { replayTutorial } = useOnboarding();
+  const navigation = useNavigation<any>();
   // Single source of truth for the membership card's copy, label, and action — derived
   // from the RevenueCat-backed membershipKind (loading/unknown/error fail closed to "none").
   const membershipCta = resolveMembershipCta(membershipKind);
@@ -351,16 +353,22 @@ export function SettingsScreen() {
         <Pressable style={styles.secondaryButton} onPress={() => Alert.alert("About AuraLunis", `${AuraLunisBrand.name} · ${AuraLunisBrand.descriptor}\n${AuraLunisBrand.tagline}`)}>
           <Text style={styles.secondaryButtonText}>About AuraLunis</Text>
         </Pressable>
-        {/* Re-opens the first-run onboarding from the beginning. Purely presentational: it
-            never erases birth data, clears entitlement/RevenueCat state, or marks the app as
-            a new install. */}
+        {/* THE ONE tutorial replay. AuraLunis used to offer two — "Replay Tutorial" for the
+            onboarding slides and "Replay First Light" for a second, hands-on tour — which is
+            the same duplication a fresh install used to meet. There is now one app tour and one
+            way back into it.
+
+            Purely presentational: it re-shows the three informational screens and touches
+            NOTHING else. Birth data, the birth-chart prompt answer, Vault items, entitlement
+            and RevenueCat state, settings, and the "new install" determination are all left
+            exactly as they are — the onboarding flag stays set throughout. */}
         <Pressable
           style={styles.secondaryButton}
           onPress={replayTutorial}
           accessibilityRole="button"
-          accessibilityLabel="Replay Tutorial"
+          accessibilityLabel="Replay the app tour"
         >
-          <Text style={styles.secondaryButtonText}>Replay Tutorial</Text>
+          <Text style={styles.secondaryButtonText}>Replay App Tour</Text>
         </Pressable>
         <Pressable style={styles.secondaryButton} onPress={() => setLegalModal("privacy")}>
           <Text style={styles.secondaryButtonText}>Privacy Policy</Text>
