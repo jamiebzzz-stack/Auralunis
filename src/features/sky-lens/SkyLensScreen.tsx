@@ -1518,11 +1518,11 @@ const styles = StyleSheet.create({
     height: 60,
     borderRadius: 30,
     borderWidth: 2.5,
-    backgroundColor: "rgba(7,10,19,0.75)",
+    backgroundColor: "rgba(7,10,19,0.86)",
     alignItems: "center",
     justifyContent: "center"
   },
-  shutterIcon: { fontSize: 26 },
+  shutterIcon: { fontSize: 25, lineHeight: 30, textAlign: "center" },
   watermark: { position: "absolute", left: 18, alignItems: "flex-start" },
   watermarkBrand: { color: "#F4E3B8", fontSize: 16, fontWeight: "800", letterSpacing: 0.5 },
   watermarkSub: { color: "rgba(244,227,184,0.75)", fontSize: 11, fontWeight: "600", marginTop: 1 },
@@ -1553,24 +1553,26 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: "rgba(7,18,37,0.58)",
+    backgroundColor: "rgba(7,18,37,0.70)",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(217,168,78,0.24)",
+    borderColor: "rgba(217,168,78,0.34)",
     alignItems: "center",
     justifyContent: "center"
   },
-  iconBtnText: { color: "#FFF", fontSize: 15, fontWeight: "800" },
+  // Line height pinned to the box so the glyph sits optically centred rather than riding
+  // high on its own ascender — what made ✕ and 🕐 look cramped in a 38pt circle.
+  iconBtnText: { color: "#FFF", fontSize: 15, fontWeight: "800", lineHeight: 18, textAlign: "center" },
   // UI CHROME — lightened. The panels were dense enough to read as opaque slabs sitting
   // ON the sky. Dropping the fills and adding a hairline gold edge lets the sky show
   // through, so the chrome reads as GLASS resting over the scene rather than as a lid.
   hudPill: {
     flex: 1,
-    marginHorizontal: 8,
+    marginHorizontal: 10,
     backgroundColor: "rgba(7,18,37,0.42)",
     borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: "rgba(217,168,78,0.14)",
-    paddingVertical: 6,
+    paddingVertical: 7,
     paddingHorizontal: 12,
     alignItems: "center"
   },
@@ -1626,8 +1628,12 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     overflow: "hidden",
   },
+  // HUD HIERARCHY. Three tiers, deliberately separated. The orientation reading is the only
+  // thing anyone looks at mid-sweep, so it keeps its size, weight and shadow untouched; the
+  // mode line and the satellite line step DOWN in size and opacity rather than the reading
+  // stepping up, which keeps the strip the same height and the chrome just as calm.
   hudText: { fontSize: 17, fontWeight: "800", fontVariant: ["tabular-nums"], textShadowColor: "rgba(0,0,0,0.55)", textShadowRadius: 2 },
-  hudSub: { color: AuraLunisColors.muted, fontSize: 13, fontWeight: "500", marginTop: 1, opacity: 0.82 },
-  hudSubSmall: { color: AuraLunisColors.muted, fontSize: 13, fontWeight: "500", marginTop: 0, opacity: 0.72 },
+  hudSub: { color: AuraLunisColors.muted, fontSize: 12.5, fontWeight: "500", marginTop: 2, opacity: 0.68, letterSpacing: 0.1 },
+  hudSubSmall: { color: AuraLunisColors.muted, fontSize: 11.5, fontWeight: "500", marginTop: 1, opacity: 0.56, letterSpacing: 0.2 },
   bottom: { position: "absolute", left: 0, right: 0, bottom: 0 },
 });

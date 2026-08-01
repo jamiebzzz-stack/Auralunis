@@ -75,10 +75,10 @@ export function PlanetLayer({
     const labelPoint = placed && Number.isFinite(placed.x) ? placed : { x: fallbackX, y: y + 4 };
     return (
       <G key={`${body.id}-label`}>
-        <SvgText x={labelPoint.x} y={labelPoint.y} fill="none" stroke="#050914" strokeWidth={2.2} strokeOpacity={0.5} fontSize={17} fontWeight="700">
+        <SvgText x={labelPoint.x} y={labelPoint.y} fill="none" stroke="#050914" strokeWidth={2.6} strokeOpacity={0.58} fontSize={17.5} fontWeight="800">
           {body.name}
         </SvgText>
-        <SvgText x={labelPoint.x} y={labelPoint.y} fill={palette.starLabel} fontSize={17} fontWeight="700" opacity={0.96}>
+        <SvgText x={labelPoint.x} y={labelPoint.y} fill={palette.starLabel} fontSize={17.5} fontWeight="800" opacity={1}>
           {body.name}
         </SvgText>
       </G>

@@ -118,7 +118,7 @@ const styles = StyleSheet.create({
     alignSelf: "stretch",
     height: LAYER_BAR_HEIGHT,
     marginHorizontal: 4,
-    paddingHorizontal: 3,
+    paddingHorizontal: 5,
     borderRadius: 22,
     backgroundColor: "rgba(2,8,20,0.52)",
     borderWidth: StyleSheet.hairlineWidth,
@@ -132,10 +132,10 @@ const styles = StyleSheet.create({
   pill: {
     alignItems: "center",
     justifyContent: "center",
-    height: 44, // comfortable tap target
+    height: 44, // comfortable tap target — unchanged
     flexShrink: 1, // shrink to fit narrow screens; the label font auto-scales with it
-    marginHorizontal: 2, // ~4pt gap between controls
-    paddingHorizontal: 6,
+    marginHorizontal: 3, // ~6pt gap between controls (was ~4pt — the pills read as one slab)
+    paddingHorizontal: 7,
     borderRadius: 20,
     borderWidth: 1,
     backgroundColor: "rgba(5,13,29,0.38)",
@@ -145,7 +145,7 @@ const styles = StyleSheet.create({
   divider: {
     width: StyleSheet.hairlineWidth,
     height: 24,
-    marginHorizontal: 5, // clear space on both sides — never touches the Planets pill
+    marginHorizontal: 6, // clear space on both sides — never touches the Planets pill
     backgroundColor: "rgba(217,168,78,0.2)",
   },
   // Fixed 44x44 icon button (not a text pill). The menu glyph communicates its function

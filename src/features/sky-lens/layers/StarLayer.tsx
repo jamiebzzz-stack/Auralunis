@@ -147,10 +147,10 @@ export function StarLayer({ stars, project, palette, nightMode, focus = null, sh
               return (
                 <G>
                   {/* Soft dark outline so warm-ivory names stay legible over the Milky Way. */}
-                  <SvgText x={lp.x} y={lp.y} fill="none" stroke="#05070F" strokeWidth={1.8} strokeOpacity={0.5} fontSize={16} fontWeight="600">
+                  <SvgText x={lp.x} y={lp.y} fill="none" stroke="#05070F" strokeWidth={1.7} strokeOpacity={0.5} fontSize={15} fontWeight="600">
                     {star.name}
                   </SvgText>
-                  <SvgText x={lp.x} y={lp.y} fill={palette.starLabel} fontSize={16} fontWeight="600" opacity={0.9}>
+                  <SvgText x={lp.x} y={lp.y} fill={palette.starLabel} fontSize={15} fontWeight="600" opacity={0.76}>
                     {star.name}
                   </SvgText>
                 </G>
