@@ -22,6 +22,7 @@ const hasnt = (haystack, needle, name) => check(name, !haystack.includes(needle)
 const skyLens = read("src/features/sky-lens/SkyLensScreen.tsx");
 const bridge = read("src/features/first-light/FirstLightSkyLens.tsx");
 const overlay = read("src/features/tour/TourOverlay.tsx");
+const spotlightSrc = read("src/features/first-light/firstLightSpotlight.ts");
 const registry = read("src/features/tour/TourTargetRegistry.tsx");
 const tipHost = read("src/features/first-light/ContextualTipHost.tsx");
 const rootOverlay = read("src/features/first-light/FirstLightRootOverlay.tsx");
@@ -82,15 +83,43 @@ check(
   "sky objects are spotlighted by rect, not by covering them with a marker view"
 );
 has(bridge, "spotlightRect={spotlightRect}", "the sky-object spotlight is an explicit rect");
+
+// ── Readiness gates (the "Venus is the HUD" defect) ──────────────────────────────────
+// Sky Lens opens on a hardcoded 360x720 placeholder canvas and at DEFAULT_OBSERVER. Projecting
+// through either put the spotlight ~94 px too high, in the top chrome, until the real values
+// arrived asynchronously. Both gates must stay wired, or the defect returns silently.
+has(skyLens, "boxMeasured={boxMeasured}", "Sky Lens tells the tour when its canvas is really measured");
+has(skyLens, 'locationReady={status !== "loading"}', "…and when the observer location has settled");
+has(skyLens, "setBoxMeasured(true)", "boxMeasured is set from a real onLayout, never assumed");
+check(
+  "readiness is only granted for a positive, finite layout",
+  /width > 0 && height > 0\)\s*\{\s*\n\s*setBoxMeasured\(true\)/.test(skyLens),
+  "a zero/NaN layout must not count as measured"
+);
+has(bridge, "resolveProjectedSpotlightRect({", "the bridge uses the PURE, gated spotlight resolver");
+has(bridge, "readiness,", "…and passes readiness into it");
+check(
+  "the projection itself is withheld until readiness, not just the rectangle",
+  /if \(!projectionTrustworthy\) return null;/.test(bridge),
+  "a placeholder viewport can report an object as on screen when it is not"
+);
+check(
+  "the old ungated local resolver is gone",
+  !bridge.includes("function resolveSpotlightRect"),
+  "two resolvers would let an ungated one be reintroduced"
+);
 has(overlay, "spotlightFor(spotlightRect ?? target, screen)", "an explicit rect takes precedence over measurement");
 check(
   "a moving sky object never invalidates the layout registry",
   !/onLayout=\{objectMarker|onLayout=\{constellationMarker/.test(bridge),
   "measuring a per-frame-moving view would re-register targets 60x/second"
 );
+// The visibility rule moved OUT of the bridge into the pure, unit-tested resolver so the
+// readiness gate and the visibility gate live in one place. The guarantee is unchanged; only
+// its home is. Behaviour is asserted directly in scripts/first-light-selftest.js section 16.
 check(
   "an off-screen or behind-camera object yields NO spotlight rather than a wrong one",
-  /const visible = \(p: Projected \| null\) => !!p && p\.onScreen && !p\.behind;/.test(bridge)
+  /return projection\.onScreen && !projection\.behind;/.test(spotlightSrc)
 );
 has(tipHost, 'pointerEvents="box-none"', "a contextual tip never blocks the sky around it");
 has(tipHost, "if (!firstLight || !tipId) return null;", "a tip with nothing to show renders nothing");

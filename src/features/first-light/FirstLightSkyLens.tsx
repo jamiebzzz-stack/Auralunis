@@ -21,7 +21,6 @@ import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 import { AuraLunisColors } from "@/theme/tokens";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
 import { TourOverlay } from "@/features/tour/TourOverlay";
-import type { TourRect } from "@/features/tour/tourGeometry";
 import {
   angleBetweenQuaternions,
   type Quaternion,
@@ -29,6 +28,11 @@ import {
 import { useFirstLight } from "./FirstLightContext";
 import { LOOK_AROUND_NO_MOTION_HINT, NO_LIVE_TARGET_HINT } from "./firstLightSteps";
 import { isObjectStepSatisfied, isSaveStepSatisfied, shouldRestoreLiveTime } from "./firstLightRules";
+import {
+  isProjectionTrustworthy,
+  resolveProjectedSpotlightRect,
+  type SpotlightReadiness,
+} from "./firstLightSpotlight";
 import {
   describeConstellation,
   practiceTarget,
@@ -53,6 +57,14 @@ type Projected = { x: number; y: number; onScreen: boolean; behind: boolean; bea
 
 type Props = {
   box: { width: number; height: number };
+  /**
+   * The canvas above has reported its REAL size through onLayout. Sky Lens opens on a hardcoded
+   * placeholder, and projecting through that placeholder put the spotlight ~94 px too high — in
+   * the top chrome — on a 430x932 device. See firstLightSpotlight.ts.
+   */
+  boxMeasured: boolean;
+  /** The observer location has settled ("granted" or the app-wide "fallback"), not DEFAULT_OBSERVER. */
+  locationReady: boolean;
   /** The orientation actually rendered this frame (live, locked, dragged, or blending). */
   orientation: Quaternion;
   motionAvailable: boolean;
@@ -84,6 +96,8 @@ const arrowFor = (bearingDegrees: number) => ARROWS[Math.round(bearingDegrees / 
 export function FirstLightSkyLens(props: Props) {
   const {
     box,
+    boxMeasured,
+    locationReady,
     orientation,
     motionAvailable,
     isLocked,
@@ -157,17 +171,31 @@ export function FirstLightSkyLens(props: Props) {
     if (angleBetweenQuaternions(anchor, orientation) >= LOOK_AROUND_DEGREES) satisfy("lookAround");
   }, [active, stepId, motionAvailable, orientation, satisfy]);
 
+  // ── Are the inputs behind a projected position authoritative yet? ───────────────
+  // Gated at the PROJECTION rather than only at the rectangle, because the same provisional
+  // numbers also decide `targetOnScreen` — and a placeholder viewport can report an object as
+  // on screen when it is not, which would satisfy "Find your first object" without the user
+  // ever seeing it. This changes no satisfaction RULE (firstLightRules is untouched); it only
+  // withholds an input until it is real. Readiness always arrives: onLayout fires on first
+  // layout, and the location resolver has a total try/catch, so status always leaves "loading".
+  const readiness = useMemo<SpotlightReadiness>(
+    () => ({ boxMeasured, locationReady }),
+    [boxMeasured, locationReady]
+  );
+  const projectionTrustworthy = isProjectionTrustworthy(readiness);
+
   // ── Step 3: the chosen object comes into view ───────────────────────────────────
   const targetProjection = useMemo<Projected | null>(() => {
     // Only projected while the tour is on screen — Sky Lens re-renders on every sensor frame
     // and this must not add work to that path when no tour is running.
     if (!active || !target) return null;
+    if (!projectionTrustworthy) return null;
     try {
       return project(target.azimuthDegrees, target.altitudeDegrees);
     } catch {
       return null;
     }
-  }, [active, target, project]);
+  }, [active, target, project, projectionTrustworthy]);
 
   useEffect(() => {
     if (!active || stepId !== "findObject" || !satisfy) return;
@@ -310,19 +338,24 @@ export function FirstLightSkyLens(props: Props) {
   if (!firstLight || !active || !step) return null;
 
   const constellationCopy = constellation ? describeConstellation(constellation) : null;
-  const constellationProjection = constellation
-    ? project(constellation.centroid.azimuthDegrees, constellation.centroid.altitudeDegrees)
-    : null;
+  // Same gate as the object projection — a placeholder viewport would ring the wrong patch of sky.
+  const constellationProjection =
+    constellation && projectionTrustworthy
+      ? project(constellation.centroid.azimuthDegrees, constellation.centroid.altitudeDegrees)
+      : null;
 
   // The spotlight rect is handed to the overlay directly rather than measured, because a sky
   // object moves every frame; measuring a continuously-moving view would invalidate the layout
   // registry sixty times a second. The rect comes from the SAME projection the scene is drawn
   // with, so the ring sits exactly where the object is rendered.
-  const spotlightRect = resolveSpotlightRect({
+  // Readiness is re-checked inside the resolver as well: it is the single authority, so no
+  // caller can accidentally draw from provisional inputs.
+  const spotlightRect = resolveProjectedSpotlightRect({
     stepId,
     targetProjection,
     constellationProjection,
     box,
+    readiness,
   });
 
   const hint = resolveHint({
@@ -484,34 +517,6 @@ function resolveHint(args: {
   }
   if (stepId === "saveDiscovery" && variant === "learn") {
     return "Saving to the Vault is a Premium feature, so this step just points you at Learn instead.";
-  }
-  return null;
-}
-
-/**
- * The rect to spotlight for the sky-object steps. Returns null (no spotlight) when the object
- * is off-screen or behind the camera, so the step still renders — with its directional cue —
- * rather than ringing an arbitrary part of the sky.
- */
-function resolveSpotlightRect(args: {
-  stepId: string | null;
-  targetProjection: Projected | null;
-  constellationProjection: Projected | null;
-  box: { width: number; height: number };
-}): TourRect | null {
-  const { stepId, targetProjection, constellationProjection, box } = args;
-  const visible = (p: Projected | null) => !!p && p.onScreen && !p.behind;
-
-  if ((stepId === "findObject" || stepId === "openCard") && visible(targetProjection)) {
-    const p = targetProjection as Projected;
-    return { x: p.x - 34, y: p.y - 34, width: 68, height: 68 };
-  }
-  if (stepId === "constellation" && visible(constellationProjection)) {
-    const p = constellationProjection as Projected;
-    // Wide enough to take in the figure and the label the renderer already draws for it.
-    const width = Math.min(box.width - 16, 260);
-    const height = 180;
-    return { x: p.x - width / 2, y: p.y - height / 2, width, height };
   }
   return null;
 }

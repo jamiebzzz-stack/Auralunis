@@ -326,6 +326,8 @@ export function SkyLensScreen({ onClose, focusTarget, onOpenLearn }: Props) {
   const { addItem, items: vaultItems } = useAuraLunisVault();
 
   const [box, setBox] = useState({ width: 360, height: 720 });
+  /** False until onLayout reports the REAL canvas size — see the onLayout note below. */
+  const [boxMeasured, setBoxMeasured] = useState(false);
   // The default scene is FIVE layers: Stars, Constellations, Milky Way, Planets, and
   // Nebulae — the entries with defaultOn: true (Nebulae ships on as a curated 2-hero
   // accent; see the note above). The four analytical overlays (zodiac/grid/satellites/
@@ -638,6 +640,12 @@ export function SkyLensScreen({ onClose, focusTarget, onOpenLearn }: Props) {
   const onLayout = useCallback((e: LayoutEvent) => {
     const { width, height } = e.nativeEvent.layout;
     setBox({ width, height });
+    // First Light must never project through the placeholder `box` above: on a 430x932 device
+    // the placeholder puts the vertical centre 106 px too high and the scale 16% short, which
+    // ringed the top chrome and called it a planet. Only a real, positive layout counts.
+    if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+      setBoxMeasured(true);
+    }
   }, []);
 
   const toggleLayer = useCallback((key: LayerKey) => {
@@ -1499,6 +1507,11 @@ export function SkyLensScreen({ onClose, focusTarget, onOpenLearn }: Props) {
           the values below; it sets none of them. */}
       <FirstLightSkyLens
         box={box}
+        boxMeasured={boxMeasured}
+        // "Settled", not "granted": a user who declines location keeps DEFAULT_OBSERVER for the
+        // whole app, so the tutorial then agrees with the sky actually rendered. Gating on
+        // "granted" would suppress the spotlight forever for them.
+        locationReady={status !== "loading"}
         orientation={skyOrientation.orientation}
         motionAvailable={skyOrientation.available}
         isLocked={skyOrientation.isLocked}

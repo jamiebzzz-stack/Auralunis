@@ -67,6 +67,7 @@ const targets = requireTs(src("features/first-light/firstLightTargets.ts"));
 const tips = requireTs(src("features/first-light/contextualTips.ts"));
 const storage = requireTs(src("features/first-light/firstLightStorage.ts"));
 const rules = requireTs(src("features/first-light/firstLightRules.ts"));
+const spotlight = requireTs(src("features/first-light/firstLightSpotlight.ts"));
 
 let pass = 0;
 let fail = 0;
@@ -954,6 +955,153 @@ function largeTypeLayoutSection() {
   check("…and a finite anchor inside the safe area", Number.isFinite(smallAnchor.top) && smallAnchor.top >= insets.top);
 }
 
+function spotlightReadinessSection() {
+  console.log("\n── 16. Spotlight readiness: never project through provisional inputs ──");
+
+  // THE DEFECT THIS LOCKS DOWN (physical iPhone, integration/1.0.1-rc2):
+  // "Find your first object" ringed the HUD/header and called it Venus, then snapped to the
+  // real Venus a moment later. The maths was right; the inputs were provisional.
+  //
+  // Sky Lens opens on a HARDCODED 360x720 placeholder canvas until onLayout reports the truth,
+  // and the observer starts at DEFAULT_OBSERVER (39.8283 N, 98.5795 W) until the location
+  // resolver settles. Worked numbers for an object 10 degrees above the optical axis:
+  //
+  //   placeholder 360x720 → pixelsPerDegree 180/30 = 6.000, centre y 360 → y = 300
+  //   measured    430x932 → pixelsPerDegree 215/30 = 7.167, centre y 466 → y = 394.33
+  //
+  // …a 94 px upward error, straight into the top chrome. Assert the arithmetic so the reason
+  // for the gate is documented, not just its effect.
+  const PLACEHOLDER_BOX = { width: 360, height: 720 };
+  const MEASURED_BOX = { width: 430, height: 932 };
+  const halfH = 30;
+
+  const ppdPlaceholder = PLACEHOLDER_BOX.width / 2 / halfH;
+  const ppdMeasured = MEASURED_BOX.width / 2 / halfH;
+  const yPlaceholder = PLACEHOLDER_BOX.height / 2 - 10 * ppdPlaceholder;
+  const yMeasured = MEASURED_BOX.height / 2 - 10 * ppdMeasured;
+
+  check("the placeholder viewport really does mis-scale (6.000 vs 7.167 px/deg)",
+    Math.abs(ppdPlaceholder - 6) < 1e-9 && Math.abs(ppdMeasured - 7.16666) < 1e-4,
+    `${ppdPlaceholder} vs ${ppdMeasured}`);
+  check("…placing a 10-degree-high object ~94 px too high",
+    Math.abs((yMeasured - yPlaceholder) - 94.333) < 0.01,
+    `${(yMeasured - yPlaceholder).toFixed(2)}px`);
+
+  // The projection Sky Lens would hand over once everything is real.
+  const venusMeasured = { x: MEASURED_BOX.width / 2, y: yMeasured, onScreen: true, behind: false };
+  // …and the one it would hand over while still on the placeholder.
+  const venusPlaceholder = { x: PLACEHOLDER_BOX.width / 2, y: yPlaceholder, onScreen: true, behind: false };
+
+  const resolve = (readiness, projection, box) =>
+    spotlight.resolveProjectedSpotlightRect({
+      stepId: "findObject",
+      targetProjection: projection,
+      constellationProjection: null,
+      box,
+      readiness,
+    });
+
+  const READY = { boxMeasured: true, locationReady: true };
+
+  // ── 1. No projected spotlight before the canvas is measured ──────────────────────
+  check("no spotlight before boxMeasured",
+    resolve({ boxMeasured: false, locationReady: true }, venusPlaceholder, PLACEHOLDER_BOX) === null);
+  check("…not even when the projection claims to be on screen",
+    resolve({ boxMeasured: false, locationReady: true }, venusMeasured, MEASURED_BOX) === null);
+
+  // ── 2. No projected spotlight before the observer has settled ────────────────────
+  check("no spotlight before locationReady",
+    resolve({ boxMeasured: true, locationReady: false }, venusMeasured, MEASURED_BOX) === null);
+  check("no spotlight when neither gate is open",
+    resolve({ boxMeasured: false, locationReady: false }, venusMeasured, MEASURED_BOX) === null);
+  check("a missing readiness object is treated as not ready",
+    spotlight.isProjectionTrustworthy(null) === false && spotlight.isProjectionTrustworthy(undefined) === false);
+
+  // ── 3. The exact placeholder dimensions can never produce a tutorial spotlight ───
+  check("REGRESSION: the 360x720 placeholder cannot produce a spotlight",
+    resolve({ boxMeasured: false, locationReady: true }, venusPlaceholder, PLACEHOLDER_BOX) === null);
+  const placeholderRects = ["findObject", "openCard", "constellation"].map((stepId) =>
+    spotlight.resolveProjectedSpotlightRect({
+      stepId,
+      targetProjection: venusPlaceholder,
+      constellationProjection: venusPlaceholder,
+      box: PLACEHOLDER_BOX,
+      readiness: { boxMeasured: false, locationReady: false },
+    })
+  );
+  check("REGRESSION: no projected step draws from placeholder inputs",
+    placeholderRects.every((r) => r === null),
+    JSON.stringify(placeholderRects));
+
+  // ── 4. The spotlight appears once BOTH gates are open ────────────────────────────
+  const ready = resolve(READY, venusMeasured, MEASURED_BOX);
+  check("a spotlight appears once both gates are open", ready !== null);
+  check("…centred on the measured projection, not the placeholder one",
+    ready && Math.abs((ready.y + ready.height / 2) - yMeasured) < 1e-9,
+    ready ? `centre ${(ready.y + ready.height / 2).toFixed(2)} vs ${yMeasured.toFixed(2)}` : "null");
+  check("…and never at the placeholder position that ringed the HUD",
+    ready && Math.abs((ready.y + ready.height / 2) - yPlaceholder) > 90);
+  check("…sized as the documented object ring",
+    ready && ready.width === spotlight.OBJECT_SPOTLIGHT_RADIUS * 2 && ready.height === spotlight.OBJECT_SPOTLIGHT_RADIUS * 2);
+
+  // An off-screen or behind-camera object still yields no ring, exactly as before the fix.
+  check("an off-screen target still yields no spotlight",
+    resolve(READY, { ...venusMeasured, onScreen: false }, MEASURED_BOX) === null);
+  check("a target behind the camera still yields no spotlight",
+    resolve(READY, { ...venusMeasured, behind: true }, MEASURED_BOX) === null);
+  check("a non-finite projection yields no spotlight",
+    resolve(READY, { ...venusMeasured, x: Number.NaN }, MEASURED_BOX) === null);
+
+  // ── 5. Going provisional → measured cannot show a STALE rectangle ────────────────
+  // The resolver is pure and holds no memory: the only way a stale rect could survive is if a
+  // caller cached one. Prove the resolver itself never replays a previous answer.
+  const beforeReady = resolve({ boxMeasured: false, locationReady: false }, venusPlaceholder, PLACEHOLDER_BOX);
+  const afterReady = resolve(READY, venusMeasured, MEASURED_BOX);
+  const readyThenNotReady = resolve({ boxMeasured: true, locationReady: false }, venusMeasured, MEASURED_BOX);
+  check("REGRESSION: nothing is drawn before readiness…", beforeReady === null);
+  check("…the first drawn rect is the MEASURED one, never a provisional one",
+    afterReady !== null && Math.abs((afterReady.y + afterReady.height / 2) - yMeasured) < 1e-9);
+  check("REGRESSION: the resolver replays no earlier answer when readiness is withdrawn",
+    readyThenNotReady === null);
+  // Same inputs → same output, every time (no hidden state between calls).
+  check("the resolver is referentially pure across repeated calls",
+    JSON.stringify(resolve(READY, venusMeasured, MEASURED_BOX)) === JSON.stringify(afterReady));
+
+  // ── 6/7. The satisfaction rules are UNCHANGED by this fix ────────────────────────
+  // Part A deliberately did not touch firstLightRules. Re-assert the two gates that matter, so
+  // a future "just let them through" edit cannot ride along with a readiness change.
+  check("REGRESSION: Step 4 still requires the CORRECT object card on a motion device",
+    rules.isObjectStepSatisfied({
+      step: "openCard", motionAvailable: true, targetSimulated: false,
+      targetOnScreen: true, correctCardOpen: false,
+    }) === false);
+  check("…and is satisfied only when that card is open",
+    rules.isObjectStepSatisfied({
+      step: "openCard", motionAvailable: true, targetSimulated: false,
+      targetOnScreen: true, correctCardOpen: true,
+    }) === true);
+  check("REGRESSION: Step 8 (vault) still requires a real, persisted save",
+    rules.isSaveStepSatisfied({
+      variant: "vault", motionAvailable: true, targetSimulated: false,
+      targetOnScreen: true, targetSaved: false,
+    }) === false);
+  check("…and is satisfied by a genuine save",
+    rules.isSaveStepSatisfied({
+      variant: "vault", motionAvailable: true, targetSimulated: false,
+      targetOnScreen: true, targetSaved: true,
+    }) === true);
+  check("REGRESSION: Step 8 (learn fallback) is still non-blocking",
+    rules.isSaveStepSatisfied({
+      variant: "learn", motionAvailable: true, targetSimulated: false,
+      targetOnScreen: false, targetSaved: false,
+    }) === true);
+  check("REGRESSION: no timeout/bypass was added to the object steps",
+    rules.isObjectStepSatisfied({
+      step: "findObject", motionAvailable: true, targetSimulated: false,
+      targetOnScreen: false, correctCardOpen: false,
+    }) === false);
+}
+
 (async () => {
   await storageSection();
   machineSection();
@@ -967,6 +1115,7 @@ function largeTypeLayoutSection() {
   stableTotalsSection();
   reservedDockSection();
   largeTypeLayoutSection();
+  spotlightReadinessSection();
 
   console.log(`\nFirst Light behaviour self-test: ${pass} passed, ${fail} failed.`);
   process.exit(fail === 0 ? 0 : 1);
