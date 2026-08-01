@@ -268,6 +268,48 @@ check("answering the prompt writes only its own key",
   /AsyncStorage\.setItem\(BIRTH_CHART_PROMPT_KEY/.test(appRaw) &&
   !/AsyncStorage\.removeItem|multiRemove/.test(appRaw));
 
+
+// ══════════════════════════════════════════════════════════════════════════════════════
+console.log("\n── App tour at accessibility text sizes (M1) ──");
+const dtSrc = read("src/theme/dynamicType.ts");
+
+check("the tour applies the SHARED Dynamic Type policy, not ad-hoc numbers",
+  /import \{ CHROME_TEXT_SCALE \} from "@\/theme\/dynamicType"/.test(flowRaw));
+check("the title uses the screenTitle scale",
+  /maxFontSizeMultiplier=\{CHROME_TEXT_SCALE\.screenTitle\}/.test(flowRaw));
+check("the title is held to at most two lines",
+  /maxFontSizeMultiplier=\{CHROME_TEXT_SCALE\.screenTitle\}[\s\S]{0,120}numberOfLines=\{2\}/.test(flowRaw));
+check("the title can shrink rather than fragment mid-word",
+  /numberOfLines=\{2\}[\s\S]{0,120}adjustsFontSizeToFit[\s\S]{0,80}minimumFontScale=\{0\.75\}/.test(flowRaw));
+check("the eyebrow uses the screenSubtitle scale", /maxFontSizeMultiplier=\{CHROME_TEXT_SCALE\.screenSubtitle\}/.test(flowRaw));
+for (const label of ["Back", "Skip", "cta"]) {
+  check(`header/action chrome (${label}) is bounded`,
+    (flowRaw.match(/maxFontSizeMultiplier=\{CHROME_TEXT_SCALE\.cardAction\}/g) || []).length >= 3);
+}
+check("REGRESSION: the header GROWS instead of overflowing into the body",
+  /header: \{[\s\S]{0,220}minHeight: 40/.test(flowRaw) && !/header: \{[^}]*height: 40[,}]/.test(flowRaw),
+  "a fixed 40pt row let AX-XXXL Back/Skip text collide with the scrolling body");
+check("the progress dots cannot be squeezed away by long side labels",
+  /dots: \{[^}]*flexShrink: 0/.test(flowRaw));
+check("the side hit areas may shrink so the dots keep their lane",
+  /backHit: \{[^}]*flexShrink: 1/.test(flowRaw) && /skipHit: \{[^}]*flexShrink: 1/.test(flowRaw));
+check("all three dots still render from the slide list",
+  /SLIDES\.map\(\(_, i\) => \(/.test(flowRaw));
+check("body copy is still free to grow inside the ScrollView",
+  /<ScrollView/.test(flowRaw) && !/style=\{styles\.body\} maxFontSizeMultiplier/.test(flowRaw));
+check("touch targets are unchanged at 44pt", (flowRaw.match(/minHeight: 44/g) || []).length >= 2);
+check("Dynamic Type is never disabled", !/allowFontScaling=\{false\}/.test(flowRaw));
+check("the shared scales the tour relies on exist",
+  /screenTitle: [\d.]+/.test(dtSrc) && /screenSubtitle: [\d.]+/.test(dtSrc) && /cardAction: [\d.]+/.test(dtSrc));
+// Content, flow and persistence must be untouched by a layout fix.
+check("still exactly three slides", slideTitles.length === 3);
+check("the copy is unchanged", /Explore the Sky/.test(flowRaw) && /Learn and Discover/.test(flowRaw) && /Save What Matters/.test(flowRaw));
+check("Next/Done labelling is unchanged", /isLast \? "Done" : "Next"/.test(flowRaw));
+check("Next is still never conditionally disabled",
+  !/styles\.cta[\s\S]{0,200}disabled=/.test(flowRaw));
+check("persistence + replay wiring untouched",
+  /onDone=\{handleOnboardingDone\}/.test(appRaw) && /function handleReplayTutorial\(\) \{\s*setRoute\("onboarding"\);\s*\}/.test(appRaw));
+
 console.log(`\nOnboarding route self-test: ${pass} passed, ${fail} failed.`);
 process.exit(fail === 0 ? 0 : 1);
 

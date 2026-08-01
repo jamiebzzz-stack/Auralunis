@@ -21,6 +21,7 @@ import { LogoMark } from "@/components/LogoMark";
 import { AuraLunisColors } from "@/theme/tokens";
 import { tapLight } from "@/services/HapticService";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
+import { CHROME_TEXT_SCALE } from "@/theme/dynamicType";
 
 type Slide = {
   eyebrow: string;
@@ -134,7 +135,13 @@ export function OnboardingFlow({ visible, onDone }: Props) {
             accessibilityLabel="Back"
             accessibilityState={{ disabled: step === 0 }}
           >
-            <Text style={[styles.backText, step === 0 && styles.backTextHidden]}>‹ Back</Text>
+            <Text
+              style={[styles.backText, step === 0 && styles.backTextHidden]}
+              maxFontSizeMultiplier={CHROME_TEXT_SCALE.cardAction}
+              numberOfLines={1}
+            >
+              ‹ Back
+            </Text>
           </Pressable>
 
           <View
@@ -159,7 +166,9 @@ export function OnboardingFlow({ visible, onDone }: Props) {
               accessibilityRole="button"
               accessibilityLabel="Skip the app tour"
             >
-              <Text style={styles.skipText}>Skip</Text>
+              <Text style={styles.skipText} maxFontSizeMultiplier={CHROME_TEXT_SCALE.cardAction} numberOfLines={1}>
+                Skip
+              </Text>
             </Pressable>
           )}
         </View>
@@ -175,8 +184,22 @@ export function OnboardingFlow({ visible, onDone }: Props) {
                 <LogoMark size={78} />
               </View>
             )}
-            <Text style={styles.eyebrow}>{slide.eyebrow}</Text>
-            <Text style={styles.title} accessibilityRole="header">
+            <Text style={styles.eyebrow} maxFontSizeMultiplier={CHROME_TEXT_SCALE.screenSubtitle} numberOfLines={1}>
+              {slide.eyebrow}
+            </Text>
+            {/* The tour used to apply NO Dynamic Type policy at all. At AX-XXXL a 30pt title
+                grew past 100pt and fragmented mid-word ("Explor / e the / Sky"). Capped with
+                the shared screenTitle scale, held to two lines, and allowed to shrink the last
+                bit rather than break a word. Default size is unaffected: the cap only binds
+                once the system scale exceeds it. */}
+            <Text
+              style={styles.title}
+              accessibilityRole="header"
+              maxFontSizeMultiplier={CHROME_TEXT_SCALE.screenTitle}
+              numberOfLines={2}
+              adjustsFontSizeToFit
+              minimumFontScale={0.75}
+            >
               {slide.title}
             </Text>
             <Text style={styles.body}>{slide.body}</Text>
@@ -202,7 +225,15 @@ export function OnboardingFlow({ visible, onDone }: Props) {
           >
             {/* ALWAYS enabled: no screen has a condition to satisfy, so this button can never
                 be dead. That dead button is exactly what stranded users in the old tour. */}
-            <Text style={styles.ctaText}>{isLast ? "Done" : "Next"}</Text>
+            <Text
+              style={styles.ctaText}
+              maxFontSizeMultiplier={CHROME_TEXT_SCALE.cardAction}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.8}
+            >
+              {isLast ? "Done" : "Next"}
+            </Text>
           </Pressable>
         </View>
       </View>
@@ -212,14 +243,25 @@ export function OnboardingFlow({ visible, onDone }: Props) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#040611", paddingHorizontal: 22 },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", height: 40 },
-  backHit: { minWidth: 64, minHeight: 44, justifyContent: "center" },
+  // minHeight, NOT height. A fixed 40pt row with unbounded 14pt labels overflowed at
+  // AX-XXXL and the Back/Skip text visually collided with the scrolling body beneath it.
+  // The row now grows to fit its own content, so the ScrollView always starts below it —
+  // spacing derived from the real chrome rather than a fixed offset tuned to one device.
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    minHeight: 40,
+    paddingVertical: 4,
+    flexShrink: 0,
+  },
+  backHit: { minWidth: 64, minHeight: 44, justifyContent: "center", flexShrink: 1 },
   backText: { color: AuraLunisColors.gold2, fontSize: 14, fontWeight: "800" },
   backTextHidden: { opacity: 0 },
-  dots: { flexDirection: "row", gap: 8, alignItems: "center" },
+  dots: { flexDirection: "row", gap: 8, alignItems: "center", flexShrink: 0, paddingHorizontal: 6 },
   dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "rgba(199,166,106,0.28)" },
   dotActive: { width: 22, backgroundColor: AuraLunisColors.gold },
-  skipHit: { minWidth: 64, minHeight: 44, alignItems: "flex-end", justifyContent: "center" },
+  skipHit: { minWidth: 64, minHeight: 44, alignItems: "flex-end", justifyContent: "center", flexShrink: 1 },
   skipText: { color: AuraLunisColors.muted, fontSize: 14, fontWeight: "800" },
   scroll: { flex: 1 },
   content: { paddingTop: 18, paddingBottom: 20, flexGrow: 1, justifyContent: "center" },
