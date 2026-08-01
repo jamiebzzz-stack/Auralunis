@@ -2,7 +2,7 @@
   "expo": {
     "name": "AuraLunis",
     "slug": "auralunis",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "scheme": "auralunis",
     "userInterfaceStyle": "dark",
@@ -12,6 +12,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.ocoeestudios.auralunis",
+      "buildNumber": "7",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSLocationWhenInUseUsageDescription": "AuraLunis uses your location to calculate the sky, moon, planets, and visible events above you.",

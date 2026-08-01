@@ -211,7 +211,20 @@ for (const [name, profile] of profiles) {
   );
 }
 check("EXPO_PUBLIC_FORCE_PREMIUM appears nowhere in eas.json", !/FORCE_PREMIUM/.test(easRaw));
-check("the production profile is otherwise untouched", eas.build.production && eas.build.production.autoIncrement === true);
+// The production profile must still EXIST and carry no premium-unlock flag (that is what this
+// guard is for). It originally pinned autoIncrement === true; the 1.0.1 release deliberately
+// sets it to FALSE so EAS cannot advance past the intended build number, so the assertion now
+// pins that release requirement instead — strictly stronger than "unchanged".
+check("the production profile still exists", !!eas.build.production);
+check(
+  "production autoIncrement is pinned OFF so EAS cannot advance past the intended build",
+  eas.build.production.autoIncrement === false,
+  String(eas.build.production.autoIncrement)
+);
+check(
+  "the production profile carries no env block at all",
+  eas.build.production.env === undefined
+);
 check("submission config is untouched", eas.submit && eas.submit.production && eas.submit.production.ios.ascAppId === "6784049770");
 
 // The in-flight guards must survive this edit untouched.
