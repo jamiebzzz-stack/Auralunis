@@ -216,9 +216,19 @@ check("EXPO_PUBLIC_FORCE_PREMIUM appears nowhere in eas.json", !/FORCE_PREMIUM/.
 // sets it to FALSE so EAS cannot advance past the intended build number, so the assertion now
 // pins that release requirement instead — strictly stronger than "unchanged".
 check("the production profile still exists", !!eas.build.production);
+// Build numbers come from EAS's REMOTE counter (cli.appVersionSource === "remote"), not from
+// app.json — EAS ignores ios.buildNumber entirely in that mode. With remote as the source of
+// truth, autoIncrement must be ON: the remote counter holds the last uploaded build and
+// autoIncrement advances it by exactly one per production build. It is the PAIR that makes the
+// next build deterministic, so assert both rather than either alone.
 check(
-  "production autoIncrement is pinned OFF so EAS cannot advance past the intended build",
-  eas.build.production.autoIncrement === false,
+  "EAS build numbers come from the remote counter, not app config",
+  eas.cli && eas.cli.appVersionSource === "remote",
+  String(eas.cli && eas.cli.appVersionSource)
+);
+check(
+  "production autoIncrement is ON so the remote counter advances exactly one per build",
+  eas.build.production.autoIncrement === true,
   String(eas.build.production.autoIncrement)
 );
 check(
