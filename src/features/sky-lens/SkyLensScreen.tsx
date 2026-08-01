@@ -1517,8 +1517,8 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 30,
-    borderWidth: 2.5,
-    backgroundColor: "rgba(7,10,19,0.86)",
+    borderWidth: 1.75,
+    backgroundColor: "rgba(7,10,19,0.90)",
     alignItems: "center",
     justifyContent: "center"
   },
@@ -1561,7 +1561,7 @@ const styles = StyleSheet.create({
   },
   // Line height pinned to the box so the glyph sits optically centred rather than riding
   // high on its own ascender — what made ✕ and 🕐 look cramped in a 38pt circle.
-  iconBtnText: { color: "#FFF", fontSize: 15, fontWeight: "800", lineHeight: 18, textAlign: "center" },
+  iconBtnText: { color: "rgba(255,255,255,0.88)", fontSize: 15, fontWeight: "800", lineHeight: 18, textAlign: "center" },
   // UI CHROME — lightened. The panels were dense enough to read as opaque slabs sitting
   // ON the sky. Dropping the fills and adding a hairline gold edge lets the sky show
   // through, so the chrome reads as GLASS resting over the scene rather than as a lid.
@@ -1633,7 +1633,7 @@ const styles = StyleSheet.create({
   // mode line and the satellite line step DOWN in size and opacity rather than the reading
   // stepping up, which keeps the strip the same height and the chrome just as calm.
   hudText: { fontSize: 17, fontWeight: "800", fontVariant: ["tabular-nums"], textShadowColor: "rgba(0,0,0,0.55)", textShadowRadius: 2 },
-  hudSub: { color: AuraLunisColors.muted, fontSize: 12.5, fontWeight: "500", marginTop: 2, opacity: 0.68, letterSpacing: 0.1 },
-  hudSubSmall: { color: AuraLunisColors.muted, fontSize: 11.5, fontWeight: "500", marginTop: 1, opacity: 0.56, letterSpacing: 0.2 },
+  hudSub: { color: AuraLunisColors.muted, fontSize: 12.5, fontWeight: "500", marginTop: 2, opacity: 0.60, letterSpacing: 0.1 },
+  hudSubSmall: { color: AuraLunisColors.muted, fontSize: 11.5, fontWeight: "500", marginTop: 1, opacity: 0.52, letterSpacing: 0.2 },
   bottom: { position: "absolute", left: 0, right: 0, bottom: 0 },
 });

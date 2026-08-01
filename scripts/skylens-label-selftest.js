@@ -412,6 +412,43 @@ assert("the card is still anchored to the bottom and compact",
 assert("HUD close/utility buttons keep their accessibility labels",
   /accessibilityLabel="Close Sky Lens"/.test(screenSrc));
 
+console.log("\n── Layer-pill states and asterism names (micro-polish) ──");
+const tokensSrc = src("src/theme/tokens.ts");
+const conData = src("src/features/sky-lens/data/constellationLines.ts");
+
+// Selected vs unselected must stay unmistakable, and unselected must NOT be gold — a row
+// of gold-bordered pills read as "all active" with one merely filled.
+assert("the ON pill is filled with the accent", /on && \{ backgroundColor: accent \}/.test(barSrc));
+assert("the ON label flips to dark on gold", /labelOn: \{ color: "#030816"/.test(barSrc));
+assert("inactive pills use the NEUTRAL border token, not a gold tint",
+  /borderColor: on \? accent : AuraLunisColors\.borderSubtle/.test(barSrc));
+assert("…and that token really is neutral, not gold",
+  /borderSubtle: "rgba\(192,198,212/.test(tokensSrc));
+assert("the Layers button follows the same rule",
+  /borderColor: activeExtras > 0 \? accent : AuraLunisColors\.borderSubtle/.test(barSrc));
+assert("the inactive label is quieter than the active one but still legible",
+  num(/label: \{\s*\n\s*color: "rgba\(231,236,248,([\d.]+)\)"/, barSrc, "inactive label alpha") >= 0.7);
+assert("every pill keeps its accessibility name and on/off state",
+  /accessibilityLabel=\{`\$\{def\.label\} layer, \$\{on \? "on" : "off"\}`\}/.test(barSrc) &&
+  /accessibilityState=\{\{ selected: on \}\}/.test(barSrc));
+
+// Asterism naming must survive any label restraint.
+assert("Big Dipper · Ursa Major survives", /familiarName: "Big Dipper"/.test(conData) && /"Ursa Major"/.test(conData));
+assert("Little Dipper · Ursa Minor survives", /familiarName: "Little Dipper"/.test(conData) && /"Ursa Minor"/.test(conData));
+assert("Polaris keeps its North Star association",
+  /Polaris/.test(conData) && (/North Star/i.test(conData) || /anchorStarName/.test(conSrc)));
+assert("secondary star restraint did NOT hide labels globally",
+  /showLabels = true/.test(starSrc) && !/showLabels = false/.test(starSrc));
+assert("the star label opacity stayed above the legibility floor",
+  num(/fill=\{palette\.starLabel\}[^>]*opacity=\{([\d.]+)\}/, starSrc, "star opacity") >= 0.7);
+
+// The bottom-right control: quieter ring, same everything else.
+assert("the shutter keeps its 60pt box and position", /width: 60,\s*\n\s*height: 60,/.test(screenSrc) && /right: 20,/.test(screenSrc));
+assert("the shutter ring is no longer the heaviest element on screen",
+  num(/shutterBtn: \{[\s\S]*?borderWidth: ([\d.]+),/, screenSrc, "shutter border") < 2.5);
+assert("utility glyphs are contained rather than pure-white competing",
+  /iconBtnText: \{ color: "rgba\(255,255,255,0\.88\)"/.test(screenSrc));
+
 if (failed) {
   console.error(`Sky Lens label-avoidance self-test: ${failed} failure(s).`);
   process.exit(1);

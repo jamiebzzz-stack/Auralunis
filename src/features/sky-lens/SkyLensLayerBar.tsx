@@ -55,7 +55,7 @@ export function SkyLensLayerBar({ active, nightMode, onToggle, onOpenLayers }: P
             onPress={() => onToggle(def.key)}
             style={[
               styles.pill,
-              { borderColor: on ? accent : "rgba(217,168,78,0.22)" },
+              { borderColor: on ? accent : AuraLunisColors.borderSubtle },
               on && { backgroundColor: accent },
             ]}
           >
@@ -89,7 +89,7 @@ export function SkyLensLayerBar({ active, nightMode, onToggle, onOpenLayers }: P
         style={[
           styles.pill,
           styles.layersPill,
-          { borderColor: activeExtras > 0 ? accent : "rgba(217,168,78,0.22)" },
+          { borderColor: activeExtras > 0 ? accent : AuraLunisColors.borderSubtle },
         ]}
       >
         {/* The button stays DARK regardless of state — recolouring the whole glyph gold
@@ -159,8 +159,10 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(5,13,29,0.62)",
   },
   layersIcon: { color: "rgba(231,236,248,0.92)", fontSize: 17, fontWeight: "700" },
+  // Inactive label: quieter than the selected one, but still comfortably legible. The ON
+  // label (labelOn) is unchanged — dark on filled gold — so selection stays unmistakable.
   label: {
-    color: "rgba(231,236,248,0.92)",
+    color: "rgba(231,236,248,0.78)",
     fontSize: 15,
     fontWeight: "600",
     letterSpacing: 0.1,
