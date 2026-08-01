@@ -20,32 +20,18 @@ try {
   // not available in Expo Go
 }
 
-// Local-testing override: unlock premium when RevenueCat isn't available (e.g. Expo
-// Go) so the gated UI is testable WITHOUT a real purchase. Double-guarded — it is
-// only ever true when BOTH this flag is on AND the build is a dev build (`__DEV__` is
-// compiled to false in release), so it can never ship the App Store app unlocked.
-// SHIP CHECK: This is safe — __DEV__ compiles to `false` in release builds.
-// The App Store binary will NEVER have premium unlocked via this flag.
-const ALLOW_DEV_PREMIUM = true;
-const devPremium = (): boolean => __DEV__ && ALLOW_DEV_PREMIUM;
-
-// TEMPORARY preview override. The EAS "preview" build profile sets
-// EXPO_PUBLIC_FORCE_PREMIUM=1 (see eas.json) so an internal/standalone preview build
-// shows the premium sky WITHOUT a sandbox purchase. The "production" profile does NOT
-// set this env, so the App Store build's bundle has it undefined → stays correctly
-// gated. EXPO_PUBLIC_* is inlined at build time. Remove this const + the eas.json env
-// when the preview demo is no longer needed.
-const FORCE_PREMIUM = process.env.EXPO_PUBLIC_FORCE_PREMIUM === "1";
-
 async function fetchMembership(): Promise<{ isPremium: boolean; kind: MembershipKind }> {
-  // DEV BYPASS: in a dev build, unlock premium unconditionally so every gated feature
-  // is visible/testable on device without a purchase. Short-circuits BEFORE RevenueCat
-  // — previously the bypass only fired when RC was unavailable/errored, so on a working
-  // dev build getCustomerInfo() succeeded, returned false, and the app stayed locked.
-  // Double-guarded (__DEV__ compiles to false in release), so it can never ship the
-  // App Store app unlocked. Flip ALLOW_DEV_PREMIUM to false to exercise the paywall.
-  if (devPremium() || FORCE_PREMIUM) return { isPremium: true, kind: "subscription" }; // dev/preview demo shows the full subscriber UI
-  if (!Purchases) return { isPremium: false, kind: "none" }; // RevenueCat unavailable in a release build
+  // THERE IS NO BYPASS. Premium is granted by exactly one thing: an active entitlement
+  // returned by RevenueCat. A dev flag (ALLOW_DEV_PREMIUM) and a build-time env override
+  // (EXPO_PUBLIC_FORCE_PREMIUM, set by the EAS "preview" profile) used to short-circuit
+  // to premium here. Both were dead-code-eliminated from the App Store bundle, so no
+  // shipped build was ever unlocked — but their correctness depended entirely on which
+  // EAS profile produced the submission, and one wrong profile would have shipped the
+  // app fully unlocked. That is not a risk worth carrying for a testing convenience.
+  //
+  // To exercise gated UI without a purchase, use a StoreKit sandbox account. To exercise
+  // the paywall, use one without an entitlement. Both paths test what actually ships.
+  if (!Purchases) return { isPremium: false, kind: "none" }; // RevenueCat unavailable (e.g. Expo Go) — fail CLOSED
 
   try {
     // The provider's first effect may run before App.tsx's initialization effect. Make

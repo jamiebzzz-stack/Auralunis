@@ -153,6 +153,76 @@ check(
     paywall.includes("{disclosure}")
 );
 
+
+// ══════════════════════════════════════════════════════════════════════════════════════
+// NO PREMIUM BYPASS. Premium must be granted by exactly one thing: an active entitlement
+// returned by RevenueCat.
+//
+// A dev flag (ALLOW_DEV_PREMIUM) and a build-time env override (EXPO_PUBLIC_FORCE_PREMIUM,
+// set by the EAS "preview" profile) used to short-circuit fetchMembership to premium. Both
+// were dead-code-eliminated from the App Store bundle, so no shipped build was ever
+// unlocked — but their correctness depended entirely on which EAS profile produced the
+// submission. These guards make a reintroduction fail here rather than in review.
+const entitlement = fs.readFileSync(path.join(root, "src/context/EntitlementContext.tsx"), "utf8");
+const easRaw = fs.readFileSync(path.join(root, "eas.json"), "utf8");
+const eas = JSON.parse(easRaw);
+// Comment-stripped: the file documents what was removed, and that prose must not trip the guard.
+const entitlementCode = entitlement
+  .replace(/\/\*[\s\S]*?\*\//g, "")
+  .split("\n").filter((l) => !/^\s*\/\//.test(l)).join("\n");
+
+check("no development constant can force premium", !/ALLOW_DEV_PREMIUM/.test(entitlementCode));
+check("no bypass helper survives", !/devPremium/.test(entitlementCode));
+check("no environment variable can force premium", !/FORCE_PREMIUM|process\.env\.EXPO_PUBLIC_FORCE/.test(entitlementCode));
+check("no __DEV__ short-circuit grants premium", !/__DEV__[\s\S]{0,120}isPremium: true/.test(entitlementCode));
+check(
+  "premium is derived ONLY from an active RevenueCat entitlement",
+  /const isPremium = Boolean\(info\.entitlements\.active\[RevenueCatIds\.entitlement\]\)/.test(entitlementCode) &&
+    !/isPremium: true/.test(entitlementCode),
+  "the only `true` must come from the entitlements map"
+);
+check(
+  "missing RevenueCat SDK fails CLOSED",
+  /if \(!Purchases\) return \{ isPremium: false, kind: "none" \}/.test(entitlementCode)
+);
+check(
+  "unconfigured RevenueCat fails CLOSED",
+  /configuration\.status !== "configured"\) return \{ isPremium: false, kind: "none" \}/.test(entitlementCode)
+);
+check(
+  "an SDK error fails CLOSED",
+  /catch \{[\s\S]{0,120}return \{ isPremium: false, kind: "none" \}/.test(entitlementCode)
+);
+check(
+  "configuration is awaited BEFORE CustomerInfo is queried",
+  entitlementCode.indexOf("await configureRevenueCat()") > 0 &&
+    entitlementCode.indexOf("await configureRevenueCat()") < entitlementCode.indexOf("getCustomerInfo()")
+);
+
+// eas.json — no profile may carry a premium-unlock flag.
+const profiles = Object.entries(eas.build || {});
+check("eas.json still defines its build profiles", profiles.length >= 2, `${profiles.length} profiles`);
+for (const [name, profile] of profiles) {
+  const env = profile && profile.env ? Object.keys(profile.env) : [];
+  check(
+    `eas profile "${name}" carries no premium-unlock env flag`,
+    !env.some((k) => /PREMIUM|UNLOCK|ENTITLE/i.test(k)),
+    env.join(",")
+  );
+}
+check("EXPO_PUBLIC_FORCE_PREMIUM appears nowhere in eas.json", !/FORCE_PREMIUM/.test(easRaw));
+check("the production profile is otherwise untouched", eas.build.production && eas.build.production.autoIncrement === true);
+check("submission config is untouched", eas.submit && eas.submit.production && eas.submit.production.ios.ascAppId === "6784049770");
+
+// The in-flight guards must survive this edit untouched.
+check("purchase-tier in-flight guard intact", /_purchaseTierInFlight/.test(service));
+check("package-purchase in-flight guard intact", /_purchasePackageInFlight/.test(service));
+check("restore in-flight guard intact", /_restoreInFlight/.test(service));
+check(
+  "every latch clears on BOTH success and failure",
+  (service.match(/run\.catch\(\(\) => \{\}\)\.then\(\(\) => \{ _\w+ = null; \}\)/g) || []).length >= 3
+);
+
 console.log("");
 console.log(`RevenueCat preflight: ${passes.length} pass, ${failures.length} fail.`);
 

@@ -15,10 +15,7 @@
       }
     },
     "preview": {
-      "distribution": "internal",
-      "env": {
-        "EXPO_PUBLIC_FORCE_PREMIUM": "1"
-      }
+      "distribution": "internal"
     },
     "production": {
       "autoIncrement": true
