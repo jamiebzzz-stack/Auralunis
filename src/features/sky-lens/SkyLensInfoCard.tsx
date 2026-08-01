@@ -2,7 +2,7 @@ import React, { useEffect, useRef, type ReactNode } from "react";
 import { Animated, Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { AuraLunisColors } from "@/theme/tokens";
 import { useTourTarget } from "@/features/tour/TourTargetRegistry";
-import { FIRST_LIGHT_TARGETS } from "@/features/first-light/firstLightSteps";
+import { TOUR_TARGETS } from "@/features/tour/tourTargets";
 import type { SelectedObject } from "./SkyLensVisual";
 
 // expo-blur accessor (same resolution pattern as GlassPanel) — real system blur on
@@ -36,7 +36,7 @@ export function SkyLensInfoCard({ object, nightMode, saved, showPoetry = true, o
   const slide = useRef(new Animated.Value(0)).current;
   // Lets a guided tour spotlight the real Save button. Registration is a no-op when no tour
   // registry is mounted, so this card behaves identically outside a tour.
-  const saveTarget = useTourTarget(FIRST_LIGHT_TARGETS.infoCardSave);
+  const saveTarget = useTourTarget(TOUR_TARGETS.infoCardSave);
   useEffect(() => {
     if (!object) return;
     slide.setValue(0);

@@ -13,14 +13,18 @@ const GestureHandlerRootView = RNGestureHandlerRootView as unknown as React.Comp
 import { NavigationContainer, createNavigationContainerRef } from "@react-navigation/native";
 import { RootTabs, type RootTabParamList } from "@/navigation/RootTabs";
 import { TourTargetProvider } from "@/features/tour/TourTargetRegistry";
-import { FirstLightProvider, useFirstLight } from "@/features/first-light/FirstLightContext";
-import { FirstLightRootOverlay } from "@/features/first-light/FirstLightRootOverlay";
+import { FirstLightProvider } from "@/features/first-light/FirstLightContext";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ThreeTierPaywallModal } from "@/features/paywall/ThreeTierPaywallModal";
 import { AuraLunisSettingsProvider } from "@/state/AuraLunisSettingsContext";
 import { AuraLunisVaultProvider } from "@/state/AuraLunisVaultContext";
 import { OnboardingFlow } from "@/features/onboarding/OnboardingFlow";
+import { BirthChartPrompt } from "@/features/onboarding/BirthChartPrompt";
+import {
+  BIRTH_CHART_PROMPT_KEY,
+  shouldShowBirthChartPrompt,
+} from "@/features/onboarding/birthChartPromptRules";
 import { LogoMark } from "@/components/LogoMark";
 import { OnboardingProvider, useOnboarding } from "@/context/OnboardingContext";
 import {
@@ -71,32 +75,6 @@ function goToSkyTab(attempt = 0) {
   setTimeout(() => goToSkyTab(attempt + 1), NAV_READY_RETRY_MS);
 }
 
-/**
- * Resolves the tour's capability set AT THE APP ROOT, as soon as entitlement is known.
- *
- * Previously capabilities were only reported once Sky Lens mounted, so the Welcome step opened
- * against the 7-step default list and the indicator visibly jumped from "Step 1 of 7" to
- * "Step 2 of 9". Reporting entitlement here means the mission length is final before the offer
- * is even shown. Sky Lens still reports the things only it can know (motion, save target).
- */
-function FirstLightCapabilityBridge() {
-  const { isPremium, isLoading } = useEntitlement();
-  const firstLight = useFirstLight();
-  const reportCapabilities = firstLight?.reportCapabilities;
-  const markCapabilitiesResolved = firstLight?.markCapabilitiesResolved;
-
-  useEffect(() => {
-    if (!reportCapabilities || !markCapabilitiesResolved || isLoading) return;
-    // The tutorial is the same five screens for everyone, so nothing here changes its shape.
-    // This exists only so the offer waits for entitlement to SETTLE before presenting — which
-    // is what stops "Step 1 of 5" opening on a provisional total.
-    reportCapabilities({ isPremium });
-    markCapabilitiesResolved();
-  }, [reportCapabilities, markCapabilitiesResolved, isPremium, isLoading]);
-
-  return null;
-}
-
 // Bridges the global PaywallNavigationContext to App.tsx's local paywallVisible state.
 // Mounted inside PaywallNavigationProvider so it can read the context.
 function PaywallBridge({ onOpen }: { onOpen: () => void }) {
@@ -143,6 +121,11 @@ export default function App() {
   // "loading" until the persisted flag + existing-user migration condition are resolved.
   const [route, setRoute] = useState<LaunchRoute>("loading");
   const [paywallVisible, setPaywallVisible] = useState(false);
+  // Captured AT BOOT. The birth-chart prompt uses this so it can never appear on the same
+  // launch the tour was completed on — which would just recreate back-to-back prompts.
+  const [onboardingCompleteAtBoot, setOnboardingCompleteAtBoot] = useState(false);
+  const [birthChartPromptAnswered, setBirthChartPromptAnswered] = useState(true);
+  const [hasBirthData, setHasBirthData] = useState(true);
 
   useEffect(() => {
     let active = true;
@@ -160,7 +143,7 @@ export default function App() {
       // onboarding (treat as a fresh install) rather than skipping it silently.
       let signals = { onboardingComplete: false, hasExistingUserData: false };
       try {
-        const keys = [ONBOARDING_SEEN_KEY, ...EXISTING_USER_DATA_KEYS];
+        const keys = [ONBOARDING_SEEN_KEY, BIRTH_CHART_PROMPT_KEY, ...EXISTING_USER_DATA_KEYS];
         const entries = await AsyncStorage.multiGet(keys);
         const store: Record<string, string | null> = {};
         for (const [key, value] of entries) store[key] = value;
@@ -168,7 +151,13 @@ export default function App() {
           onboardingComplete: Boolean(store[ONBOARDING_SEEN_KEY]),
           hasExistingUserData: hasExistingUserData(store),
         };
+        if (active) {
+          setOnboardingCompleteAtBoot(signals.onboardingComplete);
+          setBirthChartPromptAnswered(Boolean(store[BIRTH_CHART_PROMPT_KEY]));
+          setHasBirthData(hasExistingUserData(store));
+        }
       } catch {
+        // Fail toward NOT prompting: the defaults above already say "answered".
         // Leave signals at the fail-open default (new install → onboarding).
       }
 
@@ -203,9 +192,25 @@ export default function App() {
     setRoute("app");
   }
 
-  // Settings → "Replay Tutorial": re-show onboarding over the running app.
+  // Settings → "Replay App Tour": re-show the three-screen tour over the running app. It never
+  // clears the onboarding flag, birth data, Vault data, entitlement, or the birth-chart answer —
+  // handleOnboardingDone simply re-affirms the flag when the tour closes.
   function handleReplayTutorial() {
     setRoute("onboarding");
+  }
+
+  const birthChartPromptVisible = shouldShowBirthChartPrompt({
+    appReady: route === "app",
+    onboardingCompleteAtBoot,
+    promptAnswered: birthChartPromptAnswered,
+    hasBirthData,
+  });
+
+  // BOTH answers are remembered. "Maybe Later" is as final as "Create Chart": nobody is asked
+  // twice, and neither answer touches birth data, Vault data, or entitlement.
+  function answerBirthChartPrompt() {
+    setBirthChartPromptAnswered(true);
+    void AsyncStorage.setItem(BIRTH_CHART_PROMPT_KEY, "true").catch(() => {});
   }
 
   // Also callable from Settings → Manage Membership
@@ -296,10 +301,10 @@ export default function App() {
       <OnboardingProvider>
         <AuraLunisSettingsProvider>
           <AuraLunisVaultProvider>
-          {/* Guided-tour infrastructure. TourTargetProvider only holds a registry of measured
-              control positions; FirstLightProvider owns the (optional) First Light tour and one
-              namespaced storage key. Neither touches onboarding, entitlement, or Vault state,
-              and `enabled` keeps the First Light offer from ever sitting over onboarding. */}
+          {/* TourTargetProvider holds a registry of measured control positions (reusable
+              infrastructure, unused by the app tour). FirstLightProvider now owns only the
+              contextual-tip state and its one namespaced storage key. Neither touches
+              onboarding, entitlement, or Vault state. */}
           <TourTargetProvider>
           <FirstLightProvider enabled={route === "app"}>
             <NavigationContainer ref={navigationRef}>
@@ -320,12 +325,13 @@ export default function App() {
               onDone={handleOnboardingDone}
             />
 
-            {/* First Light — the OPTIONAL hands-on tour offered after onboarding. It never
-                blocks the app: the offer has a "Skip for now" that is remembered, and the tour
-                itself can be left at any step. The existing tutorial stays exactly where it
-                was (Settings → Replay Tutorial) as the quick reference. */}
-            <FirstLightCapabilityBridge />
-            <FirstLightRootOverlay />
+            {/* Birth-chart setup: separate, optional, and never on the same launch as the
+                tour. See birthChartPrompt.ts for the rule. */}
+            <BirthChartPrompt
+              visible={birthChartPromptVisible}
+              onAnswer={answerBirthChartPrompt}
+              onCreate={() => goToSkyTab()}
+            />
 
             {/* Opaque boot cover — keeps the Home/Birth Chart tab from flashing before the
                 onboarding-vs-app decision resolves. Rendered last so it sits on top. */}

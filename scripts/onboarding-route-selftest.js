@@ -53,6 +53,9 @@ const eq = (n, a, b) => (a === b ? ok(n) : bad(`${n} — got ${JSON.stringify(a)
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), "utf8");
 const has = (hay, needle, n) => (hay.includes(needle) ? ok(n) : bad(`${n} — expected present: ${needle}`));
 const hasnt = (hay, needle, n) => (!hay.includes(needle) ? ok(n) : bad(`${n} — should be absent: ${needle}`));
+const check = (n, cond, detail) => (cond ? ok(n) : bad(`${n}${detail ? " — " + detail : ""}`));
+const eqArr = (n, a, b) =>
+  check(n, JSON.stringify(a) === JSON.stringify(b), `got ${JSON.stringify(a)} expected ${JSON.stringify(b)}`);
 
 // Strip // line comments and /* */ block comments so copy scans never trip on the file's
 // own explanatory comments (which legitimately name the forbidden terms).
@@ -135,7 +138,10 @@ for (const term of ["augmented reality", "camera overlay", "live camera", "camer
 hasnt(stripComments(flowRaw), "camera", "onboarding copy contains no 'camera' language at all");
 has(flowRaw, "fully rendered planetarium", "Sky Lens described truthfully as a fully rendered planetarium");
 has(flowRaw, "motion sensors", "Sky Lens copy references device motion sensors");
-has(flowRaw, "Create My Birth Chart", "final CTA is 'Create My Birth Chart'");
+// The tour no longer ends by funnelling everyone into one feature. Birth-chart setup is a
+// SEPARATE, optional prompt (BirthChartPrompt) that never appears on the same launch.
+has(flowRaw, "Done", "the final screen ends the tour with Done");
+hasnt(flowRaw, "Create My Birth Chart", "the tour no longer funnels into birth-chart creation");
 
 console.log("\n── Onboarding is purely informational (no paywall / trial / permission asks) ──");
 hasnt(flowRaw, "Paywall", "onboarding does not import or open the paywall");
@@ -148,5 +154,120 @@ has(flowRaw, "useSafeAreaInsets", "onboarding is safe-area aware");
 has(flowRaw, 'accessibilityRole="header"', "onboarding titles are announced as headers");
 has(flowRaw, 'accessibilityRole="progressbar"', "onboarding progress is exposed to VoiceOver");
 
+
+// ══════════════════════════════════════════════════════════════════════════════════════
+console.log("\n── The app tour: exactly one, exactly three informational screens ──");
+
+const settingsRaw = read("src/screens/SettingsScreen.tsx");
+const appRaw = read("App.tsx");
+const promptRaw = read("src/features/onboarding/BirthChartPrompt.tsx");
+const promptRulesRaw = read("src/features/onboarding/birthChartPromptRules.ts");
+
+// ── Exactly three screens ─────────────────────────────────────────────────────────
+const slideTitles = [...flowRaw.matchAll(/title: "([^"]+)"/g)].map((m) => m[1]);
+eqArr("the tour has exactly three screens, in order", slideTitles,
+  ["Explore the Sky", "Learn and Discover", "Save What Matters"]);
+has(flowRaw, "APP_TOUR_SCREEN_COUNT", "the screen count is exported for assertion");
+check("the eyebrow/title/body count agrees",
+  (flowRaw.match(/eyebrow: "/g) || []).length === 3);
+
+// ── Screen content ────────────────────────────────────────────────────────────────
+check("screen 1 covers Sky Lens, objects and tapping for detail",
+  /Sky Lens/.test(flowRaw) && /planets, bright stars and constellations/i.test(flowRaw) &&
+  /Tap any object to open its card/i.test(flowRaw));
+check("screen 2 covers lessons, levels and progress",
+  /Learn tab/.test(flowRaw) && /advanced/i.test(flowRaw) && /progress is remembered/i.test(flowRaw));
+check("screen 3 covers the Vault, saved discoveries, lessons and notes",
+  /Vault/.test(flowRaw) && /saved objects/i.test(flowRaw) && /lessons you have marked/i.test(flowRaw) &&
+  /sky notes/i.test(flowRaw));
+
+// ── Buttons ───────────────────────────────────────────────────────────────────────
+check("the primary button is Next, and Done on the last screen",
+  /isLast \? "Done" : "Next"/.test(flowRaw));
+check("Skip is offered on screens 1-2 and replaced by Done on screen 3",
+  /\{isLast \? \(\s*<View style=\{styles\.skipHit\} \/>/.test(flowRaw));
+check("Back is disabled only on the first screen",
+  /disabled=\{step === 0\}/.test(flowRaw));
+check("REGRESSION: the primary button is never conditionally disabled",
+  !/disabled=\{[^}]*\}\s*[^>]*style=\{styles\.cta/.test(flowRaw) && !/styles\.cta[\s\S]{0,200}disabled/.test(flowRaw),
+  "Next/Done must always be enabled");
+
+// ── No dependency can block a screen ──────────────────────────────────────────────
+for (const forbidden of [
+  "DeviceMotion", "Magnetometer", "Accelerometer", "Gyroscope",
+  "expo-location", "useObserverLocation", "astronomy-engine",
+  "projectTarget", "spotlightRect", "useTourTarget", "TourOverlay",
+  "useAuraLunisVault", "addItem", "VaultEncryption",
+  "useEntitlement", "openPaywall", "Purchases.", "AuraLunis Premium",
+  "setTimeout", "setInterval",
+]) {
+  hasnt(flowRaw, forbidden, `the app tour has no dependency on ${forbidden}`);
+}
+
+// ── Exactly ONE tour, and no second prompt after it ───────────────────────────────
+check("REGRESSION: the First Light tour surface is gone",
+  !fs.existsSync(path.join(ROOT, "src/features/first-light/FirstLightRootOverlay.tsx")) &&
+  !fs.existsSync(path.join(ROOT, "src/features/first-light/firstLightSteps.ts")),
+  "a second tutorial must not exist");
+hasnt(appRaw, "FirstLightRootOverlay", "no second tutorial is mounted at the app root");
+check("REGRESSION: nothing offers a second tour after the first",
+  !/offerVisible/.test(appRaw) && !/beginTour|resumeTour|restartTour/.test(appRaw),
+  "a fresh install must meet exactly one walkthrough");
+has(appRaw, "<OnboardingFlow", "the one tour is mounted");
+check("the tour shows only on the onboarding route",
+  /visible=\{route === "onboarding"\}/.test(appRaw));
+
+// ── Completion / skip persist, and neither replays ────────────────────────────────
+check("both completing and skipping run the same done handler",
+  /onDone=\{handleOnboardingDone\}/.test(appRaw) && /function skip\(\)/.test(flowRaw) &&
+  /onDone\(\)/.test(flowRaw));
+has(appRaw, "markOnboardingSeen()", "finishing persists the flag");
+check("the persisted flag is never cleared",
+  !/removeItem\(ONBOARDING_SEEN_KEY|setItem\(ONBOARDING_SEEN_KEY, "false"/.test(appRaw),
+  "a completed tour must not replay automatically");
+check("the launch route only shows the tour when onboarding is incomplete",
+  /onboardingComplete: Boolean\(store\[ONBOARDING_SEEN_KEY\]\)/.test(appRaw));
+
+// ── Settings: exactly one replay entry ────────────────────────────────────────────
+const replayLabels = [...settingsRaw.matchAll(/secondaryButtonText\}>(Replay[^<]*)</g)].map((m) => m[1]);
+eqArr("Settings has exactly one replay button, named Replay App Tour", replayLabels, ["Replay App Tour"]);
+// Checked against comment-stripped source: the guard is about USER-FACING copy, and the file's
+// own comment legitimately explains which labels were removed and why.
+const settingsCode = stripComments(settingsRaw);
+hasnt(settingsCode, "Replay First Light", "the duplicate replay entry is gone");
+hasnt(settingsCode, "Replay Tutorial", "the old replay label is gone");
+hasnt(settingsCode, "First Light", "internal First Light naming is gone from Settings copy");
+check("replay is a pure UI request that resets nothing",
+  /onPress=\{replayTutorial\}/.test(settingsRaw) &&
+  !/removeItem|multiRemove|clear\(\)|resetForReplay/.test(settingsRaw),
+  "replay must not touch birth-chart, Vault, entitlement or purchase state");
+check("replay only re-routes to the tour",
+  /function handleReplayTutorial\(\) \{\s*setRoute\("onboarding"\);\s*\}/.test(appRaw));
+
+// ── Birth-chart setup: separate, optional, non-blocking ───────────────────────────
+has(promptRaw, "Create Chart", "the birth-chart prompt offers Create Chart");
+has(promptRaw, "Maybe Later", "…and Maybe Later");
+check("the prompt is NOT a screen inside the tour",
+  !/Create Chart|Maybe Later|birth/i.test(
+    flowRaw.slice(flowRaw.indexOf("APP_TOUR_SLIDES"), flowRaw.indexOf("APP_TOUR_SCREEN_COUNT"))),
+  "birth-chart setup must not be a tour screen");
+check("REGRESSION: the prompt never appears on the same launch as the tour",
+  /onboardingCompleteAtBoot/.test(promptRulesRaw) && /onboardingCompleteAtBoot !== true\) return false/.test(promptRulesRaw),
+  "back-to-back prompts are exactly what this rewrite removes");
+check("both answers are remembered equally",
+  /onAnswer\(\);/.test(promptRaw) && /promptAnswered === true\) return false/.test(promptRulesRaw));
+check("the prompt never appears when birth data already exists",
+  /hasBirthData === true\) return false/.test(promptRulesRaw));
+check("the prompt fails toward NOT asking",
+  /if \(!signals\) return false;/.test(promptRulesRaw));
+hasnt(promptRaw, "useEntitlement", "the prompt contains no entitlement check");
+hasnt(promptRaw, "openPaywall", "the prompt never opens the paywall");
+check("the prompt owns its own namespaced key",
+  /BIRTH_CHART_PROMPT_KEY = "auralunis\.birthChartPrompt\.answered"/.test(promptRulesRaw));
+check("answering the prompt writes only its own key",
+  /AsyncStorage\.setItem\(BIRTH_CHART_PROMPT_KEY/.test(appRaw) &&
+  !/AsyncStorage\.removeItem|multiRemove/.test(appRaw));
+
 console.log(`\nOnboarding route self-test: ${pass} passed, ${fail} failed.`);
 process.exit(fail === 0 ? 0 : 1);
+

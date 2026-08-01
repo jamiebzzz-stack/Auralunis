@@ -1,4 +1,9 @@
-// First Light guided-tour BEHAVIOUR self-test.
+// Contextual-tip + reusable-tour-infrastructure BEHAVIOUR self-test.
+//
+// The First Light guided tour is gone: there is one app tour now (three informational screens),
+// and its behaviour is asserted in scripts/onboarding-route-selftest.js. What remains here is
+// what survived it — the persisted tip document, the contextual-tip rules, and the reusable
+// tour primitives (tourMachine, tourGeometry, TourOverlay layout) that are kept for future use.
 //
 // This runs the REAL shipping modules — the pure ones are transpiled to CommonJS in memory
 // with the repo's own `typescript` dependency and executed, so there is no second copy of any
@@ -62,7 +67,6 @@ const src = (rel) => path.join(ROOT, "src", rel);
 const geometry = requireTs(src("features/tour/tourGeometry.ts"));
 const machine = requireTs(src("features/tour/tourMachine.ts"));
 const state = requireTs(src("features/first-light/firstLightState.ts"));
-const stepsModule = requireTs(src("features/first-light/firstLightSteps.ts"));
 const tips = requireTs(src("features/first-light/contextualTips.ts"));
 const storage = requireTs(src("features/first-light/firstLightStorage.ts"));
 const rules = requireTs(src("features/first-light/firstLightRules.ts"));
@@ -275,85 +279,6 @@ function machineSection() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════════════
-function stepsSection() {
-  console.log("\n── 4. The tutorial: five informational screens, identical for everyone ──");
-
-  const steps = stepsModule.buildFirstLightSteps();
-  const ids = steps.map((s) => s.id);
-
-  eq("exactly five screens, in order", ids,
-    ["welcome", "exploreSky", "learnAstronomy", "saveDiscoveries", "ready"]);
-  check("FIRST_LIGHT_STEP_COUNT agrees", stepsModule.FIRST_LIGHT_STEP_COUNT === 5);
-
-  // ── The core property: NOTHING can block a screen ──────────────────────────────
-  check("REGRESSION: no screen requires an in-app interaction",
-    steps.every((s) => s.requiresAction === false),
-    steps.filter((s) => s.requiresAction).map((s) => s.id).join(",") || "none");
-  check("REGRESSION: no screen spotlights a control",
-    steps.every((s) => s.targetKey === undefined));
-  check("REGRESSION: every screen is hosted at the app root, never inside Sky Lens",
-    steps.every((s) => s.host === "root"));
-  check("REGRESSION: no screen carries a save variant", steps.every((s) => s.variant === undefined));
-
-  // Continue is derived from requiresAction, so prove it directly through the machine.
-  const running = { status: "running", index: 0, satisfiedStepIds: [] };
-  for (let i = 0; i < steps.length; i += 1) {
-    check(`Next/Finish is enabled on screen ${i + 1} with NOTHING satisfied`,
-      machine.canContinue({ ...running, index: i }, steps) === true, steps[i].id);
-  }
-
-  // ── The tutorial is the SAME for everyone ─────────────────────────────────────
-  const shapes = [
-    {}, { isPremium: true }, { isPremium: false },
-    { isPremium: true, motionAvailable: true, timeControlAvailable: true, vaultSaveAvailable: true, learnAvailable: true },
-    { isPremium: false, motionAvailable: false, timeControlAvailable: false, vaultSaveAvailable: false, learnAvailable: false },
-  ].map((c) => stepsModule.buildFirstLightSteps(c).map((s) => s.id).join(","));
-  check("REGRESSION: capabilities cannot change the tutorial's shape",
-    new Set(shapes).size === 1, shapes.join(" | "));
-  check("…so premium and free see the same five screens",
-    stepsModule.buildFirstLightSteps({ isPremium: true }).length === 5 &&
-    stepsModule.buildFirstLightSteps({ isPremium: false }).length === 5);
-
-  // ── Copy: every screen has real, readable content ─────────────────────────────
-  for (const s of steps) {
-    check(`${s.id} has a heading and substantial copy`,
-      typeof s.heading === "string" && s.heading.length > 3 &&
-      typeof s.copy === "string" && s.copy.length > 40, s.id);
-  }
-  check("screen 1 welcomes by product name", /AuraLunis/.test(steps[0].heading + steps[0].copy));
-  check("screen 2 covers Sky Lens, the map, objects and cards",
-    /Sky Lens/.test(steps[1].copy) && /map/i.test(steps[1].copy) && /card/i.test(steps[1].copy));
-  check("screen 2 says tapping is available WITHOUT asking for it now",
-    /Tap any object/i.test(steps[1].copy) && /Nothing to do now/i.test(steps[1].copy));
-  check("screen 3 covers Learn, levels and saved progress",
-    /Learn/.test(steps[2].copy) && /progress/i.test(steps[2].copy));
-  check("screen 4 covers the Vault without demanding a save",
-    /Vault/.test(steps[3].copy) && /unless you choose/i.test(steps[3].copy));
-  check("screen 4 is honest that the Vault is Premium",
-    /Premium/.test(steps[3].copy));
-  check("screen 5 is a short completion message", /ready/i.test(steps[4].heading));
-  check("screen 5 points at Settings for a replay", /Replay First Light/.test(steps[4].copy));
-
-  // ── Labels ────────────────────────────────────────────────────────────────────
-  check("screens 1-4 are labelled Next", steps.slice(0, 4).every((s) => s.continueLabel === "Next"));
-  check("screen 5 is labelled Finish", steps[4].continueLabel === "Finish");
-
-  // ── No copy asks the user to do anything physical ─────────────────────────────
-  const forbidden = /move your phone|point your phone|sweep|turn around|find the|lock the sky|drag the sky|tap the highlighted|save it now|hold the sky/i;
-  for (const s of steps) {
-    check(`${s.id} never instructs a physical action`, !forbidden.test(s.copy), s.copy.slice(0, 60));
-  }
-
-  check("stepsForHost returns all five for root", stepsModule.stepsForHost(steps, "root").length === 5);
-  check("stepsForHost returns none for skyLens", stepsModule.stepsForHost(steps, "skyLens").length === 0);
-  check("findStepIndex locates by id", stepsModule.findStepIndex(steps, "learnAstronomy") === 2);
-  check("findStepIndex reports -1 for an unknown id", stepsModule.findStepIndex(steps, "findObject") === -1);
-
-  // The registry keys survive as reusable infrastructure, unused by the tutorial.
-  check("tour-target keys remain exported for reuse",
-    stepsModule.FIRST_LIGHT_TARGETS.lockSky === "skyLens.lockSky" &&
-    stepsModule.FIRST_LIGHT_TARGETS.infoCardSave === "skyLens.infoCard.save");
-}
 
 // ══════════════════════════════════════════════════════════════════════════════════════
 
@@ -578,24 +503,6 @@ function tipHoldSection() {
   check("an auto-retire duration is defined and longer than the impression", tips.TIP_AUTO_HIDE_MS > tips.TIP_MIN_IMPRESSION_MS);
 }
 
-function stableTotalsSection() {
-  console.log("\n── 12. The progress total is fixed at five and can never move ──");
-
-  const rootPremium = { isPremium: true };
-  const rootFree = { isPremium: false };
-  const premiumAtRoot = stepsModule.buildFirstLightSteps(rootPremium).length;
-  const freeAtRoot = stepsModule.buildFirstLightSteps(rootFree).length;
-
-  check("premium sees five screens", premiumAtRoot === 5, String(premiumAtRoot));
-  check("free sees five screens", freeAtRoot === 5, String(freeAtRoot));
-  check("REGRESSION: the total cannot change once the tour has opened",
-    premiumAtRoot === freeAtRoot && premiumAtRoot === stepsModule.buildFirstLightSteps().length);
-  // Late-arriving capability news cannot reshape it, so "Step 1 of 5" never becomes "of 8".
-  const late = stepsModule.buildFirstLightSteps({ ...rootPremium, motionAvailable: true, vaultSaveAvailable: true, timeControlAvailable: true, learnAvailable: true }).length;
-  check("REGRESSION: late capability reports do not change the total", late === premiumAtRoot, `${premiumAtRoot} → ${late}`);
-  check("the removed capability constants are gone",
-    stepsModule.TIME_CONTROL_SHIPS_IN_SKY_LENS === undefined && stepsModule.LEARN_TAB_SHIPS === undefined);
-}
 
 function reservedDockSection() {
   console.log("\n── 13. Tour cards keep clear of the host's bottom controls ──");
@@ -706,85 +613,17 @@ function largeTypeLayoutSection() {
 
 
 
-function informationalTutorialSection() {
-  console.log("\n── 16. Tap-through only: Back, Skip, Finish, and what each one persists ──");
-
-  const steps = stepsModule.buildFirstLightSteps();
-  const run = (state, action) => machine.tourReducer(state, action, steps);
-  let st = machine.tourReducer(machine.INITIAL_TOUR_STATE, { type: "restart" }, steps);
-
-  // ── Next walks 1 → 5 with nothing ever satisfied ───────────────────────────────
-  check("the tour opens on screen 1", st.index === 0 && st.status === "running");
-  check("Back is unavailable on screen 1", machine.canGoBack(st) === false);
-  for (let i = 1; i < 5; i += 1) {
-    st = run(st, { type: "next" });
-    check(`Next reaches screen ${i + 1}`, st.index === i && st.status === "running");
-    check(`…and Back is available there`, machine.canGoBack(st) === true);
-  }
-  check("screen 5 is the last", machine.isLastStep(st, steps) === true);
-
-  // ── Finish on screen 5 completes ──────────────────────────────────────────────
-  const finished = run(st, { type: "next" });
-  check("REGRESSION: Finish on screen 5 completes the tour", finished.status === "completed");
-  check("…and no further screen is presented", machine.currentStep(finished, steps) === null);
-
-  // ── Back walks 5 → 1 ──────────────────────────────────────────────────────────
-  let backwards = { ...st };
-  for (let i = 3; i >= 0; i -= 1) {
-    backwards = run(backwards, { type: "back" });
-    check(`Back reaches screen ${i + 1}`, backwards.index === i);
-  }
-  check("Back on screen 1 stays on screen 1", run(backwards, { type: "back" }).index === 0);
-
-  // ── Skip works from screens 1-4 ───────────────────────────────────────────────
-  for (let i = 0; i < 4; i += 1) {
-    const skipped = run({ ...st, index: i }, { type: "skip" });
-    check(`Skip works from screen ${i + 1}`, skipped.status === "skipped");
-  }
-
-  // ── Persistence: completion and skip both stick, and neither replays ──────────
-  const done = state.markCompleted(state.DEFAULT_FIRST_LIGHT_STATE, "2026-08-01T00:00:00.000Z");
-  check("completion persists as completed", done.status === "completed");
-  check("REGRESSION: a completed tutorial is never offered again",
-    state.shouldOfferFirstLight(done) === false);
-
-  const bailed = state.markSkipped(state.DEFAULT_FIRST_LIGHT_STATE, "2026-08-01T00:00:00.000Z");
-  check("skipping persists as skipped", bailed.status === "skipped");
-  check("REGRESSION: a skipped tutorial is never offered again",
-    state.shouldOfferFirstLight(bailed) === false);
-
-  // ── Settings → Replay First Light reopens it deliberately ────────────────────
-  const replayed = state.resetForReplay(done, "2026-08-01T01:00:00.000Z");
-  check("replay resets a completed document so the tour can run again",
-    state.shouldOfferFirstLight(replayed) === true || replayed.status === "notStarted",
-    replayed.status);
-  const replayedMachine = machine.tourReducer(finished, { type: "restart" }, steps);
-  check("replay reopens on screen 1", replayedMachine.index === 0 && replayedMachine.status === "running");
-  check("replay clears any previous satisfaction state", replayedMachine.satisfiedStepIds.length === 0);
-  check("a replayed tour is still five screens", steps.length === 5);
-
-  // ── A stale pointer from the OLD interactive mission cannot strand anyone ─────
-  const legacy = { ...state.DEFAULT_FIRST_LIGHT_STATE, status: "inProgress", currentStep: "findObject" };
-  const ids = steps.map((s) => s.id);
-  check("REGRESSION: a pointer at a removed step resolves to no resume position",
-    state.resolveResumeStepId(legacy, ids) === null);
-  check("…so the offer leads with a clean start rather than a missing screen",
-    machine.tourReducer(machine.INITIAL_TOUR_STATE, { type: "goto", stepId: "findObject" }, steps).status !== "running");
-}
 
 (async () => {
   await storageSection();
   machineSection();
-  stepsSection();
   tipsSection();
   geometrySection();
   auditRegressionSection();
   resumeSection();
   tipHoldSection();
-  stableTotalsSection();
   reservedDockSection();
   largeTypeLayoutSection();
-  informationalTutorialSection();
 
   console.log(`\nFirst Light behaviour self-test: ${pass} passed, ${fail} failed.`);
   process.exit(fail === 0 ? 0 : 1);

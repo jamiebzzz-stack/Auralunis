@@ -78,7 +78,7 @@ import { getVisualGate } from "./PremiumVisualGating";
 // values that are already computed here. It never drives orientation, projection, selection,
 // layers, time, or the Vault.
 import { useTourTarget } from "@/features/tour/TourTargetRegistry";
-import { FIRST_LIGHT_TARGETS } from "@/features/first-light/firstLightSteps";
+import { TOUR_TARGETS } from "@/features/tour/tourTargets";
 import { ContextualTipHost } from "@/features/first-light/ContextualTipHost";
 import type { ContextualTipId } from "@/features/first-light/contextualTips";
 import { isAlreadySavedToVault } from "@/features/first-light/firstLightRules";
@@ -123,8 +123,8 @@ export function SkyLensScreen({ onClose, focusTarget, onOpenLearn }: Props) {
   const insets = useSafeAreaInsets();
   // Guided-tour spotlight targets for two EXISTING controls. `useTourTarget` is inert when no
   // tour registry is mounted, so these add a callback ref and an onLayout and nothing else.
-  const lockSkyTourTarget = useTourTarget(FIRST_LIGHT_TARGETS.lockSky);
-  const timeTravelTourTarget = useTourTarget(FIRST_LIGHT_TARGETS.timeTravel);
+  const lockSkyTourTarget = useTourTarget(TOUR_TARGETS.lockSky);
+  const timeTravelTourTarget = useTourTarget(TOUR_TARGETS.timeTravel);
   // One-time contextual tip bookkeeping (post-tour). A single boolean; no other behaviour.
   const [layersSheetSeen, setLayersSheetSeen] = useState(false);
   const { location, status } = useObserverLocation();

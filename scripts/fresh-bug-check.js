@@ -99,11 +99,14 @@ check("Birth Sky chart uses resolved location", birthSky.includes("location={pro
 check("Birth Sky unknown time is labeled approximate", birthSky.includes('"Approx. eastern sky"'));
 check("Birth Sky network failure is user-visible", birthSky.includes("We couldn't find that birthplace"));
 
-// First-run onboarding is now informational (the date-only birth-sky preview lives in the
-// Birth Sky screen, not the intro); it must stay honest about what an unknown birth time limits.
-check("onboarding is truthful about unknown birth time limits", onboarding.includes("rising sign") && onboarding.includes("time-sensitive"));
+// Birth-chart setup is no longer a screen inside the app tour — it is a separate, optional
+// prompt. The honesty guards move WITH the copy: wherever the chart is offered, it must still
+// say plainly what an unknown birth time costs.
+const birthPrompt = read("src/features/onboarding/BirthChartPrompt.tsx");
+check("birth-chart prompt is truthful about unknown birth time limits", birthPrompt.includes("rising sign") && birthPrompt.includes("time-sensitive"));
 check("onboarding avoids exact horizon claims", !onboarding.includes("Above the horizon:"));
-check("onboarding explains birthplace and birth time are needed", onboarding.includes("birthplace") && onboarding.includes("birth time"));
+check("birth-chart prompt explains birthplace and birth time are needed", birthPrompt.includes("birthplace") && birthPrompt.includes("birth time"));
+check("birth-chart setup is optional, not a tour screen", birthPrompt.includes("Maybe Later") && birthPrompt.includes("Entirely optional"));
 check("onboarding no longer advertises camera AR", !onboarding.includes("Point your phone at the sky"));
 
 check("current monthly price is $9.99", monetization.includes("$9.99/month"));
