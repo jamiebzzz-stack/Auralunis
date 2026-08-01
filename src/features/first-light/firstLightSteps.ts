@@ -220,3 +220,20 @@ export const LOOK_AROUND_NO_MOTION_HINT =
 /** Shown on the find/tap steps when no live object could be resolved (see firstLightTargets). */
 export const NO_LIVE_TARGET_HINT =
   "Nothing bright is above your horizon right now, so this step uses a practice marker instead of a real object. You can continue whenever you like.";
+
+/**
+ * Shown while the object steps are waiting for something worth pointing at.
+ *
+ * The tour used to nominate the best object in the WHOLE SKY, which could be behind the user —
+ * "Turn around for Venus", with Continue disabled until they did. It now waits for an object
+ * that is genuinely in view, and says so, rather than naming one they cannot see.
+ */
+export const NO_VISIBLE_TARGET_HINT =
+  "Nothing bright is in view yet. Sweep your phone slowly across the sky — the moment something suitable comes into frame, it will be highlighted here.";
+
+/**
+ * Shown once an object step has given up waiting. It states plainly that the step was NOT
+ * completed: nothing here claims the user found or tapped anything.
+ */
+export const OBJECT_STEP_FALLBACK_HINT =
+  "We couldn’t find a bright object in view for this step, so it’s being skipped rather than leaving you stuck. You can tap any object in Sky Lens to open its card whenever you like.";

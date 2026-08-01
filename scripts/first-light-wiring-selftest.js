@@ -27,6 +27,8 @@ const registry = read("src/features/tour/TourTargetRegistry.tsx");
 const tipHost = read("src/features/first-light/ContextualTipHost.tsx");
 const rootOverlay = read("src/features/first-light/FirstLightRootOverlay.tsx");
 const context = read("src/features/first-light/FirstLightContext.tsx");
+const targetsSrc = read("src/features/first-light/firstLightTargets.ts");
+const stepsSrc = read("src/features/first-light/firstLightSteps.ts");
 const analytics = read("src/services/AnalyticsService.ts");
 const app = read("App.tsx");
 const settings = read("src/screens/SettingsScreen.tsx");
@@ -107,6 +109,41 @@ check(
   "the old ungated local resolver is gone",
   !bridge.includes("function resolveSpotlightRect"),
   "two resolvers would let an ungated one be reintroduced"
+);
+
+// ── Viewport-aware, frozen target (the "Turn around for Venus" deadlock) ─────────────
+has(bridge, "selectVisibleTutorialTarget(candidates, box, { reservedBottom })",
+  "the object steps choose from what is actually rendered, using the same viewport");
+has(bridge, "rankTutorialCandidates(bodies, stars)", "candidates keep the beginner preference order");
+check(
+  "the whole-sky picker no longer drives the object steps",
+  !bridge.includes("selectTutorialObject("),
+  "ranking the whole sky is what nominated an object behind the user"
+);
+has(bridge, "if (frozenTarget) return; // locked: never re-picked mid-step",
+  "the chosen object is frozen for the duration of the object steps");
+check(
+  "Step 4 still compares against the frozen target's id",
+  /correctCardOpen: !!target && selectedId === target\.id/.test(bridge),
+  "the card check must be an identity check against the frozen object"
+);
+check(
+  "a practice marker can never be chosen as a visible object",
+  targetsSrc.includes("if (candidate.target.simulated) continue;"),
+  "a marker that is not in the sky must not stand in for finding one that is"
+);
+check(
+  "the bounded fallback can only ever unblock, never auto-complete early",
+  bridge.includes("if (stepAlreadySatisfied) return;") && bridge.includes("OBJECT_STEP_FALLBACK_MS"),
+  "a step satisfied the real way must not start the timer"
+);
+has(bridge, "OBJECT_STEP_FALLBACK_HINT", "the fallback says plainly that the step was skipped");
+check(
+  "the fallback copy does not claim the object step was completed",
+  /skipped rather than leaving you stuck/.test(stepsSrc) && !/well done|completed|you found/i.test(
+    (stepsSrc.match(/OBJECT_STEP_FALLBACK_HINT =[\s\S]*?;/) || [""])[0]
+  ),
+  "the safety net must never pretend the interaction happened"
 );
 has(overlay, "spotlightFor(spotlightRect ?? target, screen)", "an explicit rect takes precedence over measurement");
 check(
@@ -271,7 +308,15 @@ has(registry, "return () => subscription.remove();", "the Dimensions listener is
 has(registry, "clearTimeout(timer)", "the measure timeout is always cleared");
 has(registry, "MEASURE_TIMEOUT_MS", "a native measure that never calls back cannot hang the overlay");
 has(overlay, "return () => animation.stop();", "the entrance animation is stopped on unmount");
-has(bridge, "return () => clearInterval(id);", "the target-refresh interval is cleared");
+// The 20-second target-refresh interval is GONE, not merely cleaned up. It re-picked the
+// tutorial object mid-step, which is exactly how a frozen target could be swapped out from
+// under Steps 3, 4 and 8. Its replacement is viewport-aware selection + an explicit freeze.
+check(
+  "the mid-step target-refresh interval no longer exists",
+  !bridge.includes("TARGET_REFRESH_MS") && !bridge.includes("setInterval"),
+  "a periodic re-pick can swap the target the user is working with"
+);
+has(bridge, "return () => clearTimeout(timer);", "the bounded object-step fallback timer is cleared");
 has(overlay, "cancelled = true;", "a measurement resolving after unmount is discarded");
 has(context, "active = false;", "hydration resolving after unmount is discarded");
 check(

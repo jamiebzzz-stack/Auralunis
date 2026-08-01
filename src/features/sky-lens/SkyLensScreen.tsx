@@ -1524,7 +1524,6 @@ export function SkyLensScreen({ onClose, focusTarget, onOpenLearn }: Props) {
         stars={sky.stars}
         constellations={sky.constellations}
         project={projectShared}
-        cameraAim={{ azimuthDegrees: pointing.azimuthDegrees, altitudeDegrees: pointing.altitudeDegrees }}
         onOpenLearn={() => onOpenLearn?.()}
         onRestoreLiveTime={() => setTimeOffsetMin(0)}
         reservedBottom={tourReservedBottom}

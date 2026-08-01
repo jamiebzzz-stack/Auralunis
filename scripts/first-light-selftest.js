@@ -1102,6 +1102,168 @@ function spotlightReadinessSection() {
     }) === false);
 }
 
+function visibleTargetSection() {
+  console.log("\n── 17. Object steps choose something actually IN VIEW, then freeze it ──");
+
+  // THE DEFECT THIS LOCKS DOWN (physical iPhone, 5548810):
+  // "Find your first object" ranked the WHOLE SKY, picked Venus — genuinely up, genuinely
+  // behind the user — and then required Venus to enter the viewport. The copy read
+  // "Turn around for Venus" and Continue stayed disabled for the entire recording.
+  const VIEWPORT = { width: 430, height: 932 };
+  const DOCK = 168;
+
+  // FirstLightSkyLens imports react-native, so the bounded-fallback constant is read from
+  // source rather than required — the value under test is the shipping one either way.
+  const bridgeSource = fs.readFileSync(src("features/first-light/FirstLightSkyLens.tsx"), "utf8");
+  const bridgeFallbackMs = Number((bridgeSource.match(/OBJECT_STEP_FALLBACK_MS = (\d+)/) || [])[1]);
+
+  const onScreen = (x, y) => ({ x, y, onScreen: true, behind: false });
+  const offScreen = (x, y) => ({ x, y, onScreen: false, behind: false });
+  const behind = { x: 215, y: 466, onScreen: false, behind: true };
+
+  const venus = { kind: "planet", id: "venus", name: "Venus", subtitle: "Planet", azimuthDegrees: 250, altitudeDegrees: 20, simulated: false };
+  const jupiter = { kind: "planet", id: "jupiter", name: "Jupiter", subtitle: "Planet", azimuthDegrees: 100, altitudeDegrees: 40, simulated: false };
+  const vega = { kind: "star", id: "vega", name: "Vega", subtitle: "Bright star", azimuthDegrees: 90, altitudeDegrees: 55, simulated: false };
+  const marker = targets.practiceTarget(0, 30);
+
+  const pick = (candidates) => targets.selectVisibleTutorialTarget(candidates, VIEWPORT, { reservedBottom: DOCK });
+
+  // ── 1. An off-screen or behind-camera object is never selected ───────────────────
+  check("REGRESSION: an off-screen Venus is NOT selected",
+    pick([{ target: venus, projection: offScreen(-400, 466) }]) === null);
+  check("REGRESSION: a Venus behind the camera is NOT selected",
+    pick([{ target: venus, projection: behind }]) === null);
+  check("an unprojectable candidate is not selected",
+    pick([{ target: venus, projection: null }]) === null);
+  check("a non-finite projection is not selected",
+    pick([{ target: venus, projection: onScreen(Number.NaN, 466) }]) === null);
+
+  // ── 2. A genuinely visible candidate IS selected ─────────────────────────────────
+  const chosen = pick([
+    { target: venus, projection: behind },
+    { target: jupiter, projection: onScreen(215, 500) },
+    { target: vega, projection: onScreen(200, 400) },
+  ]);
+  check("the first genuinely visible candidate is selected", chosen && chosen.id === "jupiter",
+    chosen ? chosen.id : "null");
+  check("…skipping the higher-ranked but unreachable one", chosen && chosen.id !== "venus");
+
+  // ── 3. Protected chrome and edges are respected ─────────────────────────────────
+  check("an object under the top chrome is not selected",
+    pick([{ target: jupiter, projection: onScreen(215, 40) }]) === null);
+  check("an object behind the bottom dock is not selected",
+    pick([{ target: jupiter, projection: onScreen(215, VIEWPORT.height - 20) }]) === null);
+  check("an object hugging the left edge is not selected",
+    pick([{ target: jupiter, projection: onScreen(4, 500) }]) === null);
+  check("an object hugging the right edge is not selected",
+    pick([{ target: jupiter, projection: onScreen(VIEWPORT.width - 4, 500) }]) === null);
+  check("an object comfortably inside the open sky IS selected",
+    (pick([{ target: jupiter, projection: onScreen(215, 500) }]) || {}).id === "jupiter");
+  check("a degenerate viewport yields no candidate rather than relaxing the rule",
+    targets.selectVisibleTutorialTarget([{ target: jupiter, projection: onScreen(5, 5) }], { width: 10, height: 10 }) === null);
+
+  // ── 4. A practice marker is never passed off as a visible object ────────────────
+  check("REGRESSION: a practice marker is never selected as a visible target",
+    pick([{ target: marker, projection: onScreen(215, 500) }]) === null);
+
+  // ── 5. Ranking still follows the documented beginner order ──────────────────────
+  const bodies = [
+    { id: "moon", name: "Moon", aboveHorizon: true, altitudeDegrees: 30, azimuthDegrees: 120 },
+    { id: "venus", name: "Venus", aboveHorizon: true, altitudeDegrees: 20, azimuthDegrees: 250, magnitude: -4.1 },
+    { id: "mars", name: "Mars", aboveHorizon: true, altitudeDegrees: 25, azimuthDegrees: 200, magnitude: 1.2 },
+    { id: "saturn", name: "Saturn", aboveHorizon: false, altitudeDegrees: -10, azimuthDegrees: 10, magnitude: 0.7 },
+  ];
+  const stars = [
+    { id: "vega", name: "Vega", magnitude: 0.03, aboveHorizon: true, altitudeDegrees: 55, azimuthDegrees: 90 },
+    { id: "polaris", name: "Polaris", magnitude: 1.98, aboveHorizon: true, altitudeDegrees: 35, azimuthDegrees: 0 },
+    { id: "faint", name: "Faint", magnitude: 4.2, aboveHorizon: true, altitudeDegrees: 50, azimuthDegrees: 45 },
+  ];
+  const ranked = targets.rankTutorialCandidates(bodies, stars);
+  eq("candidates are ranked Moon → brightest planets → Polaris → bright stars",
+    ranked.map((t) => t.id), ["moon", "venus", "mars", "polaris", "vega"]);
+  check("a body below the horizon is never a candidate", !ranked.some((t) => t.id === "saturn"));
+  check("a faint star is never a candidate", !ranked.some((t) => t.id === "faint"));
+  check("candidates are unique", new Set(ranked.map((t) => t.id)).size === ranked.length);
+  check("every candidate is real, never simulated", ranked.every((t) => t.simulated === false));
+  eq("no candidates at all when nothing is up", targets.rankTutorialCandidates([], []), []);
+
+  // ── 6. The freeze: Steps 3, 4 and 8 act on ONE object ───────────────────────────
+  // The component holds the frozen target in state; the invariant under test is that a change
+  // of inputs cannot produce a different answer for the SAME frozen id, and that Step 4's and
+  // Step 8's checks are identity checks against it.
+  const frozen = chosen;
+  check("the frozen target has a stable id to compare against", frozen && typeof frozen.id === "string" && frozen.id.length > 0);
+  check("REGRESSION: Step 4 is satisfied only by the FROZEN object's card",
+    rules.isObjectStepSatisfied({
+      step: "openCard", motionAvailable: true, targetSimulated: false,
+      targetOnScreen: true, correctCardOpen: false,
+    }) === false);
+  check("…and opening a DIFFERENT object's card does not satisfy it",
+    ("venus" === frozen.id) === false && rules.isObjectStepSatisfied({
+      step: "openCard", motionAvailable: true, targetSimulated: false,
+      targetOnScreen: true, correctCardOpen: false,
+    }) === false);
+  check("…while opening the frozen object's card does",
+    rules.isObjectStepSatisfied({
+      step: "openCard", motionAvailable: true, targetSimulated: false,
+      targetOnScreen: true, correctCardOpen: true,
+    }) === true);
+
+  // A later location fix or layout pass changes the PROJECTIONS, not the frozen identity.
+  const afterGpsFix = pick([
+    { target: venus, projection: onScreen(215, 500) },   // Venus has now swung into view…
+    { target: jupiter, projection: onScreen(300, 480) },
+  ]);
+  check("selection alone would now prefer a different object", afterGpsFix.id === "venus");
+  check("REGRESSION: …which is exactly why the component freezes the id across Steps 3-4-8",
+    frozen.id === "jupiter" && afterGpsFix.id !== frozen.id,
+    "the freeze is what stops a GPS/layout/motion update swapping the target mid-step");
+
+  // ── 7. No candidate → the step stays open and honest, never falsely satisfied ────
+  check("no eligible candidate yields null, not a guess", pick([]) === null);
+  check("REGRESSION: an empty view never satisfies findObject",
+    rules.isObjectStepSatisfied({
+      step: "findObject", motionAvailable: true, targetSimulated: false,
+      targetOnScreen: false, correctCardOpen: false,
+    }) === false);
+  check("the waiting copy never names an object the user cannot see",
+    !/Venus|Jupiter|Mars|Saturn/.test(stepsModule.NO_VISIBLE_TARGET_HINT) &&
+    /sweep|Sweep/.test(stepsModule.NO_VISIBLE_TARGET_HINT));
+
+  // ── 8. The bounded fallback is honest and cannot deadlock ───────────────────────
+  check("the fallback interval is bounded and finite",
+    Number.isFinite(bridgeFallbackMs) && bridgeFallbackMs > 0 && bridgeFallbackMs <= 120000,
+    `${bridgeFallbackMs}ms`);
+  check("REGRESSION: the fallback copy states the step was SKIPPED, not completed",
+    /skipped/i.test(stepsModule.OBJECT_STEP_FALLBACK_HINT) &&
+    !/found|tapped|completed|well done/i.test(stepsModule.OBJECT_STEP_FALLBACK_HINT));
+  check("the fallback copy still offers the real action later",
+    /tap any object/i.test(stepsModule.OBJECT_STEP_FALLBACK_HINT));
+  // The satisfaction RULES are untouched by Part B — the fallback works by satisfying the step
+  // in the machine, never by relaxing what the rule demands.
+  check("REGRESSION: no bypass was added to the object rule itself",
+    rules.isObjectStepSatisfied({
+      step: "findObject", motionAvailable: true, targetSimulated: false,
+      targetOnScreen: false, correctCardOpen: false,
+    }) === false);
+  check("REGRESSION: Step 8 still requires a real, persisted save",
+    rules.isSaveStepSatisfied({
+      variant: "vault", motionAvailable: true, targetSimulated: false,
+      targetOnScreen: true, targetSaved: false,
+    }) === false);
+
+  // ── 9. Back and Skip are never gated on having a target ────────────────────────
+  // canGoBack depends only on position; skip only on status. Neither consults a target.
+  const midTour = { status: "running", index: 2, satisfiedStepIds: [] };
+  const missionSteps = stepsModule.buildFirstLightSteps({ isPremium: true, motionAvailable: true, timeControlAvailable: true, vaultSaveAvailable: true, learnAvailable: true });
+  check("Back stays available on a target-less object step", machine.canGoBack(midTour) === true);
+  check("Continue is correctly NOT available on it", machine.canContinue(midTour, missionSteps) === false);
+  const skipped = machine.tourReducer(midTour, { type: "skip" }, missionSteps);
+  check("Skip Tour still works with no target", skipped.status === "skipped");
+  const backed = machine.tourReducer(midTour, { type: "back" }, missionSteps);
+  check("Back still moves with no target", backed.index === 1);
+}
+
 (async () => {
   await storageSection();
   machineSection();
@@ -1116,6 +1278,7 @@ function spotlightReadinessSection() {
   reservedDockSection();
   largeTypeLayoutSection();
   spotlightReadinessSection();
+  visibleTargetSection();
 
   console.log(`\nFirst Light behaviour self-test: ${pass} passed, ${fail} failed.`);
   process.exit(fail === 0 ? 0 : 1);

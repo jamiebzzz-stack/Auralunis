@@ -7,9 +7,12 @@
 //   • "Look around" and "drag while locked" are detected from the RENDERED QUATERNION, using
 //     the existing angleBetweenQuaternions helper. Nothing is added to the gesture handlers, so
 //     Lock Sky, drag-to-pan, gesture arbitration, and smoothing are byte-for-byte unchanged.
-//   • The tutorial object is chosen from the LIVE ephemeris snapshot and projected with the
-//     SAME projection function the scene is drawn with, so the spotlight cannot disagree with
-//     what is on screen. No object is hardcoded, and nothing below the horizon is ever chosen.
+//   • The tutorial object is chosen from what is ACTUALLY IN VIEW: candidates come from the live
+//     ephemeris snapshot, are projected with the SAME projection function the scene is drawn
+//     with, and only one comfortably inside the visible sky is eligible. No object is hardcoded,
+//     nothing below the horizon is ever chosen, and nothing behind the camera can be nominated.
+//     Once chosen it is FROZEN for the object steps, so no GPS fix, layout pass or sensor frame
+//     can swap the target out from under the user mid-step.
 //   • Object cards are never opened by the tour. It watches `selectedId` and waits for the user
 //     to tap the real object, so stale or incorrect object data is impossible.
 //   • Sky objects are spotlighted with an explicit rect derived from that projection — no view
@@ -26,7 +29,13 @@ import {
   type Quaternion,
 } from "@/features/sky-lens/ar/orientationQuaternion";
 import { useFirstLight } from "./FirstLightContext";
-import { LOOK_AROUND_NO_MOTION_HINT, NO_LIVE_TARGET_HINT } from "./firstLightSteps";
+import {
+  LOOK_AROUND_NO_MOTION_HINT,
+  NO_LIVE_TARGET_HINT,
+  NO_VISIBLE_TARGET_HINT,
+  OBJECT_STEP_FALLBACK_HINT,
+  type FirstLightStepId,
+} from "./firstLightSteps";
 import { isObjectStepSatisfied, isSaveStepSatisfied, shouldRestoreLiveTime } from "./firstLightRules";
 import {
   isProjectionTrustworthy,
@@ -35,9 +44,9 @@ import {
 } from "./firstLightSpotlight";
 import {
   describeConstellation,
-  practiceTarget,
+  rankTutorialCandidates,
   selectTutorialConstellation,
-  selectTutorialObject,
+  selectVisibleTutorialTarget,
   type TutorialBodyInput,
   type TutorialConstellationInput,
   type TutorialStarInput,
@@ -50,8 +59,12 @@ export const LOOK_AROUND_DEGREES = 12;
 export const LOCK_DRAG_DEGREES = 8;
 /** Enough of a time change to have visibly moved the sky. */
 export const TIME_CHANGE_MINUTES = 20;
-/** How often the tutorial target is re-picked as the sky turns (ms). */
-const TARGET_REFRESH_MS = 20000;
+/**
+ * How long an object step waits for a usable object before giving up and becoming
+ * instructional. Long enough for a genuine sweep of the sky, short enough that nobody sits on a
+ * dead Continue button wondering whether the app has hung.
+ */
+export const OBJECT_STEP_FALLBACK_MS = 45000;
 
 type Projected = { x: number; y: number; onScreen: boolean; behind: boolean; bearingDegrees: number };
 
@@ -80,8 +93,6 @@ type Props = {
   constellations: ReadonlyArray<TutorialConstellationInput>;
   /** The SAME shared projection the scene, labels, and hit tests use. */
   project: (azimuthDegrees: number, altitudeDegrees: number) => Projected;
-  /** Where the camera is aimed right now — only used to place the practice marker. */
-  cameraAim: { azimuthDegrees: number; altitudeDegrees: number };
   onOpenLearn: () => void;
   onRestoreLiveTime: () => void;
   /** Measured height of the Sky Lens bottom control strip the tour card must not cover. */
@@ -110,7 +121,6 @@ export function FirstLightSkyLens(props: Props) {
     stars,
     constellations,
     project,
-    cameraAim,
     onOpenLearn,
     onRestoreLiveTime,
     reservedBottom,
@@ -124,10 +134,75 @@ export function FirstLightSkyLens(props: Props) {
   const step = firstLight?.step ?? null;
   const stepId = step?.id ?? null;
 
+  /** The steps that act on ONE specific object. The target is frozen across all of them. */
+  const onObjectStep = stepId === "findObject" || stepId === "openCard" || stepId === "saveDiscovery";
+
+  // ── Are the inputs behind a projected position authoritative yet? ───────────────
+  // Gated at the PROJECTION rather than only at the rectangle, because the same provisional
+  // numbers also decide `targetOnScreen` — and a placeholder viewport can report an object as
+  // on screen when it is not, which would satisfy "Find your first object" without the user
+  // ever seeing it. This changes no satisfaction RULE (firstLightRules is untouched); it only
+  // withholds an input until it is real. Readiness always arrives: onLayout fires on first
+  // layout, and the location resolver has a total try/catch, so status always leaves "loading".
+  const readiness = useMemo<SpotlightReadiness>(
+    () => ({ boxMeasured, locationReady }),
+    [boxMeasured, locationReady]
+  );
+  const projectionTrustworthy = isProjectionTrustworthy(readiness);
+
+  // ── Choose an object the user can ACTUALLY SEE ──────────────────────────────────
+  // Previously the whole sky was ranked and the winner could be behind the user — the tour then
+  // said "Turn around for Venus" and disabled Continue until they did, which on a physical
+  // iPhone meant not at all. Candidates are now projected through the SAME basis, FOV, viewport
+  // and readiness gates as the scene, and only one comfortably inside the visible sky is chosen.
+  const rankedCandidates = useMemo(() => rankTutorialCandidates(bodies, stars), [bodies, stars]);
+
+  // Only searched while an object step is actually hunting for a target. Sky Lens re-renders on
+  // every sensor frame, and projecting every candidate each time would put real work on that
+  // path for the whole tour — including the steps that have nothing to do with objects.
+  const [frozenTarget, setFrozenTarget] = useState<TutorialTarget | null>(null);
+  const searchingForTarget = active && onObjectStep && !frozenTarget;
+
+  const visibleTarget = useMemo<TutorialTarget | null>(() => {
+    if (!searchingForTarget || !projectionTrustworthy) return null;
+    const candidates = rankedCandidates.map((candidate) => {
+      try {
+        return {
+          target: candidate,
+          projection: project(candidate.azimuthDegrees, candidate.altitudeDegrees),
+        };
+      } catch {
+        return { target: candidate, projection: null };
+      }
+    });
+    return selectVisibleTutorialTarget(candidates, box, { reservedBottom });
+  }, [searchingForTarget, rankedCandidates, project, box, reservedBottom, projectionTrustworthy]);
+
+  // ── Freeze it for the duration of the object steps ──────────────────────────────
+  // Once chosen, the object does not change while the user is working with it. Neither a GPS
+  // fix landing, nor a layout pass, nor a sensor frame, nor the old 20-second re-pick may swap
+  // the target out from under Steps 3, 4 and 8 — Step 4's card check and Step 8's save check
+  // both compare against this exact id.
+  useEffect(() => {
+    if (!active) return;
+    if (!onObjectStep) {
+      // Left the object steps entirely (or the tour restarted) — release, so a later run picks
+      // afresh rather than inheriting a target from a previous pass.
+      setFrozenTarget((current) => (current === null ? current : null));
+      return;
+    }
+    if (frozenTarget) return; // locked: never re-picked mid-step
+    if (visibleTarget) setFrozenTarget(visibleTarget);
+  }, [active, onObjectStep, frozenTarget, visibleTarget]);
+
+  /** The object this step is about: the frozen one on the object steps, else nothing. */
+  const target = onObjectStep ? frozenTarget : null;
+
   // ── Tell the tour what this device can actually support ─────────────────────────
   const reportCapabilities = firstLight?.reportCapabilities;
-  const target = useTutorialTarget(bodies, stars, cameraAim);
-  const hasLiveTarget = target !== null && !target.simulated;
+  // Whether a real object is up AT ALL — deliberately not "is one in view", because the mission
+  // SHAPE (Vault save vs the Learn fallback) must not flip as the user turns around.
+  const hasLiveTarget = rankedCandidates.length > 0;
 
   useEffect(() => {
     reportCapabilities?.({
@@ -171,19 +246,6 @@ export function FirstLightSkyLens(props: Props) {
     if (angleBetweenQuaternions(anchor, orientation) >= LOOK_AROUND_DEGREES) satisfy("lookAround");
   }, [active, stepId, motionAvailable, orientation, satisfy]);
 
-  // ── Are the inputs behind a projected position authoritative yet? ───────────────
-  // Gated at the PROJECTION rather than only at the rectangle, because the same provisional
-  // numbers also decide `targetOnScreen` — and a placeholder viewport can report an object as
-  // on screen when it is not, which would satisfy "Find your first object" without the user
-  // ever seeing it. This changes no satisfaction RULE (firstLightRules is untouched); it only
-  // withholds an input until it is real. Readiness always arrives: onLayout fires on first
-  // layout, and the location resolver has a total try/catch, so status always leaves "loading".
-  const readiness = useMemo<SpotlightReadiness>(
-    () => ({ boxMeasured, locationReady }),
-    [boxMeasured, locationReady]
-  );
-  const projectionTrustworthy = isProjectionTrustworthy(readiness);
-
   // ── Step 3: the chosen object comes into view ───────────────────────────────────
   const targetProjection = useMemo<Projected | null>(() => {
     // Only projected while the tour is on screen — Sky Lens re-renders on every sensor frame
@@ -223,6 +285,34 @@ export function FirstLightSkyLens(props: Props) {
     });
     if (satisfied) satisfy("openCard");
   }, [active, stepId, selectedId, target, motionAvailable, targetProjection, satisfy]);
+
+  // ── Bounded safety net for the object steps ─────────────────────────────────────
+  // The object steps are the only ones that can be blocked by the SKY rather than by the user:
+  // if nothing suitable is in view, and nothing comes into view, there is no action left to
+  // perform. Rather than trap anyone, each object step gives up after a bounded interval and
+  // becomes instructional — Continue unblocks, and the copy says plainly that the object step
+  // was not completed. Nothing pretends the interaction happened, and this can only ever
+  // unblock: a step already satisfied the real way never starts the timer.
+  const [fallbackStepIds, setFallbackStepIds] = useState<ReadonlyArray<string>>([]);
+  const stepAlreadySatisfied = firstLight?.canContinue === true;
+
+  useEffect(() => {
+    if (!active || !onObjectStep || !stepId) return;
+    if (stepAlreadySatisfied) return;
+    const timer = setTimeout(() => {
+      setFallbackStepIds((current) => (current.includes(stepId) ? current : [...current, stepId]));
+    }, OBJECT_STEP_FALLBACK_MS);
+    // Re-armed whenever the step changes, so each object step gets its own full interval and a
+    // step left and returned to is never instantly bypassed.
+    return () => clearTimeout(timer);
+  }, [active, onObjectStep, stepId, stepAlreadySatisfied]);
+
+  const fallbackEngaged = !!stepId && onObjectStep && fallbackStepIds.includes(stepId);
+
+  useEffect(() => {
+    if (!active || !fallbackEngaged || !stepId || !satisfy) return;
+    satisfy(stepId as FirstLightStepId);
+  }, [active, fallbackEngaged, stepId, satisfy]);
 
   // ── Step 6: lock AND a real drag while locked ───────────────────────────────────
   // While the sky is locked the rendered orientation changes ONLY because of drag, so the
@@ -366,13 +456,16 @@ export function FirstLightSkyLens(props: Props) {
     targetName: target?.name ?? null,
     variant: step.variant ?? null,
     targetOnScreen: !!targetProjection && targetProjection.onScreen && !targetProjection.behind,
+    noVisibleTarget: onObjectStep && !target,
+    fallbackEngaged,
   });
 
   return (
     <>
-      {/* Directional cue for "Find your first object". A hint, never an automatic camera
-          move — the user does the finding. */}
-      {stepId === "findObject" && target && !target.simulated && targetProjection && !targetProjection.onScreen && (
+      {/* Directional cue — shown ONLY for an object that was already chosen because it was in
+          view and has since drifted out. It can no longer say "turn around" for something the
+          user was never shown: an object behind the camera is not eligible to be chosen. */}
+      {stepId === "findObject" && target && !target.simulated && targetProjection && !targetProjection.onScreen && !fallbackEngaged && (
         <View style={styles.cue} pointerEvents="none">
           <Text style={[styles.cueText, { color: accent }]}>
             {targetProjection.behind
@@ -461,28 +554,12 @@ export function FirstLightSkyLens(props: Props) {
   );
 }
 
-/** Chooses the tutorial object and refreshes it as the sky turns. */
-function useTutorialTarget(
-  bodies: ReadonlyArray<TutorialBodyInput>,
-  stars: ReadonlyArray<TutorialStarInput>,
-  cameraAim: { azimuthDegrees: number; altitudeDegrees: number }
-): TutorialTarget | null {
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), TARGET_REFRESH_MS);
-    return () => clearInterval(id);
-  }, []);
-
-  return useMemo(() => {
-    const live = selectTutorialObject(bodies, stars);
-    if (live) return live;
-    if (bodies.length === 0 && stars.length === 0) return null;
-    // Nothing suitable is up. Fall back to a clearly-labelled practice marker placed in front
-    // of the camera, so the tour continues without pretending anything is visible.
-    return practiceTarget(cameraAim.azimuthDegrees, Math.max(20, cameraAim.altitudeDegrees));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bodies, stars, tick]);
-}
+// The old useTutorialTarget hook is gone. It ranked the WHOLE SKY and re-picked on a 20-second
+// timer, which is what nominated an object behind the user and then swapped targets mid-step.
+// Selection is now viewport-aware (rankTutorialCandidates + selectVisibleTutorialTarget) and
+// frozen for the duration of the object steps. `practiceTarget` remains exported and unit-tested
+// but is no longer used to satisfy a step: a marker that is not in the sky must never stand in
+// for finding something that is.
 
 function resolveHint(args: {
   stepId: string | null;
@@ -492,10 +569,17 @@ function resolveHint(args: {
   targetName: string | null;
   variant: string | null;
   targetOnScreen: boolean;
+  /** An object step is showing but nothing suitable is in view yet. */
+  noVisibleTarget: boolean;
+  /** The bounded safety net has given up on this object step. */
+  fallbackEngaged: boolean;
 }): string | null {
   const { stepId, motionAvailable, simulatedTarget, constellationCopy, targetName, variant, targetOnScreen } = args;
+  // The safety net speaks first and speaks plainly: the step was skipped, not completed.
+  if (args.fallbackEngaged) return OBJECT_STEP_FALLBACK_HINT;
   if (stepId === "lookAround" && !motionAvailable) return LOOK_AROUND_NO_MOTION_HINT;
-  if ((stepId === "findObject" || stepId === "openCard") && simulatedTarget) return NO_LIVE_TARGET_HINT;
+  // Waiting for something worth pointing at — never name an object the user cannot see.
+  if (args.noVisibleTarget) return NO_VISIBLE_TARGET_HINT;
   // No motion: state plainly that the sky cannot be swept here, and that the step is not being
   // treated as completed by pointing the phone. Nothing pretends motion was detected.
   if (stepId === "findObject" && !motionAvailable) {

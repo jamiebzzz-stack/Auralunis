@@ -211,6 +211,166 @@ export function practiceTarget(azimuthDegrees: number, altitudeDegrees: number):
   };
 }
 
+// ── Viewport-aware selection (the "Turn around for Venus" deadlock) ──────────────────
+//
+// selectTutorialObject above ranks the whole SKY. That is right for "what is up tonight", but
+// it was also driving "Find your first object", where it picked Venus — genuinely up, and
+// genuinely behind the user. The step then required Venus to enter the viewport, so Continue
+// stayed disabled for as long as the user did not happen to turn around, with the tour offering
+// no other way forward. Observed on a physical iPhone at 5548810.
+//
+// The find/tap steps therefore choose from what is ACTUALLY RENDERED: candidates are ranked by
+// the same beginner preference, projected through the same CameraBasis, FOV, viewport, and
+// readiness gates as the scene, and the first one comfortably inside the visible sky wins.
+
+/** A projected position, structurally compatible with the Sky Lens projection result. */
+export type TutorialProjection = {
+  x: number;
+  y: number;
+  onScreen: boolean;
+  behind: boolean;
+};
+
+export type TutorialCandidate = {
+  target: TutorialTarget;
+  /** Null when the caller could not project it (e.g. readiness gates still closed). */
+  projection: TutorialProjection | null;
+};
+
+/**
+ * Keep-clear margin from the viewport edge. A target hugging an edge leaves the ring half
+ * off-screen and slides out of view on the smallest hand movement.
+ */
+export const TUTORIAL_TARGET_EDGE_MARGIN_PX = 44;
+
+/**
+ * Top allowance for Sky Lens chrome when choosing a tutorial object. This is a PREFERENCE, not
+ * a rendering constant: it only stops the tour from nominating an object tucked under the HUD.
+ * Nothing about how the sky is drawn depends on it.
+ */
+export const TUTORIAL_TOP_CHROME_PX = 96;
+
+export type TutorialViewport = { width: number; height: number };
+
+export type TutorialReachOptions = {
+  /** Measured height of the host's bottom control strip (Lock Sky, shutter, layer bar). */
+  reservedBottom?: number;
+  /** Top chrome allowance; defaults to TUTORIAL_TOP_CHROME_PX. */
+  topChrome?: number;
+};
+
+/**
+ * Whether a projected candidate is comfortably visible: in front of the camera, on screen,
+ * finite, and clear of both the viewport edges and the host's chrome.
+ */
+export function isCandidateReachable(
+  projection: TutorialProjection | null | undefined,
+  viewport: TutorialViewport | null | undefined,
+  options: TutorialReachOptions = {}
+): boolean {
+  if (!projection || !viewport) return false;
+  if (!usable(viewport.width) || !usable(viewport.height)) return false;
+  if (viewport.width <= 0 || viewport.height <= 0) return false;
+  if (!usable(projection.x) || !usable(projection.y)) return false;
+  if (projection.behind || !projection.onScreen) return false;
+
+  const reservedBottom = usable(options.reservedBottom) && options.reservedBottom > 0 ? options.reservedBottom : 0;
+  const topChrome = usable(options.topChrome) && options.topChrome >= 0 ? options.topChrome : TUTORIAL_TOP_CHROME_PX;
+
+  const minX = TUTORIAL_TARGET_EDGE_MARGIN_PX;
+  const maxX = viewport.width - TUTORIAL_TARGET_EDGE_MARGIN_PX;
+  const minY = topChrome + TUTORIAL_TARGET_EDGE_MARGIN_PX;
+  const maxY = viewport.height - reservedBottom - TUTORIAL_TARGET_EDGE_MARGIN_PX;
+  // A viewport too small to contain any comfortable region yields no candidate rather than
+  // silently relaxing the rule.
+  if (maxX <= minX || maxY <= minY) return false;
+
+  return projection.x >= minX && projection.x <= maxX && projection.y >= minY && projection.y <= maxY;
+}
+
+/**
+ * Every plausible tutorial object that is genuinely above the horizon, in beginner preference
+ * order: Moon → brightest naked-eye planet → Polaris → prominent bright stars.
+ *
+ * The altitude floor is the RELAXED one, because being inside the rendered viewport — not being
+ * high in the sky — is what now decides eligibility.
+ */
+export function rankTutorialCandidates(
+  bodies: ReadonlyArray<TutorialBodyInput>,
+  stars: ReadonlyArray<TutorialStarInput>
+): TutorialTarget[] {
+  const floor = MINIMUM_ALTITUDE_DEGREES;
+  const ranked: TutorialTarget[] = [];
+  const seen = new Set<string>();
+  const add = (target: TutorialTarget | null) => {
+    if (!target || seen.has(target.id)) return;
+    seen.add(target.id);
+    ranked.push(target);
+  };
+
+  add(moonTarget(bodies, floor));
+
+  // Every visible naked-eye planet, brightest first — not just the single best one, so a
+  // dimmer planet that happens to be in view can still carry the step.
+  const planets = bodies
+    .filter((b) => TUTORIAL_PLANET_IDS.includes(b.id) && isUp(b, floor))
+    .sort((a, b) => {
+      const am = usable(a.magnitude) ? a.magnitude : Number.POSITIVE_INFINITY;
+      const bm = usable(b.magnitude) ? b.magnitude : Number.POSITIVE_INFINITY;
+      if (am !== bm) return am - bm;
+      return TUTORIAL_PLANET_IDS.indexOf(a.id) - TUTORIAL_PLANET_IDS.indexOf(b.id);
+    });
+  for (const planet of planets) {
+    add({
+      kind: "planet",
+      id: planet.id,
+      name: planet.name,
+      subtitle: "Planet",
+      azimuthDegrees: planet.azimuthDegrees,
+      altitudeDegrees: planet.altitudeDegrees,
+      simulated: false,
+    });
+  }
+
+  add(starTarget(stars, floor, "polaris"));
+
+  const brightStars = stars
+    .filter((s) => isUp(s, floor) && usable(s.magnitude) && s.magnitude <= BRIGHT_STAR_MAX_MAGNITUDE && s.id !== "polaris")
+    .sort((a, b) => a.magnitude - b.magnitude);
+  for (const star of brightStars) {
+    add({
+      kind: "star",
+      id: star.id,
+      name: star.name || star.id,
+      subtitle: "Bright star",
+      azimuthDegrees: star.azimuthDegrees,
+      altitudeDegrees: star.altitudeDegrees,
+      simulated: false,
+    });
+  }
+
+  return ranked;
+}
+
+/**
+ * The best candidate the user can actually see right now, or null when the current view holds
+ * none. Null is a legitimate, expected answer: the caller keeps the step open, keeps Back and
+ * Skip live, tells the user to sweep the sky, and re-asks as the view changes.
+ */
+export function selectVisibleTutorialTarget(
+  candidates: ReadonlyArray<TutorialCandidate>,
+  viewport: TutorialViewport | null | undefined,
+  options: TutorialReachOptions = {}
+): TutorialTarget | null {
+  for (const candidate of candidates) {
+    if (!candidate?.target) continue;
+    // A practice marker is never a "visible object" — it is not in the sky at all.
+    if (candidate.target.simulated) continue;
+    if (isCandidateReachable(candidate.projection, viewport, options)) return candidate.target;
+  }
+  return null;
+}
+
 function visibleEnough(constellation: TutorialConstellationInput, floor: number): boolean {
   if (!constellation.centroid?.aboveHorizon) return false;
   if (!usable(constellation.centroid.altitudeDegrees)) return false;
