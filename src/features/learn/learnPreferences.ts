@@ -8,7 +8,6 @@ export const LEARN_LEVEL_KEY = "learn_level";
 export const LEARN_INTERESTS_KEY = "learn_interests";
 
 export type LearnLevel = "beginner" | "intermediate" | "advanced";
-// Interest keys are exactly the LearnCategoryId values they map to.
 export type LearnInterest = "planets" | "stars" | "constellations" | "deep_sky" | "moon" | "milky_way";
 
 export const LEARN_LEVELS: { key: LearnLevel; label: string }[] = [
@@ -26,62 +25,127 @@ export const LEARN_INTERESTS: { key: LearnInterest; label: string }[] = [
   { key: "milky_way", label: "Milky Way" }
 ];
 
-export type LearnPreferences = { level: LearnLevel | null; interests: LearnInterest[] };
+export type LearnPreferences = { level: LearnLevel; interests: LearnInterest[] };
 
-const VALID_LEVELS = new Set<string>(LEARN_LEVELS.map((l) => l.key));
-const VALID_INTERESTS = new Set<string>(LEARN_INTERESTS.map((i) => i.key));
+const VALID_LEVELS = new Set<string>(LEARN_LEVELS.map((level) => level.key));
+const VALID_INTERESTS = new Set<string>(LEARN_INTERESTS.map((interest) => interest.key));
+const ALL_INTERESTS = LEARN_INTERESTS.map((interest) => interest.key);
+
+export const DEFAULT_LEARN_PREFERENCES: LearnPreferences = {
+  level: "beginner",
+  interests: [...ALL_INTERESTS]
+};
+
+type LearnPreferencesListener = (preferences: LearnPreferences, saveRevision: number) => void;
+const listeners = new Set<LearnPreferencesListener>();
+let saveRevision = 0;
+
+function normalizeInterests(value: unknown): LearnInterest[] {
+  if (!Array.isArray(value)) return [];
+  const unique = new Set<LearnInterest>();
+  for (const item of value) {
+    if (typeof item === "string" && VALID_INTERESTS.has(item)) unique.add(item as LearnInterest);
+  }
+  return [...unique];
+}
+
+function publish(preferences: LearnPreferences) {
+  saveRevision += 1;
+  for (const listener of listeners) listener(preferences, saveRevision);
+}
+
+export function subscribeLearnPreferences(listener: LearnPreferencesListener): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
 
 export async function loadLearnPreferences(): Promise<LearnPreferences> {
   try {
-    const [lvl, ints] = await Promise.all([
-      AsyncStorage.getItem(LEARN_LEVEL_KEY),
-      AsyncStorage.getItem(LEARN_INTERESTS_KEY)
-    ]);
-    const level = lvl && VALID_LEVELS.has(lvl) ? (lvl as LearnLevel) : null;
+    const entries = await AsyncStorage.multiGet([LEARN_LEVEL_KEY, LEARN_INTERESTS_KEY]);
+    const stored = new Map(entries);
+    const rawLevel = stored.get(LEARN_LEVEL_KEY);
+    const rawInterests = stored.get(LEARN_INTERESTS_KEY);
+
+    const level = rawLevel && VALID_LEVELS.has(rawLevel)
+      ? (rawLevel as LearnLevel)
+      : DEFAULT_LEARN_PREFERENCES.level;
+
     let interests: LearnInterest[] = [];
-    if (ints) {
+    if (rawInterests) {
       try {
-        const parsed = JSON.parse(ints);
-        if (Array.isArray(parsed)) interests = parsed.filter((x) => VALID_INTERESTS.has(x)) as LearnInterest[];
+        interests = normalizeInterests(JSON.parse(rawInterests));
       } catch {
-        /* corrupt → ignore */
+        interests = [];
       }
     }
-    return { level, interests };
+
+    return {
+      level,
+      interests: interests.length ? interests : [...DEFAULT_LEARN_PREFERENCES.interests]
+    };
   } catch {
-    return { level: null, interests: [] };
+    return {
+      level: DEFAULT_LEARN_PREFERENCES.level,
+      interests: [...DEFAULT_LEARN_PREFERENCES.interests]
+    };
   }
 }
 
-export async function saveLearnLevel(level: LearnLevel): Promise<void> {
+export async function saveLearnPreferences(preferences: LearnPreferences): Promise<boolean> {
+  const interests = normalizeInterests(preferences.interests);
+  if (!VALID_LEVELS.has(preferences.level) || interests.length === 0) return false;
+
+  const normalized: LearnPreferences = { level: preferences.level, interests };
   try {
-    await AsyncStorage.setItem(LEARN_LEVEL_KEY, level);
+    await AsyncStorage.multiSet([
+      [LEARN_LEVEL_KEY, normalized.level],
+      [LEARN_INTERESTS_KEY, JSON.stringify(normalized.interests)]
+    ]);
+    publish(normalized);
+    return true;
   } catch {
-    /* best-effort */
+    return false;
   }
 }
 
-export async function saveLearnInterests(interests: LearnInterest[]): Promise<void> {
-  try {
-    await AsyncStorage.setItem(LEARN_INTERESTS_KEY, JSON.stringify(interests));
-  } catch {
-    /* best-effort */
-  }
+export async function saveLearnLevel(level: LearnLevel): Promise<boolean> {
+  const current = await loadLearnPreferences();
+  return saveLearnPreferences({ ...current, level });
 }
 
-// Loads preferences and re-loads on focus/refresh. The Learn screen calls reload() so it
-// reflects edits made in Settings without a full remount.
+export async function saveLearnInterests(interests: LearnInterest[]): Promise<boolean> {
+  const current = await loadLearnPreferences();
+  return saveLearnPreferences({ ...current, interests });
+}
+
 export function useLearnPreferences() {
-  const [prefs, setPrefs] = useState<LearnPreferences>({ level: null, interests: [] });
-  const reload = useCallback(() => {
+  const [prefs, setPrefs] = useState<LearnPreferences>({
+    level: DEFAULT_LEARN_PREFERENCES.level,
+    interests: [...DEFAULT_LEARN_PREFERENCES.interests]
+  });
+  const [lastSaveRevision, setLastSaveRevision] = useState(0);
+
+  const reload = useCallback(async () => {
+    const next = await loadLearnPreferences();
+    setPrefs(next);
+    return next;
+  }, []);
+
+  useEffect(() => {
     let active = true;
-    loadLearnPreferences().then((p) => {
-      if (active) setPrefs(p);
+    void loadLearnPreferences().then((next) => {
+      if (active) setPrefs(next);
+    });
+    const unsubscribe = subscribeLearnPreferences((next, revision) => {
+      if (!active) return;
+      setPrefs(next);
+      setLastSaveRevision(revision);
     });
     return () => {
       active = false;
+      unsubscribe();
     };
   }, []);
-  useEffect(() => reload(), [reload]);
-  return { prefs, reload };
+
+  return { prefs, reload, lastSaveRevision };
 }

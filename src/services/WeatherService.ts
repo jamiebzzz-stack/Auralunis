@@ -1,4 +1,5 @@
 import type { ObserverLocation } from "@/features/sky-lens/accuracy/SkyLensAccuracyTypes";
+import { fetchWithTimeout } from "@/utils/network";
 
 export interface WeatherSnapshot {
   cloudPercent: number;
@@ -36,7 +37,7 @@ export async function fetchCurrentWeather(
       `https://api.open-meteo.com/v1/forecast?` +
       `latitude=${location.latitudeDegrees}&longitude=${location.longitudeDegrees}` +
       `&current=temperature_2m,relative_humidity_2m,cloud_cover`;
-    const response = await fetch(url);
+    const response = await fetchWithTimeout(url);
     if (!response.ok) throw new Error(`Weather ${response.status}`);
 
     const data = (await response.json()) as {

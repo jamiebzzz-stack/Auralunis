@@ -12,6 +12,7 @@ import { AuraLunisColors } from "@/theme/tokens";
 import { tapLight } from "@/services/HapticService";
 import { computeBirthSky, BIRTHDAY_STORAGE_KEY, type BirthSkyProfile } from "@/services/BirthSkyService";
 import type { ObserverLocation } from "@/features/sky-lens/accuracy/SkyLensAccuracyTypes";
+import { fetchWithTimeout } from "@/utils/network";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { usePaywallNavigation } from "@/context/PaywallNavigationContext";
 import { resolveBirthMoment } from "@/utils/birthTime";
@@ -180,7 +181,7 @@ async function findBirthplace(query: string): Promise<SavedBirthplace> {
   const city = parts[0] || query.trim();
   const qualifiers = parts.slice(1);
   const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=10&language=en&format=json`;
-  const response = await fetch(url);
+  const response = await fetchWithTimeout(url);
   if (!response.ok) throw new Error("Birthplace search failed");
 
   const payload = (await response.json()) as { results?: GeocodingResult[] };

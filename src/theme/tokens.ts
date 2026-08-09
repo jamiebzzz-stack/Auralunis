@@ -89,24 +89,15 @@ export const AuraLunisThemes: Record<string, AuraLunisThemePalette> = {
 };
 
 export const AuraLunisPricing = {
-  // Fallback prices only — the paywall prefers live localized StoreKit prices when
-  // available (see usePaywallOffers.ts). A 7-day introductory trial may be available to
-  // eligible new subscribers on monthly/annual; it is an Apple-configured intro offer, not
-  // defined here, and the app shows it only when StoreKit confirms eligibility.
-  // Monthly — direct charge nudges users toward annual.
-  monthly: "$9.99/month",
-  monthlySubtitle: "Billed monthly · Cancel anytime",
-
-  // Annual — best recurring value.
-  annual: "$49.99/year",
-  annualMonthly: "$4.17/month",
-  annualSavings: "Save 58%",
-  annualSubtitle: "$4.17/month, billed annually",
-
-  // Lifetime — anchor price, one-time purchase
-  lifetime: "$129.99",
-  lifetimeSubtitle: "One-time purchase · Forever",
-  lifetimeBadge: "BEST VALUE",
+  // Fallback price only — the paywall prefers the live localized StoreKit price when available
+  // (see usePaywallOffers.ts), so an App Store Connect price change needs no app update.
+  //
+  // Lifetime is the ONLY purchasable plan: it is the only package in the RevenueCat `default`
+  // Offering. The monthly/annual constants were removed along with their plan cards — leaving
+  // them here invited stale monthly/annual copy to reappear in screens that no longer have a
+  // subscription to sell. A one-time purchase has no trial and nothing to renew.
+  lifetime: "$29.99",
+  lifetimeSubtitle: "One-time purchase · No subscription · No recurring charges",
 
   // Free tier Cosmic Drift cap
   freeDriftEventLimit: 5,

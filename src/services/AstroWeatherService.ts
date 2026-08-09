@@ -8,6 +8,7 @@
 
 import type { ObserverLocation } from "@/features/sky-lens/accuracy/SkyLensAccuracyTypes";
 import { formatHour } from "@/utils/formatting";
+import { fetchWithTimeout, finiteNumber } from "@/utils/network";
 
 export interface AstroWeatherHour {
   time: string;             // ISO 8601
@@ -101,19 +102,23 @@ export async function fetchAstroWeather(
 
   try {
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${location.latitudeDegrees}&longitude=${location.longitudeDegrees}&hourly=cloud_cover,relative_humidity_2m,wind_speed_10m,temperature_2m,dew_point_2m&forecast_days=2&timezone=auto`;
-    const res = await fetch(url);
+    const res = await fetchWithTimeout(url);
     if (res.ok) {
       const data = await res.json();
       const h = data.hourly;
-      for (let i = 0; i < Math.min(48, h.time.length); i++) {
-        weatherHours.push({
-          time: h.time[i],
-          cloud: h.cloud_cover[i] ?? 50,
-          humidity: h.relative_humidity_2m[i] ?? 60,
-          wind: h.wind_speed_10m[i] ?? 10,
-          temp: h.temperature_2m[i] ?? 20,
-          dewpoint: h.dew_point_2m[i] ?? 15,
-        });
+      // Open-Meteo returns nulls in any hourly column when a value is unavailable, so every
+      // reading is coerced to a finite number before it reaches the scoring maths.
+      if (h && Array.isArray(h.time)) {
+        for (let i = 0; i < Math.min(48, h.time.length); i++) {
+          weatherHours.push({
+            time: h.time[i],
+            cloud: finiteNumber(h.cloud_cover?.[i], 50),
+            humidity: finiteNumber(h.relative_humidity_2m?.[i], 60),
+            wind: finiteNumber(h.wind_speed_10m?.[i], 10),
+            temp: finiteNumber(h.temperature_2m?.[i], 20),
+            dewpoint: finiteNumber(h.dew_point_2m?.[i], 15),
+          });
+        }
       }
     }
   } catch {
@@ -143,7 +148,9 @@ export async function fetchAstroWeather(
     const hour = t.getHours();
     const isDark = hour >= 22 || hour <= 4; // simplified
     const isGolden = hour === 6 || hour === 7 || hour === 19 || hour === 20;
-    const moonUp = hour >= 14 && hour <= 3; // simplified for current phase
+    // The window wraps past midnight, so it needs OR, not AND — `hour >= 14 && hour <= 3`
+    // can never be true, which pinned moonUp to false for every hour of the forecast.
+    const moonUp = hour >= 14 || hour <= 3; // simplified for current phase
     const dewDiff = w.temp - w.dewpoint;
     const seeing = computeSeeing(w.cloud, w.humidity, w.wind);
     const transparency = computeTransparency(w.cloud, w.humidity, dewDiff);
@@ -181,7 +188,12 @@ export async function fetchAstroWeather(
       runStart = -1; runScore = 0;
     }
   }
-  if (runStart >= 0 && runScore > bestScore) { bestStart = runStart; bestEnd = hours.length - 1; }
+  // A run that reaches the end of the forecast must also record its score — without the
+  // `bestScore` assignment the window's average was divided from a stale (often 0) total,
+  // so the best window reported a score of 0.
+  if (runStart >= 0 && runScore > bestScore) {
+    bestStart = runStart; bestEnd = hours.length - 1; bestScore = runScore;
+  }
 
   const bestWindow = bestStart >= 0 ? {
     start: hours[bestStart].hourLabel,

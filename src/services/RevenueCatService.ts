@@ -149,14 +149,46 @@ export async function getCurrentPackages(): Promise<PurchasesPackage[]> {
   }
 }
 
-export async function purchaseAuraLunisTier(
-  tierId: AuraLunisPaidTierId,
-  billingPeriod: BillingPeriod
-): Promise<{
+// In-flight guards. StoreKit rejects a second purchase while one is still presenting, and a
+// double-tapped Restore fires two round-trips whose results can land out of order. Each entry
+// point below de-duplicates onto the single in-flight promise, so every caller awaits — and
+// resolves with — the same result, preserving the declared return type exactly.
+type PurchaseTierResult = {
   status: "purchased" | "cancelled" | "not_configured" | "not_available";
   customerInfo?: CustomerInfo;
   productId?: string;
-}> {
+};
+type PurchasePackageResult = {
+  status: "purchased" | "cancelled" | "not_configured" | "not_available";
+  customerInfo?: CustomerInfo;
+};
+type RestoreResult = {
+  status: "restored" | "not_configured" | "error";
+  customerInfo?: CustomerInfo;
+  entitled?: boolean;
+  membership?: MembershipKind;
+};
+
+let _purchaseTierInFlight: Promise<PurchaseTierResult> | null = null;
+let _purchasePackageInFlight: Promise<PurchasePackageResult> | null = null;
+let _restoreInFlight: Promise<RestoreResult> | null = null;
+
+export function purchaseAuraLunisTier(
+  tierId: AuraLunisPaidTierId,
+  billingPeriod: BillingPeriod
+): Promise<PurchaseTierResult> {
+  if (_purchaseTierInFlight) return _purchaseTierInFlight;
+  const run = runPurchaseAuraLunisTier(tierId, billingPeriod);
+  // Clear the latch whether it resolves or rejects, so a failed attempt can be retried.
+  _purchaseTierInFlight = run;
+  run.catch(() => {}).then(() => { _purchaseTierInFlight = null; });
+  return run;
+}
+
+async function runPurchaseAuraLunisTier(
+  tierId: AuraLunisPaidTierId,
+  billingPeriod: BillingPeriod
+): Promise<PurchaseTierResult> {
   const product = { productId: billingPeriod === "annual" ? RevenueCatIds.products.premiumAnnual : RevenueCatIds.products.premiumMonthly, packageId: billingPeriod === "annual" ? RevenueCatIds.packages.premiumAnnual : RevenueCatIds.packages.premiumMonthly };
 
   const configuration = await configureRevenueCat();
@@ -201,10 +233,21 @@ export async function purchaseAuraLunisTier(
 // tier-based helper above only mapped annual/monthly, so a lifetime selection would
 // mis-purchase the monthly product. Match the RevenueCat package by its identifier
 // or the underlying product identifier.
-export async function purchaseAuraLunisPackage(
+export function purchaseAuraLunisPackage(
   packageId: string,
   productId?: string
-): Promise<{ status: "purchased" | "cancelled" | "not_configured" | "not_available"; customerInfo?: CustomerInfo }> {
+): Promise<PurchasePackageResult> {
+  if (_purchasePackageInFlight) return _purchasePackageInFlight;
+  const run = runPurchaseAuraLunisPackage(packageId, productId);
+  _purchasePackageInFlight = run;
+  run.catch(() => {}).then(() => { _purchasePackageInFlight = null; });
+  return run;
+}
+
+async function runPurchaseAuraLunisPackage(
+  packageId: string,
+  productId?: string
+): Promise<PurchasePackageResult> {
   const configuration = await configureRevenueCat();
   if (configuration.status !== "configured" || !Purchases) return { status: "not_configured" };
 
@@ -224,12 +267,15 @@ export async function purchaseAuraLunisPackage(
   }
 }
 
-export async function restoreAuraLunisPurchases(): Promise<{
-  status: "restored" | "not_configured" | "error";
-  customerInfo?: CustomerInfo;
-  entitled?: boolean;
-  membership?: MembershipKind;
-}> {
+export function restoreAuraLunisPurchases(): Promise<RestoreResult> {
+  if (_restoreInFlight) return _restoreInFlight;
+  const run = runRestoreAuraLunisPurchases();
+  _restoreInFlight = run;
+  run.catch(() => {}).then(() => { _restoreInFlight = null; });
+  return run;
+}
+
+async function runRestoreAuraLunisPurchases(): Promise<RestoreResult> {
   const configuration = await configureRevenueCat();
 
   if (configuration.status !== "configured") {

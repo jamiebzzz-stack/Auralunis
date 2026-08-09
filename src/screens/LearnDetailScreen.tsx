@@ -4,7 +4,7 @@
 // "Try in Sky Lens" jump, and a "Next lesson" button. Reuses ScreenShell + the
 // living Starfield so it reads like a beautiful astronomy textbook.
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { ScreenShell } from "@/components/ScreenShell";
 import { Starfield } from "@/components/Starfield";
@@ -38,6 +38,11 @@ export function LearnDetailScreen({
   const { isPremium } = useEntitlement();
   const { addItem } = useAuraLunisVault();
   const [saved, setSaved] = useState(false);
+
+  // "Next lesson" swaps the `topic` prop while this screen stays mounted, so the saved flag
+  // has to follow the lesson. Without the reset the button stayed "✓ Saved to Vault" and
+  // disabled on every subsequent lesson, making them impossible to save.
+  useEffect(() => { setSaved(false); }, [topic.id]);
 
   const saveToVault = () => {
     tapLight();
@@ -102,7 +107,16 @@ export function LearnDetailScreen({
 
       {/* Live visual up top */}
       <GlassPanel accent style={styles.visualCard}>
-        <LearnVisualForCategory categoryId={topic.categoryId} />
+        {/* KEYED BY LESSON ID. "Next lesson" swaps `topic` while this screen stays mounted,
+            so a visual holding local state (DeepSkyGlowVisual's `active` tab) kept the option
+            tapped in the PREVIOUS lesson — pick "Remnant" in Galaxies and Spotting Star
+            Clusters opened showing Remnant. useState's initializer does not re-run on a prop
+            change, and the visual's selectedIndex effect early-returns when the destination
+            lesson supplies none.
+
+            The key remounts ONLY this visual. Everything outside it — the screen, navigation,
+            scroll position, saved records, course progress and entitlement — is untouched. */}
+        <LearnVisualForCategory key={topic.id} categoryId={topic.categoryId} />
       </GlassPanel>
 
       {/* Key facts as gold bullets */}

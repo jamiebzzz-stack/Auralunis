@@ -116,22 +116,27 @@ check("Birth Sky stores local date and time separately", birthSky.includes("BIRT
 check("Birth Sky labels unknown-time horizon as approximate", birthSky.includes('"Approx. eastern sky"') && birthSky.includes("approximationNote"));
 
 const onboarding = read("src/features/onboarding/OnboardingFlow.tsx");
-// First-run onboarding is now purely informational (no in-flow date-only birth-sky preview);
-// it must stay truthful that an unknown birth time limits the rising sign / time-sensitive detail.
-check("onboarding is truthful that unknown birth time limits time-sensitive detail", onboarding.includes("rising sign") && onboarding.includes("time-sensitive"));
-check("onboarding explains exact birthplace and time are still needed", onboarding.includes("birthplace") && onboarding.includes("birth time"));
+// Birth-chart setup is no longer a screen inside the app tour — it is a separate, optional
+// prompt. The truthfulness guards move WITH the copy: wherever the chart is offered, it must
+// still say plainly that an unknown birth time costs the rising sign and other time-sensitive
+// detail.
+const birthPrompt = read("src/features/onboarding/BirthChartPrompt.tsx");
+check("birth-chart prompt is truthful that unknown birth time limits time-sensitive detail", birthPrompt.includes("rising sign") && birthPrompt.includes("time-sensitive"));
+check("birth-chart prompt explains exact birthplace and time are still needed", birthPrompt.includes("birthplace") && birthPrompt.includes("birth time"));
+check("birth-chart setup stays optional and skippable", birthPrompt.includes("Maybe Later"));
 check("onboarding does not advertise removed camera AR", !onboarding.includes("Point your phone at the sky"));
 
 const monetization = read("src/features/paywall/MonetizationCatalog.ts");
-for (const price of ["$9.99/month", "$49.99/year", "$129.99"]) {
-  check(`current price present: ${price}`, monetization.includes(price));
+check("current lifetime price present: $29.99", monetization.includes("$29.99"));
+// Lifetime-only: monthly/annual left the RevenueCat Offering, so no subscription price may be
+// advertised. A plan card whose package is absent produces a dead purchase button.
+for (const stale of ["$9.99", "$49.99", "$129.99"]) {
+  check(`retired price absent: ${stale}`, !monetization.includes(stale));
 }
-// A 7-day Apple intro trial may be offered to eligible new subscribers. The claim must be
-// CONDITIONAL (eligibility-gated), never an unconditional "everyone gets a trial".
+// A one-time purchase has no introductory offer, so no trial may be claimed at all.
 check(
-  "trial claim is conditional (eligibility-gated)",
-  monetization.includes("may be available to eligible new subscribers") &&
-    !monetization.includes("No free trials on any plan")
+  "no free-trial claim (lifetime carries no intro offer)",
+  !/free trial/i.test(monetization) && !/eligible new subscribers/i.test(monetization)
 );
 check("lifetime RevenueCat package id is canonical", monetization.includes('lifetime:          "$rc_lifetime"'));
 check("premium entitlement identifier is exact", monetization.includes('entitlement: "AuraLunis Premium"'));

@@ -55,7 +55,7 @@ export function SkyLensLayerBar({ active, nightMode, onToggle, onOpenLayers }: P
             onPress={() => onToggle(def.key)}
             style={[
               styles.pill,
-              { borderColor: on ? accent : "rgba(217,168,78,0.22)" },
+              { borderColor: on ? accent : AuraLunisColors.borderSubtle },
               on && { backgroundColor: accent },
             ]}
           >
@@ -89,7 +89,7 @@ export function SkyLensLayerBar({ active, nightMode, onToggle, onOpenLayers }: P
         style={[
           styles.pill,
           styles.layersPill,
-          { borderColor: activeExtras > 0 ? accent : "rgba(217,168,78,0.22)" },
+          { borderColor: activeExtras > 0 ? accent : AuraLunisColors.borderSubtle },
         ]}
       >
         {/* The button stays DARK regardless of state — recolouring the whole glyph gold
@@ -118,7 +118,7 @@ const styles = StyleSheet.create({
     alignSelf: "stretch",
     height: LAYER_BAR_HEIGHT,
     marginHorizontal: 4,
-    paddingHorizontal: 3,
+    paddingHorizontal: 5,
     borderRadius: 22,
     backgroundColor: "rgba(2,8,20,0.52)",
     borderWidth: StyleSheet.hairlineWidth,
@@ -132,10 +132,10 @@ const styles = StyleSheet.create({
   pill: {
     alignItems: "center",
     justifyContent: "center",
-    height: 44, // comfortable tap target
+    height: 44, // comfortable tap target — unchanged
     flexShrink: 1, // shrink to fit narrow screens; the label font auto-scales with it
-    marginHorizontal: 2, // ~4pt gap between controls
-    paddingHorizontal: 6,
+    marginHorizontal: 3, // ~6pt gap between controls (was ~4pt — the pills read as one slab)
+    paddingHorizontal: 7,
     borderRadius: 20,
     borderWidth: 1,
     backgroundColor: "rgba(5,13,29,0.38)",
@@ -145,7 +145,7 @@ const styles = StyleSheet.create({
   divider: {
     width: StyleSheet.hairlineWidth,
     height: 24,
-    marginHorizontal: 5, // clear space on both sides — never touches the Planets pill
+    marginHorizontal: 6, // clear space on both sides — never touches the Planets pill
     backgroundColor: "rgba(217,168,78,0.2)",
   },
   // Fixed 44x44 icon button (not a text pill). The menu glyph communicates its function
@@ -159,8 +159,10 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(5,13,29,0.62)",
   },
   layersIcon: { color: "rgba(231,236,248,0.92)", fontSize: 17, fontWeight: "700" },
+  // Inactive label: quieter than the selected one, but still comfortably legible. The ON
+  // label (labelOn) is unchanged — dark on filled gold — so selection stays unmistakable.
   label: {
-    color: "rgba(231,236,248,0.92)",
+    color: "rgba(231,236,248,0.78)",
     fontSize: 15,
     fontWeight: "600",
     letterSpacing: 0.1,

@@ -99,23 +99,26 @@ check("Birth Sky chart uses resolved location", birthSky.includes("location={pro
 check("Birth Sky unknown time is labeled approximate", birthSky.includes('"Approx. eastern sky"'));
 check("Birth Sky network failure is user-visible", birthSky.includes("We couldn't find that birthplace"));
 
-// First-run onboarding is now informational (the date-only birth-sky preview lives in the
-// Birth Sky screen, not the intro); it must stay honest about what an unknown birth time limits.
-check("onboarding is truthful about unknown birth time limits", onboarding.includes("rising sign") && onboarding.includes("time-sensitive"));
+// Birth-chart setup is no longer a screen inside the app tour — it is a separate, optional
+// prompt. The honesty guards move WITH the copy: wherever the chart is offered, it must still
+// say plainly what an unknown birth time costs.
+const birthPrompt = read("src/features/onboarding/BirthChartPrompt.tsx");
+check("birth-chart prompt is truthful about unknown birth time limits", birthPrompt.includes("rising sign") && birthPrompt.includes("time-sensitive"));
 check("onboarding avoids exact horizon claims", !onboarding.includes("Above the horizon:"));
-check("onboarding explains birthplace and birth time are needed", onboarding.includes("birthplace") && onboarding.includes("birth time"));
+check("birth-chart prompt explains birthplace and birth time are needed", birthPrompt.includes("birthplace") && birthPrompt.includes("birth time"));
+check("birth-chart setup is optional, not a tour screen", birthPrompt.includes("Maybe Later") && birthPrompt.includes("Entirely optional"));
 check("onboarding no longer advertises camera AR", !onboarding.includes("Point your phone at the sky"));
 
-check("current monthly price is $9.99", monetization.includes("$9.99/month"));
-check("current annual price is $49.99", monetization.includes("$49.99/year"));
-check("current lifetime price is $129.99", monetization.includes("$129.99"));
-// The old "No free trials on any plan" claim is retired: a 7-day Apple intro trial may be
-// offered to eligible new subscribers. Guard that the trial is described as CONDITIONAL
-// (eligibility-gated), never as an unconditional promise every user receives.
+check("current lifetime price is $29.99", monetization.includes("$29.99"));
+// Lifetime-only paywall: no subscription price may be advertised anywhere in the catalog.
+for (const stale of ["$9.99", "$49.99", "$129.99"]) {
+  check(`retired price absent from catalog: ${stale}`, !monetization.includes(stale));
+}
+// A one-time purchase carries no introductory offer, so the catalog must make no trial
+// promise at all — conditional or otherwise.
 check(
-  "trial copy is conditional (eligibility-gated), not unconditional",
-  monetization.includes("may be available to eligible new subscribers") &&
-    !/No free trials on any plan/.test(monetization)
+  "catalog makes no free-trial promise (lifetime has no intro offer)",
+  !/free trial/i.test(monetization) && !/eligible new subscribers/i.test(monetization)
 );
 check("lifetime package identifier is correct", monetization.includes('"$rc_lifetime"'));
 check("entitlement identifier is exact", monetization.includes('"AuraLunis Premium"'));
@@ -180,8 +183,10 @@ check("planet review target env var is read only behind the reviewMode gate",
   (skyLensScreen.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1").match(/EXPO_PUBLIC_SKYLENS_REVIEW_TARGET/g) || []).length === 1);
 check("review mode stays dev + explicit-flag gated",
   skyLensScreen.includes('const reviewMode = __DEV__ && process.env.EXPO_PUBLIC_SKYLENS_REVIEW_MODE === "1"'));
-check("review pointing override falls back to live sensor pointing off review mode",
-  skyLensScreen.includes("if (!reviewMode) return sensorPointing;"));
+// Same guard, new source: live pointing is now derived from the quaternion orientation the
+// sky is rendered from, not from the separate raw-sensor Euler hook.
+check("review pointing override falls back to live pointing off review mode",
+  skyLensScreen.includes("if (!reviewMode) return livePointing;"));
 
 // Dev-only "Preview Paywall" button in Settings — lets QA inspect trial/pricing states
 // without altering release behavior. It MUST stay guarded by __DEV__ so it is stripped

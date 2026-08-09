@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatMediumDate } from "@/utils/formatting";
-import { Alert, Animated, Pressable, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Alert, Animated, PixelRatio, Pressable, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import * as Sharing from "expo-sharing";
 
 // react-native-view-shot isn't bundled in Expo Go — load it lazily (guarded require,
@@ -17,7 +17,6 @@ try {
 import { Body, Horizon, Observer, SearchHourAngle } from "astronomy-engine";
 import { GestureDetector, Gesture } from "react-native-gesture-handler";
 import { LinearGradient } from "expo-linear-gradient";
-import Slider from "@react-native-community/slider";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AuraLunisColors } from "@/theme/tokens";
 import { useAuraLunisVault } from "@/state/AuraLunisVaultContext";
@@ -28,15 +27,27 @@ import { useAuraLunisSettings } from "@/state/AuraLunisSettingsContext";
 import { SKY_PROFILES, getSeasonalTint, getMagnificentBoost, type SkyQuality } from "@/services/SkyQualityService";
 import { computeStargazingIndex } from "@/services/StargazingIndexService";
 import { fetchCurrentWeather, type WeatherSnapshot } from "@/services/WeatherService";
-import { useDevicePointing } from "./ar/useDevicePointing";
+// Live quaternion orientation + Lock Sky + drag-to-pan. This is the path that renders.
+import { useSkyOrientation, DRAG_ACTIVATION_POINTS } from "./ar/useSkyOrientation";
+import { cameraBasisFromQuaternion, quaternionLookingAt, eulerReadoutFromQuaternion } from "./ar/orientationQuaternion";
 import { useParallaxOffset } from "./ar/useParallaxOffset";
 import { getFleet, simulateTick, syncLiveTLEData, isFleetLive } from "@/services/AtmosphereExplorerService";
 import { onObjectTapped, onObjectCentered } from "@/services/HapticDiscoveryService";
+import { tapLight } from "@/services/HapticService";
 import { computeAzimuthElevation } from "@/utils/alignmentEngine";
 import type { SkyLensSatellite } from "./layers/SatelliteLayer";
 import { useSkyData } from "./hooks/useSkyProjection";
 import { SkyLensCanvas } from "./SkyLensCanvas";
-import { chromeAvoidRects, chromeTopInset } from "./skyLensChromeLayout";
+import {
+  chromeAvoidRects,
+  chromeTopInset,
+  finderBottomOffset,
+  finderMaxWidth,
+  FINDER_MAX_FONT_SCALE,
+  FINDER_MAX_LINES,
+  lockChipMaxWidth,
+  LOCK_CHIP_MAX_FONT_SCALE,
+} from "./skyLensChromeLayout";
 import { SolidSkyBackgroundLayer } from "./SolidSkyBackgroundLayer";
 import { NebulaImageLayer } from "./layers/NebulaImageLayer";
 import { ClusterLayer } from "./layers/ClusterLayer";
@@ -59,9 +70,18 @@ import { TargetPulse } from "./TargetPulse";
 import { SelectionRing } from "./SelectionRing";
 import { HeroSpotlight } from "./HeroSpotlight";
 import { DEFAULT_ACTIVE_LAYERS, SKY_LENS_LAYERS, type LayerDef, type LayerKey } from "./SkyLensLayerCatalog";
-import { projectTarget, DEFAULT_FOV, type CameraPointing } from "./ar/SkyLensProjection";
+import { projectTarget, projectTargetWithBasis, DEFAULT_FOV, type CameraPointing } from "./ar/SkyLensProjection";
 import { skyGradient, starColor, type SelectedObject, type FocusZone } from "./SkyLensVisual";
 import { getVisualGate } from "./PremiumVisualGating";
+// First Light (optional guided tour). Everything below is ADDITIVE and read-only with respect
+// to Sky Lens: the tour registers two existing controls as spotlight targets and receives
+// values that are already computed here. It never drives orientation, projection, selection,
+// layers, time, or the Vault.
+import { useTourTarget } from "@/features/tour/TourTargetRegistry";
+import { TOUR_TARGETS } from "@/features/tour/tourTargets";
+import { ContextualTipHost } from "@/features/first-light/ContextualTipHost";
+import type { ContextualTipId } from "@/features/first-light/contextualTips";
+import { isAlreadySavedToVault } from "@/features/first-light/firstLightRules";
 
 // Dev-only Sky Lens review targets. Aiming at one of these pins the clock to the planet's
 // next meridian transit so it can be inspected on a physical device without waiting for it
@@ -83,7 +103,12 @@ export type FocusTarget = {
   description?: string;
 };
 
-type Props = { onClose: () => void; focusTarget?: FocusTarget | null };
+type Props = {
+  onClose: () => void;
+  focusTarget?: FocusTarget | null;
+  /** Optional: leave Sky Lens for the Learn tab (used by the First Light tour). */
+  onOpenLearn?: () => void;
+};
 
 type LayoutEvent = { nativeEvent: { layout: { width: number; height: number } } };
 
@@ -94,20 +119,48 @@ const arrowFor = (bearingDegrees: number) => ARROWS[Math.round(bearingDegrees / 
 // Full-screen Sky Lens: a sensor-aligned cinematic planetarium (no camera feed) with the Stars,
 // Constellations, Planets, Moon, and Grid layers projected over it, a toggle
 // bar, tap-to-reveal Info Card, and Night Mode. Phase-2 layers appear locked.
-export function SkyLensScreen({ onClose, focusTarget }: Props) {
+export function SkyLensScreen({ onClose, focusTarget, onOpenLearn }: Props) {
   const insets = useSafeAreaInsets();
+  // Guided-tour spotlight targets for two EXISTING controls. `useTourTarget` is inert when no
+  // tour registry is mounted, so these add a callback ref and an onLayout and nothing else.
+  const lockSkyTourTarget = useTourTarget(TOUR_TARGETS.lockSky);
+  const timeTravelTourTarget = useTourTarget(TOUR_TARGETS.timeTravel);
+  // One-time contextual tip bookkeeping (post-tour). A single boolean; no other behaviour.
+  const [layersSheetSeen, setLayersSheetSeen] = useState(false);
   const { location, status } = useObserverLocation();
   // Zoom state lives up here so the device-pointing smoothing can ramp with it.
   const [zoom, setZoom] = useState(1);
   const zoomRef = useRef(1);
   zoomRef.current = zoom;
-  // Ramp EMA smoothing DOWN (steadier, more damped) as zoom climbs, because a
-  // narrow FOV amplifies hand-shake: ~0.32 at 1× → 0.10 at 12×.
-  // Requested EMA smoothing: less at low zoom, more as you zoom in. NOTE: useDevicePointing
-  // caps this at 0.16 (a stability ceiling), so values above 0.16 (roughly zoom 1×–9×)
-  // resolve to 0.16 in practice — see the cap comment there. Kept as a request, not a lie.
-  const smoothAlpha = Math.max(0.1, 0.32 - (zoom - 1) * 0.02);
-  const { pointing: sensorPointing, available } = useDevicePointing(120, 0, smoothAlpha);
+  // Zoom is passed straight through: a narrow field of view magnifies hand movement, so
+  // useDevicePointing damps its follow factor further as zoom climbs (see
+  // zoomDampingMultiplier there). This replaces a `smoothAlpha` value that was computed
+  // here and passed in, but which the hook never actually read.
+  const skyOrientation = useSkyOrientation(true);
+  // Gesture callbacks are created once; read the live handlers through a ref.
+  const skyOrientationRef = useRef(skyOrientation);
+  skyOrientationRef.current = skyOrientation;
+
+  // ONE COMPASS. The HUD and every legacy `pointing` consumer read the SAME orientation the
+  // sky is rendered from. This previously came from useDevicePointing — the raw-sensor Euler
+  // path — so the readout could disagree with the sky, worst of all near the zenith where
+  // that path swings ~46 degrees per sample. eulerReadoutFromQuaternion is the sanctioned
+  // display-only conversion; it never feeds the camera.
+  const available = skyOrientation.available;
+  const quaternionReadout = useMemo(
+    () => eulerReadoutFromQuaternion(skyOrientation.orientation),
+    [skyOrientation.orientation]
+  );
+  // Because it derives from skyOrientation.orientation, it automatically follows Lock Sky,
+  // drag-to-pan and the unlock blend — those all resolve into that one quaternion.
+  const livePointing = useMemo<CameraPointing>(
+    () => ({
+      azimuthDegrees: quaternionReadout.azimuthDegrees,
+      altitudeDegrees: quaternionReadout.altitudeDegrees,
+      rollDegrees: 0
+    }),
+    [quaternionReadout]
+  );
   const parallax = useParallaxOffset();
   // Time Scrub: when the scrub bar is dragged, freeze the sky to the offset instant.
   const [timeOffsetMin, setTimeOffsetMin] = useState(0);
@@ -150,11 +203,6 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
     // Mount-only snapshot by design — deps intentionally empty.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  // Sky brightness lives behind a top-bar button now. It used to be a permanently-mounted
-  // slider bar sitting directly above the pills — 62pt of chrome, always on, and (being a
-  // dark rounded bar with a slider in it) routinely mistaken for the time-travel panel.
-  // It is a set-once control; it does not deserve permanent residency over the sky.
-  const [brightnessVisible, setBrightnessVisible] = useState(false);
   // ── DETERMINISTIC REVIEW MODE (dev + no compass only) ─────────────────────────
   //
   // The whole review loop has been broken: a simulator has no magnetometer, so `available`
@@ -209,16 +257,30 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
   // Aim at the review target so it lands dead centre — a planet from sky.bodies when a
   // planet target is set, otherwise the default M42 nebula.
   const pointing = useMemo<CameraPointing>(() => {
-    if (!reviewMode) return sensorPointing;
+    if (!reviewMode) return livePointing;
     if (reviewPlanet) {
       const b = sky.bodies.find((body) => body.id === reviewPlanet && body.aboveHorizon);
       if (b) return { azimuthDegrees: b.azimuthDegrees, altitudeDegrees: b.altitudeDegrees, rollDegrees: 0 };
-      return sensorPointing;
+      return livePointing;
     }
     const t = sky.nebulae.find((n) => n.id === "m42");
-    if (!t) return sensorPointing;
+    if (!t) return livePointing;
     return { azimuthDegrees: t.azimuthDegrees, altitudeDegrees: t.altitudeDegrees, rollDegrees: 0 };
-  }, [reviewMode, reviewPlanet, sensorPointing, sky.nebulae, sky.bodies]);
+  }, [reviewMode, reviewPlanet, livePointing, sky.nebulae, sky.bodies]);
+
+  // THE camera basis for this render — one immutable snapshot shared by every layer, label,
+  // overlay and hit test. Review mode still aims at its target; everything else follows the
+  // quaternion orientation (live, locked, dragged, or mid unlock-blend).
+  const cameraBasis = useMemo(() => {
+    if (!reviewMode) return skyOrientation.basis;
+    return cameraBasisFromQuaternion(
+      quaternionLookingAt(pointing.azimuthDegrees, pointing.altitudeDegrees, 0)
+    );
+  }, [reviewMode, skyOrientation.basis, pointing.azimuthDegrees, pointing.altitudeDegrees]);
+  // Gesture callbacks are created once, so they read the current snapshot through a ref.
+  const cameraBasisRef = useRef(cameraBasis);
+  cameraBasisRef.current = cameraBasis;
+
 
   // Photo capture — captureScreen grabs the full rendered screen including SVG
   const sceneRef = useRef<View>(null);
@@ -260,7 +322,7 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
   // stars, and the cinematic/immersive/night-vision/capture modes (all below).
   const gate = useMemo(() => getVisualGate(isPremium), [isPremium]);
   const { openPaywall } = usePaywallNavigation();
-  const { addItem } = useAuraLunisVault();
+  const { addItem, items: vaultItems } = useAuraLunisVault();
 
   const [box, setBox] = useState({ width: 360, height: 720 });
   // The default scene is FIVE layers: Stars, Constellations, Milky Way, Planets, and
@@ -344,13 +406,11 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
   // chrome and labels vanish; only the sky remains, darkened to ~85%. Enter via a
   // triple-tap or a long-press on the mode button; a single tap anywhere restores the UI.
   const [cinematic, setCinematic] = useState(false);
-  // Sky brightness — an Animated.Value so dragging the slider animates ONLY the native
-  // scrim opacity (no React re-render of the whole scene per frame). Range 0 → 0.7.
-  // Starts at a slight tint (thumb mid). Dragging toward ☾ Dark raises it, ☀ Clear → 0.
-  const scrimOpacity = useRef(new Animated.Value(0.35)).current;
-  // Remembers the thumb position so it doesn't snap back to center when the slider
-  // re-mounts (it's hidden while an info card is open).
-  const sliderValueRef = useRef(0.5);
+  // Fixed sky tint. Sky Lens is a rendered planetarium, not a camera pass-through, so there
+  // is no longer a scene to "see through" — the Dark/Clear control had nothing meaningful to
+  // do and has been removed. This is the value its default thumb position produced, so the
+  // default sky appearance is byte-for-byte what it was.
+  const SKY_SCRIM_OPACITY = 0.35;
   const cinematicHint = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     if (!cinematic) return;
@@ -401,6 +461,13 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
     }),
     [zoom]
   );
+  // The ONE projection used outside the canvas — guidance banners, twinkle targets, reticle
+  // proximity and constellation anchors. Sharing the camera basis keeps every one of them
+  // agreeing with what is actually drawn.
+  const projectShared = useCallback(
+    (az: number, alt: number) => projectTargetWithBasis(cameraBasis, az, alt, fov, box),
+    [cameraBasis, fov, box]
+  );
 
   // Tap-to-select. SVG onPress does NOT fire inside an RNGH GestureDetector on iOS, so we
   // hit-test the tap point against projected object positions ourselves and open the info
@@ -423,6 +490,16 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
           const pointing = pointingRef.current;
           const fov = fovRef.current;
           const box = boxRef.current;
+          // HIT TESTING MUST USE THE SAME PROJECTION AS RENDERING.
+          // This previously called projectTarget(pointing, ...) — the legacy Euler path —
+          // while the scene was already drawn through the quaternion basis. Objects were
+          // therefore drawn in one place and hit-tested in another, so taps missed every
+          // planet and the Moon entirely and no card opened.
+          const basis = cameraBasisRef.current;
+          const projectHit = (az: number, alt: number) =>
+            basis
+              ? projectTargetWithBasis(basis, az, alt, fov, box)
+              : projectTarget(pointing, az, alt, fov, box);
           const PLANET_DESCRIPTIONS: Record<string, string> = {
             mercury: "The smallest planet, closest to the Sun.",
             venus: "The brightest planet, often called the evening or morning star.",
@@ -439,7 +516,7 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
           // bodies except the Sun — never miss one that's actually up.
           for (const body of sky.bodies) {
             if (!body.aboveHorizon || body.id === "sun") continue;
-            const p = projectTarget(pointing, body.azimuthDegrees, body.altitudeDegrees, fov, box);
+            const p = projectHit(body.azimuthDegrees, body.altitudeDegrees);
             if (!p.onScreen) continue;
             const dist = Math.hypot(p.x - e.x, p.y - e.y);
             if (dist < PLANET_HIT && (!closest || dist < closest.dist)) {
@@ -466,7 +543,7 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
           // Then the ~20–30 brightest stars only (mag < 2) — scanning every star is slow.
           if (!planetLocked) for (const star of sky.stars) {
             if (!star.aboveHorizon || star.magnitude >= 2.0) continue;
-            const p = projectTarget(pointing, star.azimuthDegrees, star.altitudeDegrees, fov, box);
+            const p = projectHit(star.azimuthDegrees, star.altitudeDegrees);
             if (!p.onScreen) continue;
             const dist = Math.hypot(p.x - e.x, p.y - e.y);
             if (dist < STAR_HIT && (!closest || dist < closest.dist)) {
@@ -493,7 +570,30 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
         }),
     [] // stable — reads live values through refs (see above)
   );
-  const sceneGesture = useMemo(() => Gesture.Simultaneous(pinch, cinematicTap, objectTap), [pinch, cinematicTap, objectTap]);
+  // Drag-to-pan, active ONLY while the sky is locked. The activation distance keeps a tap a
+  // tap: below DRAG_ACTIVATION_POINTS of movement nothing pans and object selection wins.
+  const dragLast = useRef({ x: 0, y: 0 });
+  const skyDrag = useMemo(
+    () =>
+      Gesture.Pan()
+        .runOnJS(true)
+        .cancelsTouchesInView(false)
+        .minDistance(DRAG_ACTIVATION_POINTS)
+        .onStart((e) => {
+          dragLast.current = { x: e.translationX, y: e.translationY };
+        })
+        .onUpdate((e) => {
+          const dx = e.translationX - dragLast.current.x;
+          const dy = e.translationY - dragLast.current.y;
+          dragLast.current = { x: e.translationX, y: e.translationY };
+          skyOrientationRef.current.applyDrag(dx, dy);
+        }),
+    []
+  );
+  const sceneGesture = useMemo(
+    () => Gesture.Simultaneous(pinch, skyDrag, cinematicTap, objectTap),
+    [pinch, skyDrag, cinematicTap, objectTap]
+  );
   // Milky Way brightens as the camera fades out: faint over a live feed, bold over
   // black. AR (1.4) → Immersive (1.9) → Planetarium (2.4).
   // ── Sky Quality (Bortle) + live conditions drive the entire visual ─────────
@@ -599,7 +699,13 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
   const onSave = useCallback(
     (object: SelectedObject) => {
       // Saving to the (premium) Vault requires entitlement — free users get the paywall.
+      // DUPLICATE GUARD (applied just below the entitlement gate): `savedIds` only remembers
+      // this mount, so re-opening Sky Lens — or replaying First Light — used to write a second
+      // identical archive entry for the same object. An existing entry counts as already saved:
+      // nothing is written, nothing is overwritten, and the card still reads "Saved to Vault".
+      // The premium gate below is unchanged and still runs FIRST.
       if (!isPremium) { openPaywall(); return; }
+      if (isAlreadySavedToVault(vaultItems, object.name)) { setSavedIds((prev) => new Set(prev).add(object.id)); return; }
       addItem({
         type: "archive",
         title: object.name,
@@ -607,15 +713,23 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
       });
       setSavedIds((prev) => new Set(prev).add(object.id));
     },
-    [addItem, isPremium, openPaywall]
+    [addItem, isPremium, openPaywall, vaultItems]
   );
+
+  // Reflect saves that already exist in the Vault from a previous session, so the card opens in
+  // the correct state instead of offering to save something that is already there.
+  useEffect(() => {
+    if (!selected) return;
+    const exists = isAlreadySavedToVault(vaultItems, selected.name);
+    if (exists) setSavedIds((prev) => (prev.has(selected.id) ? prev : new Set(prev).add(selected.id)));
+  }, [selected, vaultItems]);
 
   const hud = useMemo(
     () =>
       available
-        ? `Heading ${Math.round(pointing.azimuthDegrees)}°  ·  Alt ${Math.round(pointing.altitudeDegrees)}°`
+        ? `Heading ${Math.round(quaternionReadout.azimuthDegrees)}°  ·  Alt ${Math.round(quaternionReadout.altitudeDegrees)}°`
         : "Calibrating compass…",
-    [available, pointing.azimuthDegrees, pointing.altitudeDegrees]
+    [available, quaternionReadout.azimuthDegrees, quaternionReadout.altitudeDegrees]
   );
 
   // Moon finder: tells you where the Moon is (or that it's below the horizon) so
@@ -626,7 +740,7 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
     // Below the horizon → say nothing. A permanent "the Moon is below the horizon" banner
     // is a nag, not guidance: there is no action the user can take.
     if (!moon.aboveHorizon) return null;
-    const p = projectTarget(pointing, moon.azimuthDegrees, moon.altitudeDegrees, fov, box);
+    const p = projectShared(moon.azimuthDegrees, moon.altitudeDegrees);
     if (p.onScreen) return null; // it's in view — no need to point you to it
     return p.behind ? "☾  Turn around for the Moon ↻" : `☾  Pan ${arrowFor(p.bearingDegrees)} to the Moon`;
   }, [sky.bodies, pointing, box, fov]);
@@ -686,7 +800,7 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
     const out: TwinkleTarget[] = [];
     for (const s of sky.stars) {
       if (!s.aboveHorizon || s.magnitude > 3.0) continue;
-      const p = projectTarget(pointing, s.azimuthDegrees, s.altitudeDegrees, fov, box);
+      const p = projectShared(s.azimuthDegrees, s.altitudeDegrees);
       if (!p.onScreen) continue;
       out.push({
         id: s.id,
@@ -720,7 +834,6 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
   // computed from this, so nothing can drift out of sync with a magic constant again.
   // (The old code hard-coded `bottom: insets.bottom + 168/175` for the shutter and the
   // Moon prompt, numbers that assumed a layout which no longer exists.)
-  const BRIGHTNESS_H = 62; // slider bar (8+36+8) + its 10pt margin — exact
   // The time panel was TRIMMED ~23% (TimeScrubBar) and this figure corrected: it was 70,
   // but the panel really measured ~89pt, so the exclusion zone ran 19pt short and labels
   // could slide under it. Now ~61pt of panel + 10pt margin = 71.
@@ -728,24 +841,31 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
   const dockHeight =
     LAYER_BAR_HEIGHT +
     6 +
-    (brightnessVisible && !selected ? BRIGHTNESS_H : 0) +
     (scrubVisible && !selected ? SCRUB_H : 0);
   // Top edge of the bottom chrome, in screen px — the exclusion line for labels/artwork.
   const dockTop = box.height - dockHeight - insets.bottom - 12;
   // Where floating controls perch: just above the dock, never on top of it.
   const floatAbove = insets.bottom + dockHeight + 16;
-
   // LABEL AVOIDANCE FOR UI CHROME. The top HUD and bottom dock are already excluded by the
   // placer's top/bottom safe bands (topInset / bottomInset). These are the floating controls
   // those bands don't cover — the shutter, the guidance banner, the zoom chip — reserved so
   // no celestial label renders under or behind them. Visibility mirrors the render
   // conditions below exactly, so hidden chrome never suppresses a label. Geometry comes from
   // skyLensChromeLayout (shared source of truth), not per-call magic numbers.
+  // System text size. Decorative chrome is bounded against it (issue #216): at
+  // accessibility-extra-extra-extra-large the Lock Sky chip used to grow until it spanned
+  // most of the viewport, and the guidance banner drifted into it.
+  const chromeFontScale = PixelRatio.getFontScale();
+  const finderBottom = finderBottomOffset({ insets, dockHeight, fontScale: chromeFontScale });
+  const lockChipWidthCap = lockChipMaxWidth(box);
+  const finderWidthCap = finderMaxWidth(box);
+
   const labelTopInset = chromeTopInset(insets);
   const chromeRects = chromeAvoidRects({
     box,
     insets,
     dockHeight,
+    fontScale: chromeFontScale,
     visible: {
       shutter: !cinematic && !selected && gate.photoCapture,
       finder: !cinematic && !selected && (!!targetFinder || (!scrubVisible && !!moonFinder)),
@@ -784,9 +904,9 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
 
   const focusProj = useMemo(() => {
     if (!focusAzAlt) return null;
-    const p = projectTarget(pointing, focusAzAlt.az, focusAzAlt.alt, fov, box);
+    const p = projectShared(focusAzAlt.az, focusAzAlt.alt);
     return p.behind ? null : p;
-  }, [focusAzAlt, pointing, fov, box]);
+  }, [focusAzAlt, projectShared]);
 
   // Focus zone handed to the canvas layers: the selected object's on-screen point +
   // a boost radius. Layers swell/brighten nebulae and stars that fall inside it, so
@@ -813,7 +933,7 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
     for (const hero of HERO_REGIONS) {
       const n = sky.nebulae.find((x) => x.id === hero.id);
       if (!n || !n.aboveHorizon) continue;
-      const sp = projectTarget(pointing, n.azimuthDegrees, n.altitudeDegrees, fov, box);
+      const sp = projectShared(n.azimuthDegrees, n.altitudeDegrees);
       if (sp.behind || !sp.onScreen) continue;
       return { x: sp.x, y: sp.y, r: Math.min(box.width, box.height) * hero.r };
     }
@@ -831,7 +951,7 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
   const moonProj = useMemo(() => {
     const m = sky.bodies.find((b) => b.id === "moon");
     if (!m || !m.aboveHorizon) return null;
-    const mp = projectTarget(pointing, m.azimuthDegrees, m.altitudeDegrees, fov, box);
+    const mp = projectShared(m.azimuthDegrees, m.altitudeDegrees);
     return mp.behind ? null : mp;
   }, [sky.bodies, pointing, fov, box]);
 
@@ -845,7 +965,7 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
     if (selected?.kind !== "constellation") return;
     const c = sky.constellations.find((x) => x.id === selected.id);
     if (!c) return;
-    const proj = c.points.map((pt) => projectTarget(pointing, pt.azimuthDegrees, pt.altitudeDegrees, fov, box));
+    const proj = c.points.map((pt) => projectShared(pt.azimuthDegrees, pt.altitudeDegrees));
     const points: ForgePoint[] = proj.filter((q) => !q.behind).map((q) => ({ x: q.x, y: q.y }));
     const segments: ForgeSegment[] = c.lines
       .filter(([i, j]) => proj[i] && proj[j] && !proj[i].behind && !proj[j].behind)
@@ -870,7 +990,7 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
     const rad = Math.min(box.width, box.height) * 0.22; // ≈ the centre 30° of the view
     const now = new Set<string>();
     const check = (id: string, az: number, alt: number) => {
-      const p = projectTarget(pointing, az, alt, fov, box);
+      const p = projectShared(az, alt);
       if (p.behind || !p.onScreen) return;
       if (Math.hypot(p.x - cx, p.y - cy) <= rad) {
         now.add(id);
@@ -881,6 +1001,19 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
     for (const s of sky.stars) if (s.aboveHorizon && s.magnitude < 1.3) check(s.id, s.azimuthDegrees, s.altitudeDegrees);
     heroCenteredRef.current = now;
   }, [pointing, sky.bodies, sky.stars, fov, box, gate.hapticDiscovery]);
+
+  // Contextual mini-guides (post-First-Light), most situational first. Each is shown at most
+  // once ever; the eligibility rules (never during the tour, never over a modal or an open
+  // object card, never stacked) live in contextualTips.ts.
+  const tipCandidates = useMemo<ContextualTipId[]>(() => {
+    const candidates: ContextualTipId[] = [];
+    if (savedIds.size > 0) candidates.push("firstVaultSave");
+    if (zoom >= 2) candidates.push("constellationZoom");
+    if (layersSheetSeen) candidates.push("layers");
+    if (!isPremium && preview !== null) candidates.push("premiumDiscovery");
+    candidates.push("offline");
+    return candidates;
+  }, [savedIds, zoom, layersSheetSeen, isPremium, preview]);
 
   return (
     <View style={styles.root} onLayout={onLayout}>
@@ -901,10 +1034,10 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
             }]}
             pointerEvents="none"
           />
-          {/* Sky-darkness scrim — sits between the camera and the star canvas; the
-              brightness slider drives its opacity (0 → 0.6) to darken the whole sky. */}
-          <Animated.View
-            style={[StyleSheet.absoluteFillObject, { backgroundColor: "#030816", opacity: scrimOpacity }]}
+          {/* Sky-darkness scrim — a fixed tint under the star canvas. Previously driven by
+              the Dark/Clear slider; now a constant, so the default look is unchanged. */}
+          <View
+            style={[StyleSheet.absoluteFillObject, { backgroundColor: "#030816", opacity: SKY_SCRIM_OPACITY }]}
             pointerEvents="none"
           />
           {planetarium && !nightMode && (
@@ -942,6 +1075,7 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
           <NebulaImageLayer
             nebulae={sky.nebulae}
             pointing={pointing}
+            basis={cameraBasis}
             fov={fov}
             box={box}
             visible={!nightMode && active.has("deepsky")}
@@ -956,6 +1090,7 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
           <ClusterLayer
             nebulae={sky.nebulae}
             pointing={pointing}
+            basis={cameraBasis}
             fov={fov}
             box={box}
             visible={!nightMode && active.has("deepsky")}
@@ -1038,6 +1173,7 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
             <SkyLensCanvas
               box={box}
               pointing={pointing}
+              basis={cameraBasis}
               sky={sky}
               fov={fov}
               activeLayers={activeWithPreview}
@@ -1130,6 +1266,36 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
         pointerEvents="none"
       />
 
+      {/* Lock Sky — freezes the orientation exactly so the sky can be read, and enables
+          drag-to-pan. Zoom and object taps keep working either way. Hidden in cinematic,
+          which is a hands-off presentation mode. */}
+      {!cinematic && (
+        <Pressable
+          ref={lockSkyTourTarget.ref}
+          onLayout={lockSkyTourTarget.onLayout}
+          onPress={() => { tapLight(); skyOrientation.toggleLock(); }}
+          style={[
+            styles.lockChip,
+            { bottom: insets.bottom + 96, maxWidth: lockChipWidthCap },
+            skyOrientation.isLocked && styles.lockChipActive,
+          ]}
+          accessibilityRole="button"
+          accessibilityState={{ selected: skyOrientation.isLocked }}
+          accessibilityLabel={skyOrientation.isLocked ? "Unlock the sky and resume live tracking" : "Lock the sky so it stops moving"}
+          hitSlop={10}
+        >
+          {/* Decorative label only — the accessibilityLabel above carries the full sentence
+              for VoiceOver, so bounding this text costs nothing in comprehension. */}
+          <Text
+            style={[styles.lockChipText, skyOrientation.isLocked && styles.lockChipTextActive]}
+            maxFontSizeMultiplier={LOCK_CHIP_MAX_FONT_SCALE}
+            numberOfLines={2}
+          >
+            {skyOrientation.isLocked ? "🔒  Sky Locked · drag to explore" : "🔓  Lock Sky"}
+          </Text>
+        </Pressable>
+      )}
+
       {/* Zoom indicator — pinch to zoom, tap to reset */}
       {!cinematic && zoom > 1.05 && (
         <TouchableOpacity
@@ -1173,17 +1339,8 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
 
         <View style={styles.toggleRow} pointerEvents="box-none">
           <TouchableOpacity
-            style={[styles.iconBtn, brightnessVisible && { backgroundColor: "rgba(217,168,78,0.32)" }]}
-            onPress={() => setBrightnessVisible((v) => !v)}
-            accessibilityRole="button"
-            accessibilityLabel="Sky brightness"
-            accessibilityState={{ selected: brightnessVisible }}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.iconBtnText}>☀</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
+            ref={timeTravelTourTarget.ref}
+            onLayout={timeTravelTourTarget.onLayout}
             style={[styles.iconBtn, scrubVisible && { backgroundColor: "rgba(217,168,78,0.32)" }]}
             onPress={() => {
               // Time Travel (scrubbing the sky through time) is premium — free users get
@@ -1221,16 +1378,28 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
 
       {/* Find-Mode target banner (from a Learn lesson) takes priority */}
       {!cinematic && !selected && targetFinder && (
-        <View style={[styles.finder, { bottom: floatAbove + 72 }]} pointerEvents="none">
-          <Text style={[styles.finderText, { color: accent }]}>{targetFinder}</Text>
+        <View style={[styles.finder, { bottom: finderBottom }]} pointerEvents="none">
+          <Text
+            style={[styles.finderText, { color: accent, maxWidth: finderWidthCap }]}
+            maxFontSizeMultiplier={FINDER_MAX_FONT_SCALE}
+            numberOfLines={FINDER_MAX_LINES}
+          >
+            {targetFinder}
+          </Text>
         </View>
       )}
       {/* Moon finder banner (hidden while an info card is open or a target is set).
           +72 clears the 60pt shutter that sits at floatAbove — at +52 the prompt was
           crossing it. Derived, so it also rides up when the time panel opens. */}
       {!cinematic && !selected && !scrubVisible && !targetFinder && moonFinder && (
-        <View style={[styles.finder, { bottom: floatAbove + 72 }]} pointerEvents="none">
-          <Text style={[styles.finderText, { color: accent }]}>{moonFinder}</Text>
+        <View style={[styles.finder, { bottom: finderBottom }]} pointerEvents="none">
+          <Text
+            style={[styles.finderText, { color: accent, maxWidth: finderWidthCap }]}
+            maxFontSizeMultiplier={FINDER_MAX_FONT_SCALE}
+            numberOfLines={FINDER_MAX_LINES}
+          >
+            {moonFinder}
+          </Text>
         </View>
       )}
 
@@ -1254,24 +1423,6 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
       {/* Bottom controls (hidden in cinematic Immersive Sky) */}
       {!cinematic && (
       <View style={[styles.bottom, { paddingBottom: insets.bottom + 6 }]} pointerEvents="box-none">
-        {/* Sky brightness — slide to lighten/darken the backdrop. Hidden while an info
-            card is open so they don't overlap. */}
-        {brightnessVisible && !selected && (
-          <View style={styles.skySliderWrap}>
-            <Text style={styles.skySliderLabel}>☾ Dark</Text>
-            <Slider
-              style={styles.skySlider}
-              minimumValue={0}
-              maximumValue={1}
-              value={sliderValueRef.current}
-              onValueChange={(v) => { sliderValueRef.current = v; scrimOpacity.setValue((1 - v) * 0.7); }}
-              thumbTintColor={AuraLunisColors.gold}
-              minimumTrackTintColor={AuraLunisColors.gold}
-              maximumTrackTintColor="rgba(192,198,212,0.18)"
-            />
-            <Text style={styles.skySliderLabel}>☀ Clear</Text>
-          </View>
-        )}
         {/* Time Scrub — drag to fast-forward / rewind the whole sky */}
         {scrubVisible && !selected && (
           <View style={{ marginBottom: 10 }}>
@@ -1292,7 +1443,7 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
             active={active}
             nightMode={nightMode}
             onToggle={toggleLayer}
-            onOpenLayers={() => setLayersSheet(true)}
+            onOpenLayers={() => { setLayersSheetSeen(true); setLayersSheet(true); }}
           />
         )}
       </View>
@@ -1327,6 +1478,19 @@ export function SkyLensScreen({ onClose, focusTarget }: Props) {
           </Animated.View>
         </Pressable>
       )}
+
+      {/* First Light no longer renders inside Sky Lens. The tutorial is five informational
+          screens hosted at the app root (FirstLightRootOverlay), so nothing here can intercept a
+          Sky Lens gesture, measure an object, or gate a step on the sky. */}
+
+      <ContextualTipHost
+        candidates={tipCandidates}
+        context={{
+          modalVisible: layersSheet || preview !== null,
+          objectCardOpen: selected !== null,
+        }}
+        bottom={floatAbove + 8}
+      />
     </View>
   );
 }
@@ -1353,18 +1517,19 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 30,
-    borderWidth: 2.5,
-    backgroundColor: "rgba(7,10,19,0.75)",
+    borderWidth: 1.75,
+    backgroundColor: "rgba(7,10,19,0.90)",
     alignItems: "center",
     justifyContent: "center"
   },
-  shutterIcon: { fontSize: 26 },
+  shutterIcon: { fontSize: 25, lineHeight: 30, textAlign: "center" },
   watermark: { position: "absolute", left: 18, alignItems: "flex-start" },
   watermarkBrand: { color: "#F4E3B8", fontSize: 16, fontWeight: "800", letterSpacing: 0.5 },
   watermarkSub: { color: "rgba(244,227,184,0.75)", fontSize: 11, fontWeight: "600", marginTop: 1 },
   finder: { position: "absolute", left: 0, right: 0, alignItems: "center" },
   finderText: {
     backgroundColor: "rgba(7,18,37,0.82)",
+    textAlign: "center",
     fontSize: 17,
     textShadowColor: "rgba(0,0,0,0.6)",
     textShadowRadius: 3,
@@ -1388,24 +1553,26 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: "rgba(7,18,37,0.58)",
+    backgroundColor: "rgba(7,18,37,0.70)",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(217,168,78,0.24)",
+    borderColor: "rgba(217,168,78,0.34)",
     alignItems: "center",
     justifyContent: "center"
   },
-  iconBtnText: { color: "#FFF", fontSize: 15, fontWeight: "800" },
+  // Line height pinned to the box so the glyph sits optically centred rather than riding
+  // high on its own ascender — what made ✕ and 🕐 look cramped in a 38pt circle.
+  iconBtnText: { color: "rgba(255,255,255,0.88)", fontSize: 15, fontWeight: "800", lineHeight: 18, textAlign: "center" },
   // UI CHROME — lightened. The panels were dense enough to read as opaque slabs sitting
   // ON the sky. Dropping the fills and adding a hairline gold edge lets the sky show
   // through, so the chrome reads as GLASS resting over the scene rather than as a lid.
   hudPill: {
     flex: 1,
-    marginHorizontal: 8,
+    marginHorizontal: 10,
     backgroundColor: "rgba(7,18,37,0.42)",
     borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: "rgba(217,168,78,0.14)",
-    paddingVertical: 6,
+    paddingVertical: 7,
     paddingHorizontal: 12,
     alignItems: "center"
   },
@@ -1430,6 +1597,25 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginTop: 6,
   },
+  lockChip: {
+    position: "absolute",
+    alignSelf: "center",
+    // A genuine 44pt touch target rather than one that depends on hitSlop.
+    minHeight: 44,
+    justifyContent: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 999,
+    backgroundColor: "rgba(8,12,24,0.72)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)"
+  },
+  lockChipActive: {
+    backgroundColor: "rgba(217,168,78,0.16)",
+    borderColor: "rgba(217,168,78,0.42)"
+  },
+  lockChipText: { color: "rgba(255,255,255,0.86)", fontSize: 12, fontWeight: "700", letterSpacing: 0.3, textAlign: "center" },
+  lockChipTextActive: { color: "#D9A84E" },
   cinematicHint: { position: "absolute", left: 0, right: 0, alignItems: "center" },
   cinematicHintText: {
     color: "rgba(244,227,184,0.92)",
@@ -1442,23 +1628,12 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     overflow: "hidden",
   },
+  // HUD HIERARCHY. Three tiers, deliberately separated. The orientation reading is the only
+  // thing anyone looks at mid-sweep, so it keeps its size, weight and shadow untouched; the
+  // mode line and the satellite line step DOWN in size and opacity rather than the reading
+  // stepping up, which keeps the strip the same height and the chrome just as calm.
   hudText: { fontSize: 17, fontWeight: "800", fontVariant: ["tabular-nums"], textShadowColor: "rgba(0,0,0,0.55)", textShadowRadius: 2 },
-  hudSub: { color: AuraLunisColors.muted, fontSize: 13, fontWeight: "500", marginTop: 1, opacity: 0.82 },
-  hudSubSmall: { color: AuraLunisColors.muted, fontSize: 13, fontWeight: "500", marginTop: 0, opacity: 0.72 },
+  hudSub: { color: AuraLunisColors.muted, fontSize: 12.5, fontWeight: "500", marginTop: 2, opacity: 0.60, letterSpacing: 0.1 },
+  hudSubSmall: { color: AuraLunisColors.muted, fontSize: 11.5, fontWeight: "500", marginTop: 1, opacity: 0.52, letterSpacing: 0.2 },
   bottom: { position: "absolute", left: 0, right: 0, bottom: 0 },
-  skySliderWrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginHorizontal: 16,
-    marginBottom: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 14,
-    backgroundColor: "rgba(3,8,22,0.85)",
-    borderWidth: 1,
-    borderColor: AuraLunisColors.borderSubtle
-  },
-  skySliderLabel: { color: AuraLunisColors.muted, fontSize: 10, fontWeight: "700" },
-  skySlider: { flex: 1, height: 36 }
 });

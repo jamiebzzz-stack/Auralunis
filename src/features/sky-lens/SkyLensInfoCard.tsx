@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, type ReactNode } from "react";
 import { Animated, Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { AuraLunisColors } from "@/theme/tokens";
+import { useTourTarget } from "@/features/tour/TourTargetRegistry";
+import { TOUR_TARGETS } from "@/features/tour/tourTargets";
 import type { SelectedObject } from "./SkyLensVisual";
 
 // expo-blur accessor (same resolution pattern as GlassPanel) — real system blur on
@@ -32,6 +34,9 @@ export function SkyLensInfoCard({ object, nightMode, saved, showPoetry = true, o
   // Spring entrance — declared unconditionally (the early-return below sits AFTER the
   // hooks so the rules of hooks hold). Re-springs whenever a new object is selected.
   const slide = useRef(new Animated.Value(0)).current;
+  // Lets a guided tour spotlight the real Save button. Registration is a no-op when no tour
+  // registry is mounted, so this card behaves identically outside a tour.
+  const saveTarget = useTourTarget(TOUR_TARGETS.infoCardSave);
   useEffect(() => {
     if (!object) return;
     slide.setValue(0);
@@ -74,6 +79,8 @@ export function SkyLensInfoCard({ object, nightMode, saved, showPoetry = true, o
       {showPoetry && object.description ? <Text style={styles.desc}>{object.description}</Text> : null}
 
       <TouchableOpacity
+        ref={saveTarget.ref}
+        onLayout={saveTarget.onLayout}
         style={[styles.saveBtn, { borderColor: accent }, saved && { backgroundColor: accent }]}
         onPress={() => onSave(object)}
         disabled={saved}
@@ -123,14 +130,14 @@ const styles = StyleSheet.create({
   // hairline light reflection along the top edge (Liquid Glass refraction)
   innerGlow: { position: "absolute", top: 0, left: 0, right: 0, height: 1, backgroundColor: "rgba(255,255,255,0.10)" },
   headerRow: { flexDirection: "row", alignItems: "flex-start" },
-  name: { fontSize: 20, fontWeight: "900" },
-  subtitle: { color: AuraLunisColors.silver, fontSize: 12, marginTop: 2 },
+  name: { fontSize: 20, fontWeight: "900", letterSpacing: 0.2 },
+  subtitle: { color: AuraLunisColors.silver, fontSize: 12.5, lineHeight: 17, marginTop: 3 },
   close: { color: "#E7ECF8", fontSize: 18, fontWeight: "800", paddingHorizontal: 4 },
   facts: { marginTop: 14, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.10)", paddingTop: 10 },
-  factRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 4 },
-  factLabel: { color: AuraLunisColors.muted, fontSize: 13 },
-  factValue: { color: "#FFF", fontSize: 13, fontWeight: "700", fontVariant: ["tabular-nums"] },
-  desc: { color: AuraLunisColors.silver, fontSize: 13, lineHeight: 19, marginTop: 12 },
+  factRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 5 },
+  factLabel: { color: AuraLunisColors.muted, fontSize: 13, letterSpacing: 0.1 },
+  factValue: { color: "#FFF", fontSize: 13.5, fontWeight: "700", fontVariant: ["tabular-nums"] },
+  desc: { color: "#D7DEEE", fontSize: 13.5, lineHeight: 20.5, marginTop: 12 },
   saveBtn: { marginTop: 16, borderWidth: 1, borderRadius: 14, paddingVertical: 12, alignItems: "center" },
   saveText: { color: "#FFF", fontWeight: "800", fontSize: 14 },
   saveTextOn: { color: "#030816", fontWeight: "900" },

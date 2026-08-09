@@ -62,3 +62,23 @@ export function pointingFromSensors(
 
   return { azimuthDegrees: azimuth, altitudeDegrees: altitude, rollDegrees: roll };
 }
+
+/**
+ * How trustworthy the magnetometer-derived azimuth is for the current posture, 0..1.
+ *
+ * Azimuth comes from atan2(camEast, camNorth). Both arguments shrink together as the camera
+ * axis approaches vertical, so the result becomes ill-conditioned exactly when the phone is
+ * held up at the sky — a small field perturbation then swings heading by several degrees.
+ * This returns the magnitude of the camera axis' horizontal component, which is that
+ * conditioning: ~1 at the horizon, ~0 at the zenith. Callers gate magnetometer correction
+ * on it (see MIN_HEADING_CONDITIONING in orientationFusion.ts).
+ */
+export function headingConditioning(accelerometer: Vec3, magnetometer: Vec3): number {
+  const up = norm(accelerometer);
+  const north = norm(sub(magnetometer, scale(up, dot(magnetometer, up))));
+  const east = norm(cross(north, up));
+  const camEast = dot(CAMERA_AXIS, east);
+  const camNorth = dot(CAMERA_AXIS, north);
+  const horizontal = Math.hypot(camEast, camNorth);
+  return Number.isFinite(horizontal) ? Math.max(0, Math.min(1, horizontal)) : 0;
+}

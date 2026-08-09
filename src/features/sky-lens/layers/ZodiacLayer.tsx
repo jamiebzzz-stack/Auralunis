@@ -24,6 +24,15 @@ type Props = {
    * the shared priority ladder. With no placer, everything renders inline (legacy).
    */
   labelsOnly?: boolean;
+  /**
+   * Suppress the sign NAME text, keeping the glyph and its markers.
+   *
+   * The zodiac name was 15px uppercase gold, centred — visually almost identical to a
+   * constellation name, and drawn near the same centroid. With both layers on, Leo got two
+   * near-identical labels. The constellation layer owns the name; the zodiac keeps its glyph,
+   * which is what makes it a zodiac layer rather than a second set of names.
+   */
+  hideNames?: boolean;
   onSelect: (object: SelectedObject) => void;
 };
 
@@ -35,7 +44,7 @@ const cardinalFor = (az: number) => CARDINALS[Math.round(((az % 360) + 360) % 36
 // Gold lines (brighter for the sign the Sun is in), magnitude-sized star dots, the
 // zodiac glyph + name at each center, faint boundary ticks between bands, a ☀ marker
 // on the Sun, and an optional "Your sign" marker. Tap opens the sign's info card.
-export function ZodiacLayer({ zodiac, project, palette, nightMode, sun, birthSignId, placeLabel, labelsOnly = false, onSelect }: Props) {
+export function ZodiacLayer({ zodiac, project, palette, nightMode, sun, birthSignId, placeLabel, labelsOnly = false, hideNames = false, onSelect }: Props) {
   const lineColor = nightMode ? palette.line : GOLD;
   const symbolColor = nightMode ? palette.conLabel : GOLD;
   // Names render inline (at the raw center) only when there is no placer to route them
@@ -51,12 +60,17 @@ export function ZodiacLayer({ zodiac, project, palette, nightMode, sun, birthSig
       <SvgText x={ax} y={ay - 20} textAnchor="middle" fontSize={isCurrent ? 22 : 18} fill={symbolColor} opacity={isCurrent ? 0.95 : 0.4}>
         {sign.symbol}
       </SvgText>
-      <SvgText x={ax} y={ay} textAnchor="middle" fontSize={15} fontWeight="600" fill={symbolColor} opacity={isCurrent ? 0.9 : 0.5} letterSpacing={1}>
-        {sign.name.toUpperCase()}
-      </SvgText>
+      {!hideNames && (
+        <SvgText x={ax} y={ay} textAnchor="middle" fontSize={15} fontWeight="600" fill={symbolColor} opacity={isCurrent ? 0.9 : 0.5} letterSpacing={1}>
+          {sign.name.toUpperCase()}
+        </SvgText>
+      )}
       {isCurrent && (
         <SvgText x={ax} y={ay + 7} textAnchor="middle" fontSize={8} fontWeight="800" fill={GOLD} opacity={0.85}>
-          ☀ Sun is here · {sign.name} season
+          {/* This line embeds the sign name, so under hideNames it reintroduced exactly the
+              duplicate the flag exists to prevent — "Leo season" printed beside the LEO
+              constellation label. The sun marker still reads clearly without it. */}
+          {hideNames ? "☀ Sun is here" : `☀ Sun is here · ${sign.name} season`}
         </SvgText>
       )}
       {isBirth && (
@@ -81,10 +95,18 @@ export function ZodiacLayer({ zodiac, project, palette, nightMode, sun, birthSig
           // name itself, an optional current-sign context line 7px below, and an optional
           // "Your sign" line 42px above. Offsets mirror labelUnit() exactly, so the placed
           // anchor carries every part with it.
+          // The footprint must describe what is DRAWN. With hideNames the 15px name line is
+          // not rendered, so reserving space for it left the surviving lines sitting where
+          // nothing accounted for them — the collision seen on device.
           const footprint = unitFootprint([
             { text: sign.symbol, fontSize: isCurrent ? 22 : 18, dy: -20 },
-            { text: sign.name, fontSize: 15, dy: 0, weight: 600, letterSpacing: 1 },
-            ...(isCurrent ? [{ text: `☀ Sun is here · ${sign.name} season`, fontSize: 8, dy: 7, weight: 800 }] : []),
+            ...(hideNames ? [] : [{ text: sign.name, fontSize: 15, dy: 0, weight: 600, letterSpacing: 1 }]),
+            ...(isCurrent
+              ? [{
+                  text: hideNames ? "☀ Sun is here" : `☀ Sun is here · ${sign.name} season`,
+                  fontSize: 8, dy: 7, weight: 800
+                }]
+              : []),
             ...(isBirth ? [{ text: "✦ Your sign", fontSize: 8, dy: -42, weight: 800 }] : [])
           ]);
           // Centered unit: the placer nudges it vertically off collisions (chrome + higher

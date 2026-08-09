@@ -6,11 +6,11 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-nati
 import { AuraLunisColors } from "@/theme/tokens";
 import { tapLight } from "@/services/HapticService";
 import {
+  DEFAULT_LEARN_PREFERENCES,
   LEARN_LEVELS,
   LEARN_INTERESTS,
   loadLearnPreferences,
-  saveLearnLevel,
-  saveLearnInterests,
+  saveLearnPreferences,
   type LearnLevel,
   type LearnInterest
 } from "./learnPreferences";
@@ -20,21 +20,24 @@ interface Props {
   onClose: () => void;
 }
 
-const ALL_INTERESTS: LearnInterest[] = LEARN_INTERESTS.map((i) => i.key);
-
 export function LearnPreferencesModal({ visible, onClose }: Props) {
-  // Defaults: Beginner + all interests selected, until the user saves something else.
-  const [level, setLevel] = useState<LearnLevel>("beginner");
-  const [interests, setInterests] = useState<LearnInterest[]>(ALL_INTERESTS);
+  const [level, setLevel] = useState<LearnLevel>(DEFAULT_LEARN_PREFERENCES.level);
+  const [interests, setInterests] = useState<LearnInterest[]>([
+    ...DEFAULT_LEARN_PREFERENCES.interests
+  ]);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  // Load saved prefs each time the modal opens, falling back to the defaults.
+  // Load saved prefs each time the modal opens, falling back to the original defaults.
   useEffect(() => {
     if (!visible) return;
     let active = true;
-    loadLearnPreferences().then((p) => {
+    setSaving(false);
+    setSaveError(null);
+    void loadLearnPreferences().then((preferences) => {
       if (!active) return;
-      setLevel(p.level ?? "beginner");
-      setInterests(p.interests.length ? p.interests : ALL_INTERESTS);
+      setLevel(preferences.level);
+      setInterests(preferences.interests);
     });
     return () => {
       active = false;
@@ -43,29 +46,56 @@ export function LearnPreferencesModal({ visible, onClose }: Props) {
 
   function chooseLevel(next: LearnLevel) {
     tapLight();
+    setSaveError(null);
     setLevel(next);
   }
 
   function toggleInterest(next: LearnInterest) {
     tapLight();
-    setInterests((prev) => (prev.includes(next) ? prev.filter((i) => i !== next) : [...prev, next]));
+    setSaveError(null);
+    setInterests((previous) => (
+      previous.includes(next)
+        ? previous.filter((interest) => interest !== next)
+        : [...previous, next]
+    ));
   }
 
-  // Persist the current selection and close (the explicit Save action).
-  function handleSave() {
+  // Wait for the completed storage write before closing the original sheet.
+  async function handleSave() {
+    if (saving) return;
+    if (interests.length === 0) {
+      setSaveError("Choose at least one interest before saving.");
+      return;
+    }
+
     tapLight();
-    saveLearnLevel(level);
-    saveLearnInterests(interests);
+    setSaving(true);
+    setSaveError(null);
+    const saved = await saveLearnPreferences({ level, interests });
+
+    if (!saved) {
+      setSaving(false);
+      setSaveError("AuraLunis couldn't save these preferences. Please try again.");
+      return;
+    }
+
+    setSaving(false);
+    onClose();
+  }
+
+  function handleCancel() {
+    if (saving) return;
+    tapLight();
     onClose();
   }
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={handleCancel}>
       <View style={styles.root}>
         <View style={styles.header}>
           <Text style={styles.title}>Learning Preferences</Text>
-          <Pressable onPress={() => { tapLight(); onClose(); }} hitSlop={12}>
-            <Text style={styles.done}>Cancel</Text>
+          <Pressable onPress={handleCancel} hitSlop={12} disabled={saving}>
+            <Text style={[styles.done, saving && styles.textDisabled]}>Cancel</Text>
           </Pressable>
         </View>
 
@@ -76,45 +106,51 @@ export function LearnPreferencesModal({ visible, onClose }: Props) {
 
           <Text style={styles.sectionLabel}>SKILL LEVEL</Text>
           <View style={styles.pillRow}>
-            {LEARN_LEVELS.map((l) => {
-              const active = level === l.key;
+            {LEARN_LEVELS.map((option) => {
+              const active = level === option.key;
               return (
                 <Pressable
-                  key={l.key}
+                  key={option.key}
                   style={[styles.pill, active && styles.pillActive]}
-                  onPress={() => chooseLevel(l.key)}
+                  onPress={() => chooseLevel(option.key)}
                   accessibilityRole="button"
                   accessibilityState={{ selected: active }}
                 >
-                  <Text style={[styles.pillText, active && styles.pillTextActive]}>{l.label}</Text>
+                  <Text style={[styles.pillText, active && styles.pillTextActive]}>{option.label}</Text>
                 </Pressable>
               );
             })}
           </View>
 
           <Text style={styles.sectionLabel}>INTERESTS</Text>
-          {LEARN_INTERESTS.map((i) => {
-            const checked = interests.includes(i.key);
+          {LEARN_INTERESTS.map((interest) => {
+            const checked = interests.includes(interest.key);
             return (
               <Pressable
-                key={i.key}
+                key={interest.key}
                 style={styles.checkRow}
-                onPress={() => toggleInterest(i.key)}
+                onPress={() => toggleInterest(interest.key)}
                 accessibilityRole="checkbox"
                 accessibilityState={{ checked }}
               >
                 <View style={[styles.checkbox, checked && styles.checkboxOn]}>
                   {checked && <Text style={styles.checkMark}>✓</Text>}
                 </View>
-                <Text style={styles.checkLabel}>{i.label}</Text>
+                <Text style={styles.checkLabel}>{interest.label}</Text>
               </Pressable>
             );
           })}
 
           <Text style={styles.note}>Open the Learn tab to see your personalized order.</Text>
+          {saveError && <Text style={styles.saveError} accessibilityRole="alert">{saveError}</Text>}
 
-          <Pressable style={styles.saveBtn} onPress={handleSave} accessibilityRole="button">
-            <Text style={styles.saveText}>Save</Text>
+          <Pressable
+            style={[styles.saveBtn, saving && styles.saveBtnDisabled]}
+            onPress={handleSave}
+            disabled={saving}
+            accessibilityRole="button"
+          >
+            <Text style={styles.saveText}>{saving ? "Saving…" : "Save"}</Text>
           </Pressable>
         </ScrollView>
       </View>
@@ -131,6 +167,7 @@ const styles = StyleSheet.create({
   },
   title: { color: "#FFF", fontSize: 20, fontWeight: "900", letterSpacing: -0.4 },
   done: { color: AuraLunisColors.gold, fontSize: 16, fontWeight: "800" },
+  textDisabled: { opacity: 0.45 },
   body: { padding: 20, paddingBottom: 48 },
   intro: { color: AuraLunisColors.silver, fontSize: 14, lineHeight: 21, marginBottom: 22 },
   sectionLabel: { color: AuraLunisColors.gold, fontSize: 11, letterSpacing: 2, fontWeight: "900", marginBottom: 12, marginTop: 8 },
@@ -151,9 +188,11 @@ const styles = StyleSheet.create({
   checkMark: { color: AuraLunisColors.gold, fontSize: 14, fontWeight: "900" },
   checkLabel: { color: "#FFF", fontSize: 15, fontWeight: "600" },
   note: { color: AuraLunisColors.faint, fontSize: 12, lineHeight: 18, marginTop: 26 },
+  saveError: { color: "#FFB4AB", fontSize: 12, lineHeight: 18, marginTop: 10, fontWeight: "700" },
   saveBtn: {
     marginTop: 22, borderRadius: 14, paddingVertical: 15, alignItems: "center",
     backgroundColor: AuraLunisColors.gold
   },
+  saveBtnDisabled: { opacity: 0.58 },
   saveText: { color: AuraLunisColors.cosmicBlack ?? "#03060F", fontWeight: "900", fontSize: 15 }
 });

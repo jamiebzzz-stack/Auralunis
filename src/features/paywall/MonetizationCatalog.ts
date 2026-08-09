@@ -1,16 +1,24 @@
 // MonetizationCatalog.ts
-// AuraLunis pricing — optimized for launch.
-// Three products: Monthly, Annual, Lifetime (one-time).
+// AuraLunis pricing — Lifetime only.
 //
-// FREE TRIAL: a 7-day introductory trial may be available to eligible new subscribers on
-// the monthly and annual plans. The trial is an Apple-configured introductory offer — it
-// is NOT defined here and is NOT granted by the app. StoreKit/RevenueCat reports the offer
-// and per-account eligibility; the paywall (see usePaywallOffers.ts) only shows trial copy
-// when both are confirmed. Lifetime is a one-time purchase and never carries a trial.
-// NOTE: the lifetime App Store / RevenueCat *product id* is
-// `com.ocoeestudios.auralunis.lifetime`. Its RevenueCat *package* identifier is the
-// dashboard default `$rc_lifetime` — that's what the offering uses, so the code must
-// match it exactly or the lifetime package won't resolve. User-facing copy is "Lifetime".
+// The RevenueCat `default` Offering contains exactly ONE package, `$rc_lifetime`
+// (product `com.ocoeestudios.auralunis.lifetime`, $29.99 one-time). The monthly and annual
+// subscriptions were removed from the Offering, so they are no longer purchasable and MUST
+// NOT appear on the paywall — a plan card whose package is absent from the Offering resolves
+// to `not_available` in RevenueCatService and produces a dead purchase button.
+//
+// Their product IDs deliberately REMAIN in `RevenueCatIds` below: the products were not
+// deleted from App Store Connect, existing subscribers still hold the entitlement through
+// them, and classifyAuraLunisMembership() reads those exact IDs to tell an active subscriber
+// ("Manage Subscription") apart from a lifetime owner ("Lifetime Access"). Removing them
+// would misclassify every existing subscriber. Do not "tidy" them away.
+//
+// NO TRIAL: lifetime is a one-time purchase, so nothing renews and no introductory offer
+// applies. There is no trial or subscription-renewal copy anywhere on the paywall.
+//
+// NOTE: the lifetime *product id* is `com.ocoeestudios.auralunis.lifetime`; its RevenueCat
+// *package* identifier is the dashboard default `$rc_lifetime` — that's what the Offering
+// uses, so the code must match it exactly or the package won't resolve.
 
 export const RevenueCatIds = {
   products: {
@@ -36,7 +44,7 @@ export interface PlanOption {
   productId: string;
   name: string;
   interval: "monthly" | "annual" | "lifetime";
-  /** Primary price display — e.g. "$49.99/year" */
+  /** Primary price display fallback — e.g. "$29.99". Live StoreKit price wins when available. */
   displayPrice: string;
   /** Secondary line — monthly equivalent or subtitle */
   subtitle: string;
@@ -46,38 +54,26 @@ export interface PlanOption {
   effectiveMonthly?: string;
 }
 
+/**
+ * The purchasable plans, in paywall order. Exactly one entry: this must mirror the packages
+ * actually present in the RevenueCat `default` Offering. `displayPrice` is only a FALLBACK for
+ * when StoreKit hasn't returned yet — the paywall prefers the live localized price from
+ * usePaywallOffers(), so a price change in App Store Connect needs no app update.
+ */
 export const plans: PlanOption[] = [
-  {
-    id: "premium_annual",
-    productId: RevenueCatIds.products.premiumAnnual,
-    name: "AuraLunis Premium",
-    interval: "annual",
-    displayPrice: "$49.99/year",
-    subtitle: "$4.17/month, billed annually",
-    revenueCatPackageId: RevenueCatIds.packages.premiumAnnual,
-    badge: "Most Popular",
-    effectiveMonthly: "$4.17/mo",
-  },
-  {
-    id: "premium_monthly",
-    productId: RevenueCatIds.products.premiumMonthly,
-    name: "AuraLunis Premium",
-    interval: "monthly",
-    displayPrice: "$9.99/month",
-    subtitle: "Billed monthly · Cancel anytime",
-    revenueCatPackageId: RevenueCatIds.packages.premiumMonthly,
-  },
   {
     id: "lifetime",
     productId: RevenueCatIds.products.lifetime,
-    name: "Lifetime",
+    name: "AuraLunis Lifetime",
     interval: "lifetime",
-    displayPrice: "$129.99",
-    subtitle: "Pay once. Own the sky forever.",
+    displayPrice: "$29.99",
+    subtitle: "One purchase. Premium forever.",
     revenueCatPackageId: RevenueCatIds.packages.lifetime,
-    badge: "Best value",
   },
 ];
+
+/** The single purchasable plan — the paywall has no tier selection to make. */
+export const lifetimePlan: PlanOption = plans[0];
 
 // ─── Feature gates ────────────────────────────────────────────────────────────
 
@@ -100,31 +96,46 @@ export const FREE_DRIFT_EVENT_LIMIT = 5;
 
 // ─── Paywall feature lists ────────────────────────────────────────────────────
 
+// Both lists below describe the gates that ACTUALLY ship. Every line was checked against the
+// code that enforces it — SkyLensLayerCatalog (layer `premium` flags), PremiumVisualGating,
+// FREE_LEARN_LESSON_IDS, CelestialCalendarScreen, FREE/PREMIUM_TRACKING_MODES,
+// FREE_DRIFT_EVENT_LIMIT, and the screen-level `isPremium` guards. If a gate changes, change
+// the matching line here: promising access the code denies is worse than promising nothing.
+
+/** What a non-entitled user genuinely gets. Rendered as the "Free" column on the paywall. */
 export const freeFeatures = [
-  "Fleet tracking — ISS, Hubble, NOAA-20",
-  "Deep Space — all 7 planets in real time",
-  "Golden Hour sun vector",
-  "Meteor shower sonar",
-  "Tonight Score",
-  "Basic Learn (Solar System, Moon, Planets)",
-  `Cosmic Drift — first ${FREE_DRIFT_EVENT_LIMIT} lock events`,
+  "The full Sky Lens planetarium — stars, constellations, Milky Way, planets and nebulae",
+  "Every constellation, in the standard visual treatment",
+  "Tonight Score, Find Mode and the manual sky map",
+  "Fleet, Deep Space, Golden Hour and Meteor tracking",
+  `Cosmic Drift — your first ${FREE_DRIFT_EVENT_LIMIT} lock events`,
+  // Kept in words, not imported: this module is require()d by the node self-tests and must
+  // stay free of LearnCatalog's weight. paywall-copy-selftest asserts this stays in step with
+  // FREE_LEARN_LESSON_IDS.length, so the two can never silently drift.
+  "Three starter Learn lessons",
+  "Celestial Calendar — event names, dates, ratings and descriptions",
+  "Share Your Sky — create and preview cards",
 ];
 
+/** What the Lifetime purchase adds. Rendered as the "Lifetime" column on the paywall. */
 export const premiumFeatures = [
-  "Experience the Living Universe",
-  "✨ Watch the Milky Way come alive with animated dust and hydrogen clouds",
-  "💜 Explore breathtaking nebulae — Orion, Lagoon, Trifid in stunning detail",
-  "🪐 See planets like never before — Jupiter's cloud bands and Great Red Spot, Saturn's rings, Mars' rust-toned surface, and phase-aware Venus",
-  "🌕 A cinematic Moon with craters, earthshine, and atmospheric god rays",
-  "🌙 Birth Sky — the exact sky the moment you were born",
-  "☁️ Astro Weather — know instantly if tonight is worth going outside",
-  "📸 Sky Lens Pro — Night Vision, Cinematic Mode, Time Travel",
-  "🛰️ Live satellite tracking — ISS, Starlink trains, space debris",
-  "📅 Never miss a meteor shower, eclipse, or conjunction again",
+  "The living universe — spectral star colour, bloom, animated Milky Way dust, and nebulae with real silhouettes",
+  "Planets as they truly look — Jupiter's cloud bands and Great Red Spot, Saturn's rings, phase-aware Venus",
+  "A cinematic Moon with craters, earthshine and god rays",
+  "Sky Lens Pro — Night Vision, Cinematic Mode, Time Travel, photo capture and sky-quality presets",
+  "Satellite and ecliptic layers, with live tracking of the ISS, Starlink trains and debris",
+  "The complete Learn curriculum",
+  "Birth Sky — the exact sky the moment you were born",
+  "Astro Weather — know instantly whether tonight is worth going outside",
+  "Photo Planner and the full Celestial Archive",
+  "The encrypted Vault, for every sky note",
+  "Full event details and reminders — never miss a meteor shower, eclipse or conjunction",
+  "Train, Debris, Chain, Static and Re-Entry tracking",
+  "Unlimited Cosmic Drift, premium Share Your Sky export, and the Aura Pro panels",
 ];
 
+/** Why it's a one-time purchase — shown under the Lifetime column. */
 export const lifetimeFeatures = [
-  "🌙 Lifetime — the entire living universe, forever",
-  "Every premium feature, plus all future updates, for one price",
-  "No subscription — pay once, own it for good",
+  "One payment. No subscription, no recurring charges.",
+  "Every premium feature above, plus all future updates.",
 ];

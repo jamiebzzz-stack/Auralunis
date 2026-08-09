@@ -77,8 +77,8 @@ export function resolveMembershipCta(membershipKind: MembershipKind): Membership
     case "none":
     default:
       return {
-        statusCopy: "Unlock the full sky with AuraLunis Premium — subscribe or own it for life.",
-        ctaLabel: "View Memberships",
+        statusCopy: "Unlock the full sky with AuraLunis Lifetime — one purchase, premium forever.",
+        ctaLabel: "View Lifetime",
         ctaKind: "paywall",
       };
   }

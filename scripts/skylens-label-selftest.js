@@ -29,7 +29,7 @@ function requireTs(absPath) {
 }
 
 const R = (rel) => path.resolve(__dirname, "..", rel);
-const { makeLabelPlacer, labelRect, overlaps, unitFootprint } = requireTs(R("src/features/sky-lens/labelLayout.ts"));
+const { makeLabelPlacer, labelRect, labelBoxSize, overlaps, unitFootprint } = requireTs(R("src/features/sky-lens/labelLayout.ts"));
 const { chromeAvoidRects, chromeTopInset } = requireTs(R("src/features/sky-lens/skyLensChromeLayout.ts"));
 const { projectTarget, DEFAULT_FOV } = requireTs(R("src/features/sky-lens/ar/SkyLensProjection.ts"));
 
@@ -112,8 +112,12 @@ for (const d of DEVICES) {
   const pointing = { azimuthDegrees: 180, altitudeDegrees: 20, rollDegrees: 0 };
   // Search a small target grid for one whose real projection lands inside the shutter rect.
   let hit = null;
+  // Search the FULL effective field of view. The vertical FOV is derived from the horizontal
+  // FOV and the viewport aspect (both axes share one degrees-to-pixels scale), so on a tall
+  // phone the vertical extent is much larger than the old fixed 45° — a 34° search no longer
+  // reaches the bottom-of-screen shutter.
   for (let dAz = 0; dAz <= 34 && !hit; dAz += 1) {
-    for (let dAlt = 0; dAlt >= -34 && !hit; dAlt -= 1) {
+    for (let dAlt = 0; dAlt >= -80 && !hit; dAlt -= 1) {
       const pr = projectTarget(pointing, 180 + dAz, 20 + dAlt, DEFAULT_FOV, d.box);
       if (pr.onScreen && pr.x >= shutter.x && pr.x <= shutter.x + shutter.w && pr.y >= shutter.y && pr.y <= shutter.y + shutter.h) {
         hit = pr;
@@ -320,6 +324,131 @@ function zodiacUnitRects(ax, ay, name, contextText) {
 }
 
 console.log("");
+
+// ══════════════════════════════════════════════════════════════════════════════════════
+// VISUAL HIERARCHY (polish pass). These lock the TIERS, not exact pixel values: a future
+// tweak may resize anything it likes, as long as a planet still outranks a secondary star
+// and a constellation name stays its own visually distinct thing.
+console.log("\n── Label hierarchy: planets > secondary stars, constellations distinct ──");
+
+const fs2 = require("fs");
+const src = (rel) => fs2.readFileSync(R(rel), "utf8");
+const num = (re, text, what) => {
+  const m = re.exec(text);
+  if (!m) { assert(`could not read ${what}`, false); return NaN; }
+  return Number(m[1]);
+};
+
+const planetSrc = src("src/features/sky-lens/layers/PlanetLayer.tsx");
+const starSrc = src("src/features/sky-lens/layers/StarLayer.tsx");
+const conSrc = src("src/features/sky-lens/layers/ConstellationLayer.tsx");
+
+const planetSize = num(/fill=\{palette\.starLabel\} fontSize=\{([\d.]+)\}/, planetSrc, "planet label size");
+const planetOpacity = num(/fill=\{palette\.starLabel\}[^>]*opacity=\{([\d.]+)\}/, planetSrc, "planet label opacity");
+const planetWeight = num(/fill=\{palette\.starLabel\}[^>]*fontWeight="(\d+)"/, planetSrc, "planet label weight");
+const starSize = num(/fill=\{palette\.starLabel\} fontSize=\{([\d.]+)\}/, starSrc, "star label size");
+const starOpacity = num(/fill=\{palette\.starLabel\}[^>]*opacity=\{([\d.]+)\}/, starSrc, "star label opacity");
+const starWeight = num(/fill=\{palette\.starLabel\}[^>]*fontWeight="(\d+)"/, starSrc, "star label weight");
+
+assert("planet labels are LARGER than secondary star labels", planetSize > starSize, `${planetSize} > ${starSize}`);
+assert("planet labels are HEAVIER than secondary star labels", planetWeight > starWeight, `${planetWeight} > ${starWeight}`);
+assert("planet labels are more OPAQUE than secondary star labels", planetOpacity > starOpacity, `${planetOpacity} > ${starOpacity}`);
+assert("the tiers are separated by a readable margin, not a hair",
+  planetSize - starSize >= 1.5 && planetOpacity - starOpacity >= 0.15,
+  `Δsize ${(planetSize - starSize).toFixed(1)}, Δopacity ${(planetOpacity - starOpacity).toFixed(2)}`);
+assert("secondary star labels stay legible (never faded out)", starOpacity >= 0.7, String(starOpacity));
+assert("planet labels keep a dark stroke for contrast over bright sky", /stroke="#050914"/.test(planetSrc));
+assert("star labels keep their dark stroke too", /stroke="#05070F"/.test(starSrc));
+
+// Constellations are distinguished by COLOUR and TRACKING, not by out-shouting objects.
+assert("constellation names keep their own gold", /CON_LABEL_GOLD = "#F0D9A0"/.test(conSrc));
+assert("constellation names keep letter-spacing that object labels do not have",
+  /LABEL_TRACKING = ([\d.]+)/.test(conSrc) && Number(/LABEL_TRACKING = ([\d.]+)/.exec(conSrc)[1]) >= 2);
+assert("constellation names stay bold and readable",
+  /LABEL_WEIGHT = "(\d+)"/.test(conSrc) && Number(/LABEL_WEIGHT = "(\d+)"/.exec(conSrc)[1]) >= 700);
+assert("object labels are NOT letter-spaced, so the two read as different kinds of thing",
+  !/letterSpacing/.test(planetSrc) && !/letterSpacing/.test(starSrc));
+assert("friendly names, official names and the Polaris association are all still present",
+  /familiarName/.test(conSrc) && /anchorStarName/.test(conSrc));
+
+// Crowding relief: the box the placer reserves grew, so the SAME collision system keeps
+// more air. Proven against the real function rather than the constant.
+const airy = labelBoxSize("Betelgeuse", 15, { weight: 600 });
+const tight = { w: "Betelgeuse".length * 15 * 0.58 + 4, h: 15 * 1.25 };
+assert("the reserved label box now carries more horizontal air", airy.w > tight.w, `${airy.w.toFixed(1)} > ${tight.w.toFixed(1)}`);
+assert("…and more vertical air", airy.h > tight.h, `${airy.h.toFixed(1)} > ${tight.h.toFixed(1)}`);
+assert("a weight-800 label reserves at least as much width as weight-700",
+  labelBoxSize("Jupiter", 17.5, { weight: 800 }).w >= labelBoxSize("Jupiter", 17.5, { weight: 700 }).w);
+
+console.log("\n── Controls keep their touch targets and containment ──");
+const barSrc = src("src/features/sky-lens/SkyLensLayerBar.tsx");
+const screenSrc = src("src/features/sky-lens/SkyLensScreen.tsx");
+const cardSrc = src("src/features/sky-lens/SkyLensInfoCard.tsx");
+
+assert("layer pills keep a 44pt tap target", /height: 44, \/\/ comfortable tap target/.test(barSrc));
+assert("the Layers button keeps its fixed 44pt height", /width: 40,\s*\n\s*height: 44,/.test(barSrc));
+assert("pill gaps grew but pills still shrink to fit narrow screens", /flexShrink: 1/.test(barSrc));
+assert("no layer was removed or renamed", (barSrc.match(/LAYER_BAR_HEIGHT/g) || []).length >= 1);
+assert("the round utility buttons keep their 38pt box",
+  /width: 38,\s*\n\s*height: 38,\s*\n\s*borderRadius: 19,/.test(screenSrc));
+assert("the shutter keeps its 60pt box", /width: 60,\s*\n\s*height: 60,\s*\n\s*borderRadius: 30,/.test(screenSrc));
+assert("round-button glyphs are optically centred", /iconBtnText:[^}]*lineHeight:/.test(screenSrc));
+assert("HUD hierarchy: the primary reading outranks both secondary lines",
+  num(/hudText: \{ fontSize: ([\d.]+)/, screenSrc, "hudText size") >
+    num(/hudSub: \{[^}]*fontSize: ([\d.]+)/, screenSrc, "hudSub size") &&
+  num(/hudSub: \{[^}]*fontSize: ([\d.]+)/, screenSrc, "hudSub size") >=
+    num(/hudSubSmall: \{[^}]*fontSize: ([\d.]+)/, screenSrc, "hudSubSmall size"));
+assert("…and the secondary lines are quieter, not hidden",
+  num(/hudSubSmall: \{[^}]*opacity: ([\d.]+)/, screenSrc, "hudSubSmall opacity") >= 0.5);
+assert("HUD lines stay single-line so the strip cannot become a text card",
+  (screenSrc.match(/numberOfLines=\{1\}/g) || []).length >= 4);
+
+assert("the object card keeps every accessibility label",
+  /accessibilityLabel/.test(cardSrc) && /accessibilityRole="button"/.test(cardSrc));
+assert("the object card body copy stays comfortably leaded",
+  num(/desc: \{[^}]*lineHeight: ([\d.]+)/, cardSrc, "desc lineHeight") >= 20);
+assert("the card is still anchored to the bottom and compact",
+  /card: \{ position: "absolute", left: 0, right: 0, bottom: 0, padding: 12 \}/.test(cardSrc));
+assert("HUD close/utility buttons keep their accessibility labels",
+  /accessibilityLabel="Close Sky Lens"/.test(screenSrc));
+
+console.log("\n── Layer-pill states and asterism names (micro-polish) ──");
+const tokensSrc = src("src/theme/tokens.ts");
+const conData = src("src/features/sky-lens/data/constellationLines.ts");
+
+// Selected vs unselected must stay unmistakable, and unselected must NOT be gold — a row
+// of gold-bordered pills read as "all active" with one merely filled.
+assert("the ON pill is filled with the accent", /on && \{ backgroundColor: accent \}/.test(barSrc));
+assert("the ON label flips to dark on gold", /labelOn: \{ color: "#030816"/.test(barSrc));
+assert("inactive pills use the NEUTRAL border token, not a gold tint",
+  /borderColor: on \? accent : AuraLunisColors\.borderSubtle/.test(barSrc));
+assert("…and that token really is neutral, not gold",
+  /borderSubtle: "rgba\(192,198,212/.test(tokensSrc));
+assert("the Layers button follows the same rule",
+  /borderColor: activeExtras > 0 \? accent : AuraLunisColors\.borderSubtle/.test(barSrc));
+assert("the inactive label is quieter than the active one but still legible",
+  num(/label: \{\s*\n\s*color: "rgba\(231,236,248,([\d.]+)\)"/, barSrc, "inactive label alpha") >= 0.7);
+assert("every pill keeps its accessibility name and on/off state",
+  /accessibilityLabel=\{`\$\{def\.label\} layer, \$\{on \? "on" : "off"\}`\}/.test(barSrc) &&
+  /accessibilityState=\{\{ selected: on \}\}/.test(barSrc));
+
+// Asterism naming must survive any label restraint.
+assert("Big Dipper · Ursa Major survives", /familiarName: "Big Dipper"/.test(conData) && /"Ursa Major"/.test(conData));
+assert("Little Dipper · Ursa Minor survives", /familiarName: "Little Dipper"/.test(conData) && /"Ursa Minor"/.test(conData));
+assert("Polaris keeps its North Star association",
+  /Polaris/.test(conData) && (/North Star/i.test(conData) || /anchorStarName/.test(conSrc)));
+assert("secondary star restraint did NOT hide labels globally",
+  /showLabels = true/.test(starSrc) && !/showLabels = false/.test(starSrc));
+assert("the star label opacity stayed above the legibility floor",
+  num(/fill=\{palette\.starLabel\}[^>]*opacity=\{([\d.]+)\}/, starSrc, "star opacity") >= 0.7);
+
+// The bottom-right control: quieter ring, same everything else.
+assert("the shutter keeps its 60pt box and position", /width: 60,\s*\n\s*height: 60,/.test(screenSrc) && /right: 20,/.test(screenSrc));
+assert("the shutter ring is no longer the heaviest element on screen",
+  num(/shutterBtn: \{[\s\S]*?borderWidth: ([\d.]+),/, screenSrc, "shutter border") < 2.5);
+assert("utility glyphs are contained rather than pure-white competing",
+  /iconBtnText: \{ color: "rgba\(255,255,255,0\.88\)"/.test(screenSrc));
+
 if (failed) {
   console.error(`Sky Lens label-avoidance self-test: ${failed} failure(s).`);
   process.exit(1);

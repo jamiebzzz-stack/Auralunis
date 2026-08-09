@@ -3,6 +3,7 @@ import { Alert, Image, Linking, Modal, Pressable, StyleSheet, Switch, Text, View
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { usePaywallNavigation } from "@/context/PaywallNavigationContext";
+import { useNavigation } from "@react-navigation/native";
 import { useOnboarding } from "@/context/OnboardingContext";
 import { resolveMembershipCta } from "@/features/paywall/entitlementStatus";
 import { TermsScreen } from "@/screens/TermsScreen";
@@ -60,6 +61,7 @@ export function SettingsScreen() {
   const { membershipKind, refresh } = useEntitlement();
   const { openPaywall } = usePaywallNavigation();
   const { replayTutorial } = useOnboarding();
+  const navigation = useNavigation<any>();
   // Single source of truth for the membership card's copy, label, and action — derived
   // from the RevenueCat-backed membershipKind (loading/unknown/error fail closed to "none").
   const membershipCta = resolveMembershipCta(membershipKind);
@@ -147,17 +149,19 @@ export function SettingsScreen() {
         <LogoMark size={126} showWordmark showDescriptor centered />
         <Text style={styles.heroTagline}>{AuraLunisBrand.tagline}</Text>
         <Text style={styles.heroCopy}>
-          Manage subscription, appearance, privacy, Sky Lens calibration,
+          Manage your membership, appearance, privacy, Sky Lens calibration,
           notifications, learning preferences, and local data.
         </Text>
         <Text style={styles.syncState}>{hydrated ? "Settings saved locally" : "Loading local settings…"}</Text>
       </View>
 
-      <SettingsSection title="Subscription">
+      <SettingsSection title="Membership">
         <GlassPanel accent>
-          <Text style={styles.infoTitle}>AuraLunis Memberships</Text>
+          <Text style={styles.infoTitle}>AuraLunis Lifetime</Text>
+          {/* Fallback price only — the paywall itself shows the live localized StoreKit price.
+              Monthly/annual are no longer sold, so no subscription price is advertised here. */}
           <Text style={styles.infoCopy}>
-            AuraLunis Premium: {AuraLunisPricing.monthly} or {AuraLunisPricing.annual}. Lifetime {AuraLunisPricing.lifetime} one-time.
+            {AuraLunisPricing.lifetime} — {AuraLunisPricing.lifetimeSubtitle}
           </Text>
           {/* Copy + primary CTA come from resolveMembershipCta(membershipKind), so the card
               can never show contradictory subscriber/non-subscriber states. Non-subscriber
@@ -344,23 +348,29 @@ export function SettingsScreen() {
 
         <Pressable style={styles.secondaryButton} onPress={() => Alert.alert(
           "Frequently Asked Questions",
-          "How do I use Sky Lens?\nPoint your phone at the sky. Stars, constellations, and planets align to the direction your phone is pointing.\n\nWhy can't I see the Milky Way?\nTurn toward the south (heading ~160-180°). The galactic core is brightest in Sagittarius.\n\nHow do I find a specific object?\nLook for the 'Pan to...' hint at the bottom of Sky Lens. It guides you to bright objects.\n\nIs there a free trial?\nThe monthly and annual plans support Apple's 7-day introductory trial for eligible new subscribers. Apple determines eligibility and shows the trial at checkout only when your account qualifies; otherwise standard pricing applies. Lifetime has no trial.\n\nHow do I restore my purchase?\nGo to Settings → Manage Subscription → Restore Purchases.\n\nNeed more help?\nTap 'Contact Support' below to email us."
+          "How do I use Sky Lens?\nPoint your phone at the sky. Stars, constellations, and planets align to the direction your phone is pointing.\n\nWhy can't I see the Milky Way?\nTurn toward the south (heading ~160-180°). The galactic core is brightest in Sagittarius.\n\nHow do I find a specific object?\nLook for the 'Pan to...' hint at the bottom of Sky Lens. It guides you to bright objects.\n\nIs there a free trial?\nThere's no trial, because there's no subscription — AuraLunis Lifetime is a single one-time purchase. A lot of the app is free forever, so you can explore properly before deciding whether to unlock the rest.\n\nWhat do I get for free?\nThe Sky Lens planetarium with stars, constellations, the Milky Way, planets and nebulae; Tonight Score and Find Mode; Fleet, Deep Space, Golden Hour and Meteor tracking; three starter Learn lessons; the Celestial Calendar event list; and Share Your Sky card creation.\n\nHow do I restore my purchase?\nGo to Settings → Restore Purchases.\n\nNeed more help?\nTap 'Contact Support' below to email us."
         )}>
           <Text style={styles.secondaryButtonText}>FAQ / Help</Text>
         </Pressable>
         <Pressable style={styles.secondaryButton} onPress={() => Alert.alert("About AuraLunis", `${AuraLunisBrand.name} · ${AuraLunisBrand.descriptor}\n${AuraLunisBrand.tagline}`)}>
           <Text style={styles.secondaryButtonText}>About AuraLunis</Text>
         </Pressable>
-        {/* Re-opens the first-run onboarding from the beginning. Purely presentational: it
-            never erases birth data, clears entitlement/RevenueCat state, or marks the app as
-            a new install. */}
+        {/* THE ONE tutorial replay. AuraLunis used to offer two — "Replay Tutorial" for the
+            onboarding slides and "Replay First Light" for a second, hands-on tour — which is
+            the same duplication a fresh install used to meet. There is now one app tour and one
+            way back into it.
+
+            Purely presentational: it re-shows the three informational screens and touches
+            NOTHING else. Birth data, the birth-chart prompt answer, Vault items, entitlement
+            and RevenueCat state, settings, and the "new install" determination are all left
+            exactly as they are — the onboarding flag stays set throughout. */}
         <Pressable
           style={styles.secondaryButton}
           onPress={replayTutorial}
           accessibilityRole="button"
-          accessibilityLabel="Replay Tutorial"
+          accessibilityLabel="Replay the app tour"
         >
-          <Text style={styles.secondaryButtonText}>Replay Tutorial</Text>
+          <Text style={styles.secondaryButtonText}>Replay App Tour</Text>
         </Pressable>
         <Pressable style={styles.secondaryButton} onPress={() => setLegalModal("privacy")}>
           <Text style={styles.secondaryButtonText}>Privacy Policy</Text>

@@ -72,13 +72,16 @@ for (const term of [
   check(`RevenueCat service: ${term}`, service.includes(term));
 }
 
-// Real three-tier paywall: Monthly, Annual, Lifetime, plus Restore Purchases. (The old
-// "Horizon Free / Aura Pro / Sovereign Coming Later" tier gating belonged to the retired
-// chronaura model and is no longer part of the shipped paywall.)
-check("paywall copy: Monthly tier", paywall.includes("Monthly"));
-check("paywall copy: Annual tier", paywall.includes("Annual"));
+// Lifetime-only paywall. The RevenueCat `default` Offering contains just `$rc_lifetime`, and
+// the paywall must offer exactly what can actually be sold: a card whose package is absent
+// from the Offering resolves to `not_available` and gives the user a dead purchase button.
 check("paywall copy: Lifetime tier", paywall.includes("Lifetime"));
 check("paywall copy: Restore Purchases", paywall.includes("Restore Purchases"));
+check("paywall purchases the lifetime package", paywall.includes("onPurchase(lifetimePlan.id)"));
+check("paywall renders the free-vs-lifetime comparison", paywall.includes("freeFeatures") && paywall.includes("premiumFeatures"));
+// No selectable subscription tier may return without also returning to the Offering.
+check("paywall has no monthly tier card", !paywall.includes("premium_monthly"));
+check("paywall has no annual tier card", !paywall.includes("premium_annual"));
 
 // ── 7-day introductory trial wiring ────────────────────────────────────────────
 // The trial is Apple-owned (an introductory offer on the monthly/annual products). The app
@@ -145,12 +148,105 @@ check(
   service.includes("return {}") && offersHook.includes('status: "unavailable"')
 );
 
-// 9. Renewal / trial-renewal disclosure is present (in the copy helper) and rendered by the modal.
+// 9. A one-time purchase has nothing to renew, so resolvePlanCopy returns disclosure: null for
+// lifetime and NO renewal sentence is rendered. The modal still renders the disclosure slot
+// conditionally, so the required Apple text reappears automatically if subscriptions return.
 check(
-  "renewal disclosure present",
-  copy.includes("renews automatically") &&
-    copy.includes("After the free trial") &&
-    paywall.includes("{disclosure}")
+  "lifetime yields no renewal disclosure",
+  copy.includes("disclosure: null") && paywall.includes("{copy.disclosure && ")
+);
+
+
+// ══════════════════════════════════════════════════════════════════════════════════════
+// NO PREMIUM BYPASS. Premium must be granted by exactly one thing: an active entitlement
+// returned by RevenueCat.
+//
+// A dev flag (ALLOW_DEV_PREMIUM) and a build-time env override (EXPO_PUBLIC_FORCE_PREMIUM,
+// set by the EAS "preview" profile) used to short-circuit fetchMembership to premium. Both
+// were dead-code-eliminated from the App Store bundle, so no shipped build was ever
+// unlocked — but their correctness depended entirely on which EAS profile produced the
+// submission. These guards make a reintroduction fail here rather than in review.
+const entitlement = fs.readFileSync(path.join(root, "src/context/EntitlementContext.tsx"), "utf8");
+const easRaw = fs.readFileSync(path.join(root, "eas.json"), "utf8");
+const eas = JSON.parse(easRaw);
+// Comment-stripped: the file documents what was removed, and that prose must not trip the guard.
+const entitlementCode = entitlement
+  .replace(/\/\*[\s\S]*?\*\//g, "")
+  .split("\n").filter((l) => !/^\s*\/\//.test(l)).join("\n");
+
+check("no development constant can force premium", !/ALLOW_DEV_PREMIUM/.test(entitlementCode));
+check("no bypass helper survives", !/devPremium/.test(entitlementCode));
+check("no environment variable can force premium", !/FORCE_PREMIUM|process\.env\.EXPO_PUBLIC_FORCE/.test(entitlementCode));
+check("no __DEV__ short-circuit grants premium", !/__DEV__[\s\S]{0,120}isPremium: true/.test(entitlementCode));
+check(
+  "premium is derived ONLY from an active RevenueCat entitlement",
+  /const isPremium = Boolean\(info\.entitlements\.active\[RevenueCatIds\.entitlement\]\)/.test(entitlementCode) &&
+    !/isPremium: true/.test(entitlementCode),
+  "the only `true` must come from the entitlements map"
+);
+check(
+  "missing RevenueCat SDK fails CLOSED",
+  /if \(!Purchases\) return \{ isPremium: false, kind: "none" \}/.test(entitlementCode)
+);
+check(
+  "unconfigured RevenueCat fails CLOSED",
+  /configuration\.status !== "configured"\) return \{ isPremium: false, kind: "none" \}/.test(entitlementCode)
+);
+check(
+  "an SDK error fails CLOSED",
+  /catch \{[\s\S]{0,120}return \{ isPremium: false, kind: "none" \}/.test(entitlementCode)
+);
+check(
+  "configuration is awaited BEFORE CustomerInfo is queried",
+  entitlementCode.indexOf("await configureRevenueCat()") > 0 &&
+    entitlementCode.indexOf("await configureRevenueCat()") < entitlementCode.indexOf("getCustomerInfo()")
+);
+
+// eas.json — no profile may carry a premium-unlock flag.
+const profiles = Object.entries(eas.build || {});
+check("eas.json still defines its build profiles", profiles.length >= 2, `${profiles.length} profiles`);
+for (const [name, profile] of profiles) {
+  const env = profile && profile.env ? Object.keys(profile.env) : [];
+  check(
+    `eas profile "${name}" carries no premium-unlock env flag`,
+    !env.some((k) => /PREMIUM|UNLOCK|ENTITLE/i.test(k)),
+    env.join(",")
+  );
+}
+check("EXPO_PUBLIC_FORCE_PREMIUM appears nowhere in eas.json", !/FORCE_PREMIUM/.test(easRaw));
+// The production profile must still EXIST and carry no premium-unlock flag (that is what this
+// guard is for). It originally pinned autoIncrement === true; the 1.0.1 release deliberately
+// sets it to FALSE so EAS cannot advance past the intended build number, so the assertion now
+// pins that release requirement instead — strictly stronger than "unchanged".
+check("the production profile still exists", !!eas.build.production);
+// Build numbers come from EAS's REMOTE counter (cli.appVersionSource === "remote"), not from
+// app.json — EAS ignores ios.buildNumber entirely in that mode. With remote as the source of
+// truth, autoIncrement must be ON: the remote counter holds the last uploaded build and
+// autoIncrement advances it by exactly one per production build. It is the PAIR that makes the
+// next build deterministic, so assert both rather than either alone.
+check(
+  "EAS build numbers come from the remote counter, not app config",
+  eas.cli && eas.cli.appVersionSource === "remote",
+  String(eas.cli && eas.cli.appVersionSource)
+);
+check(
+  "production autoIncrement is ON so the remote counter advances exactly one per build",
+  eas.build.production.autoIncrement === true,
+  String(eas.build.production.autoIncrement)
+);
+check(
+  "the production profile carries no env block at all",
+  eas.build.production.env === undefined
+);
+check("submission config is untouched", eas.submit && eas.submit.production && eas.submit.production.ios.ascAppId === "6784049770");
+
+// The in-flight guards must survive this edit untouched.
+check("purchase-tier in-flight guard intact", /_purchaseTierInFlight/.test(service));
+check("package-purchase in-flight guard intact", /_purchasePackageInFlight/.test(service));
+check("restore in-flight guard intact", /_restoreInFlight/.test(service));
+check(
+  "every latch clears on BOTH success and failure",
+  (service.match(/run\.catch\(\(\) => \{\}\)\.then\(\(\) => \{ _\w+ = null; \}\)/g) || []).length >= 3
 );
 
 console.log("");

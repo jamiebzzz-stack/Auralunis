@@ -17,18 +17,23 @@ export function TermsScreen() {
         AuraLunis is a premium interactive astronomy app that transforms your iPhone into a living celestial instrument. Features include a sensor-aligned sky planetarium, satellite tracking, constellation charts, and astrophotography planning. Your observations stay on your device.
       </Text>
 
-      <Text style={styles.heading}>Subscriptions</Text>
+      <Text style={styles.heading}>Purchases</Text>
       <Text style={styles.body}>
-        Free: Celestial Dial, basic sky view, 10 constellations, ISS tracking, Learn section.{"\n\n"}
-        Premium ($9.99/month or $49.99/year): Full Sky Lens planetarium, 35 major constellations with mythology, live satellite tracking, Birth Sky, Astro Weather, Astrophotography Planner, Night Vision, sky-quality presets, encrypted vault.{"\n\n"}
-        Lifetime ($129.99 one-time): all Premium features permanently, including future updates. No subscription.{"\n\n"}
-        A 7-day introductory free trial may be available to eligible new subscribers on the monthly and annual plans. Apple determines eligibility, and prices shown may vary by region. Lifetime is a one-time purchase and includes no trial.
+        Free: the Sky Lens planetarium with stars, constellations, Milky Way, planets and nebulae; Tonight Score and Find Mode; Fleet, Deep Space, Golden Hour and Meteor tracking; three starter Learn lessons; Celestial Calendar event listings; and Share Your Sky card creation.{"\n\n"}
+        AuraLunis Lifetime ($29.99, one-time): everything above plus the premium visual treatment and Sky Lens Pro tools, satellite and ecliptic layers, the complete Learn curriculum, Birth Sky, Astro Weather, Photo Planner, Celestial Archive, the encrypted Vault, full event details and reminders, the premium tracking modes, unlimited Cosmic Drift, premium sharing, and the Aura Pro panels — permanently, including future updates.{"\n\n"}
+        Lifetime is a one-time purchase. It is not a subscription, nothing renews, no recurring charge is made, and it includes no free trial. Prices shown may vary by region.
       </Text>
 
       <Text style={styles.heading}>Billing</Text>
       <Text style={styles.body}>
         • Payment is charged to your Apple ID account at confirmation of purchase{"\n"}
-        • If you accept a free trial, your subscription begins and is charged at the displayed price when the trial ends, unless canceled at least 24 hours before the trial ends{"\n"}
+        • The Lifetime purchase is charged once. It does not renew and cannot lapse{"\n"}
+        • Refunds are handled by Apple under the App Store terms
+      </Text>
+
+      <Text style={styles.heading}>Existing Subscriptions</Text>
+      <Text style={styles.body}>
+        AuraLunis no longer sells monthly or annual subscriptions. If you already hold one, it is unaffected: it continues to grant full Premium access and continues to renew on its existing terms until you cancel.{"\n\n"}
         • Subscriptions automatically renew unless canceled at least 24 hours before the end of the current period{"\n"}
         • Your account will be charged for renewal within 24 hours prior to the end of the current period at the same price{"\n"}
         • You can manage and cancel subscriptions in your Apple ID Account Settings{"\n"}

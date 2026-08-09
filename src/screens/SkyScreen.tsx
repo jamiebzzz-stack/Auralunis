@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { TAB_BAR_STYLE } from "@/navigation/RootTabs";
@@ -55,6 +55,9 @@ export function SkyScreen() {
     navigation.setOptions({ tabBarStyle: immersive ? { display: "none" } : TAB_BAR_STYLE });
   }, [navigation, skyLensOpen, alignmentOpen, birthSkyOpen, astroWeatherOpen, photoPlannerOpen, skyShareOpen, archiveOpen, calendarOpen]);
 
+  // The app tour is three informational screens at the app root. It no longer runs inside Sky
+  // Lens, so nothing here opens, pauses, or resumes a tour.
+
   // A Learn lesson can deep-link here with a target ("See in Sky Lens"): open the
   // lens straight to Find Mode on that object, then clear the param so it doesn't
   // re-fire on the next focus.
@@ -75,8 +78,12 @@ export function SkyScreen() {
       // SkyLensScreen itself, above the inner SkyLensErrorBoundary around the canvas).
       <ErrorBoundary>
         <SkyLensScreen
-          onClose={() => { setSkyLensOpen(false); setFocusTarget(null); }}
+          onClose={() => {
+            setSkyLensOpen(false);
+            setFocusTarget(null);
+          }}
           focusTarget={focusTarget}
+          onOpenLearn={() => navigation.navigate("Learn")}
         />
       </ErrorBoundary>
     );
@@ -133,6 +140,7 @@ export function SkyScreen() {
   return (
     <ScreenShell title="Sky Lens + Archive" subtitle="Sky">
       {manualMapOpen ? <ManualSkyMap onClose={() => setManualMapOpen(false)} /> : null}
+
 
       <FeatureCard
         title="AuraLunis Sky Lens"

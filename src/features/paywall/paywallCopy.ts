@@ -9,6 +9,15 @@
 // no-offer, unknown, error — and lifetime in ALL states resolve to plan-accurate PAID copy with
 // no "free", "trial", "7-day", or "7 days free" wording anywhere.
 //
+// LIFETIME-ONLY PAYWALL: `plans` in MonetizationCatalog now contains only the lifetime plan, so
+// the monthly/annual branches below are UNREACHABLE from the shipped UI — no customer can see a
+// trial or renewal string. They are kept deliberately rather than deleted: they are the
+// fail-closed contract that trial wording appears only on store-confirmed eligibility, they are
+// covered by paywall-copy-selftest / paywall-restore-selftest / revenuecat-preflight, and the
+// subscription products still exist in App Store Connect for the customers who already own them.
+// Deleting them would drop that regression cover from release-candidate code for no user-visible
+// gain. If subscriptions are ever reinstated, restore the plan entries and these branches work.
+//
 // Type-only imports keep this module free of runtime dependencies (no React / RevenueCat), so it
 // can be unit-tested directly under node.
 
@@ -63,8 +72,9 @@ function titleCaseAdjective(adjective: string): string {
 /**
  * Resolve every user-visible string for one plan from its store-resolved trial state.
  *
- * @param interval       monthly | annual | lifetime
- * @param displayPrice   catalog fallback price, e.g. "$9.99/month" · "$49.99/year" · "$129.99"
+ * @param interval       monthly | annual | lifetime — only "lifetime" is reachable from the
+ *                       shipped paywall (see the note at the top of this file)
+ * @param displayPrice   catalog fallback price, e.g. "$29.99"
  * @param localizedPrice live localized store price (recurring/one-time) or null
  * @param trial          store-resolved trial state (never derived here)
  */
@@ -76,13 +86,16 @@ export function resolvePlanCopy(
 ): PaywallPlanCopy {
   const price = basePrice(displayPrice, localizedPrice);
 
-  // Lifetime — a one-time purchase. NEVER any trial reference, in EVERY state.
+  // Lifetime — the only purchasable plan, and a one-time purchase. NEVER any trial reference
+  // and NEVER a renewal disclosure, in EVERY state: nothing recurs, so there is nothing to
+  // disclose. The CTA carries the price so the commitment is legible before the tap; `price`
+  // is the live localized StoreKit string whenever the store has returned one.
   if (interval === "lifetime") {
     return {
       isTrial: false,
-      priceText: `${localizedPrice ?? displayPrice} one-time`,
-      detailText: `One-time purchase · ${price}`,
-      ctaLabel: "Unlock Lifetime",
+      priceText: `${price} one-time`,
+      detailText: "One-time purchase · No subscription · No recurring charges",
+      ctaLabel: `Unlock Lifetime — ${price}`,
       heading: DEFAULT_HEADLINE,
       disclosure: null,
     };

@@ -142,8 +142,12 @@ check(
     /venus: Body\.Venus/.test(screen)
 );
 check(
-  "review pointing override is guarded — production uses live sensor pointing",
-  /if \(!reviewMode\) return sensorPointing;/.test(screenCode)
+  // The guard is unchanged; only the SOURCE of live pointing moved. It used to be
+  // `sensorPointing` from the raw-sensor Euler hook; production now derives pointing from
+  // the same quaternion orientation the sky is rendered from, so the HUD and the sky agree.
+  "review pointing override is guarded — production uses the live quaternion pointing",
+  /if \(!reviewMode\) return livePointing;/.test(screenCode) &&
+    /const livePointing = useMemo<CameraPointing>\(/.test(screenCode)
 );
 check(
   "review aid only picks a time (SearchHourAngle), never alters projection or sensors",
