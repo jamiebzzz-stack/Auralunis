@@ -38,12 +38,13 @@ export function StarBrightnessVisual() {
               <Svg width={box} height={box}>
                 <Defs>
                   <RadialGradient id={`glow-${star.name}`} cx="50%" cy="50%" r="50%">
-                    <Stop offset="0" stopColor={star.color} stopOpacity="0.5" />
+                    <Stop offset="0" stopColor={star.color} stopOpacity="0.34" />
                     <Stop offset="1" stopColor={star.color} stopOpacity="0" />
                   </RadialGradient>
                 </Defs>
                 {/* Halo scales with the disc, so brighter stars also glow harder. */}
-                <Circle cx={box / 2} cy={box / 2} r={r * 2.1} fill={`url(#glow-${star.name})`} />
+                {/* Halo pulled back: a heavy glow flattens the size hierarchy the magnitudes create. */}
+                <Circle cx={box / 2} cy={box / 2} r={r * 1.75} fill={`url(#glow-${star.name})`} />
                 <Circle cx={box / 2} cy={box / 2} r={r} fill={star.color} />
                 {/* Hot cores read near-white at the centre, as they do to the eye. */}
                 <Circle cx={box / 2} cy={box / 2} r={r * 0.45} fill="#FFFFFF" opacity={0.55} />
@@ -76,10 +77,10 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", marginBottom: 14
   },
   label: { color: AuraLunisColors.gold2, fontSize: 11, letterSpacing: 2, fontWeight: "900" },
-  row: { flexDirection: "row", justifyContent: "space-between", marginTop: 14 },
+  row: { flexDirection: "row", justifyContent: "space-between", marginTop: 18, marginBottom: 4 },
   starCol: { alignItems: "center", flex: 1 },
-  starName: { color: "#FFF", fontSize: 11, fontWeight: "800", marginTop: 2 },
+  starName: { color: "#FFF", fontSize: 11, fontWeight: "800", marginTop: 4 },
   starMeta: { color: AuraLunisColors.gold2, fontSize: 10, marginTop: 2 },
-  starTemp: { color: AuraLunisColors.faint, fontSize: 9, marginTop: 1 },
+  starTemp: { color: AuraLunisColors.faint, fontSize: 9, marginTop: 2 },
   caption: { color: AuraLunisColors.muted, fontSize: 12, lineHeight: 18, marginTop: 12 }
 });

@@ -51,12 +51,12 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", marginBottom: 14
   },
   label: { color: AuraLunisColors.gold2, fontSize: 11, letterSpacing: 2, fontWeight: "900" },
-  title: { color: "#FFF", fontSize: 22, fontWeight: "900", marginTop: 10 },
-  track: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 18, height: 22 },
-  tick: { flex: 1, height: 6, borderRadius: 3, backgroundColor: "rgba(255,255,255,0.12)" },
+  title: { color: "#FFF", fontSize: 22, fontWeight: "900", marginTop: 12, letterSpacing: -0.3 },
+  track: { flexDirection: "row", alignItems: "flex-end", gap: 3, marginTop: 20, height: 26 },
+  tick: { flex: 1, height: 7, borderRadius: 3.5, backgroundColor: "rgba(255,255,255,0.10)" },
   // Milestones read as taller beats along the arc — structure, not achievement.
-  tickMilestone: { height: 16, borderRadius: 4, backgroundColor: "rgba(246,220,145,0.55)" },
-  legendRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 6 },
+  tickMilestone: { height: 22, borderRadius: 4, backgroundColor: "rgba(246,220,145,0.7)" },
+  legendRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 8 },
   legend: { color: AuraLunisColors.faint, fontSize: 10, letterSpacing: 1 },
   caption: { color: AuraLunisColors.muted, fontSize: 12, lineHeight: 18, marginTop: 12 }
 });

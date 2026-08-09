@@ -14,7 +14,12 @@ export interface CelestialMood {
   headline: string;      // "Quiet celestial conditions"
   description: string;   // 2-3 sentence poetic summary
   suggestion: string;    // "Best for: deep sky photography"
-  emoji: string;         // "🌙" or "✨" or "🌌"
+  /**
+   * Typographic glyph, not an emoji. Emoji render as a boxed colour sticker that reads as
+   * clip-art next to AuraLunis's gold-on-midnight type; Learn and Sky Lens already use this
+   * glyph set (✦ ☄ ◎ ◇ ☆ ●), so Home was the one screen out of step.
+   */
+  emoji: string;
   intensity: "serene" | "active" | "spectacular" | "cloudy";
 }
 
@@ -194,19 +199,19 @@ export function generateCelestialMood(sky: SkyState): CelestialMood {
 
   if (sky.cloudCover > 70) {
     headline = "Cloudy skies";
-    emoji = "☁️";
+    emoji = "◍";
     intensity = "cloudy";
   } else if (sky.tonightScore >= 80) {
     headline = "Spectacular celestial conditions";
-    emoji = "✨";
+    emoji = "✦";
     intensity = "spectacular";
   } else if (sky.tonightScore >= 50) {
     headline = "Good observing conditions";
-    emoji = "🌙";
+    emoji = "☾";
     intensity = "active";
   } else {
     headline = "Quiet celestial conditions";
-    emoji = "🌌";
+    emoji = "✧";
     intensity = "serene";
   }
 

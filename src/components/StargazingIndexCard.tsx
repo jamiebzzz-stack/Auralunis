@@ -35,9 +35,11 @@ export function StargazingIndexCard({ index }: Props) {
       <Text style={styles.summary}>{summary}</Text>
 
       <View style={styles.chipRow}>
-        <Text style={styles.chip}>☁ {cloudScore >= 80 ? "Clear" : cloudScore >= 50 ? "Partly" : "Cloudy"}</Text>
-        <Text style={styles.chip}>🌙 {Math.round(100 - moonScore)}% Moon</Text>
-        <Text style={styles.chip}>👁 {seeingScore >= 75 ? "Excellent" : seeingScore >= 50 ? "Good" : "Poor"}</Text>
+        {/* U+FE0E forces TEXT presentation. Bare U+2601 is a typographic glyph, but iOS renders
+            it as a colour emoji by default, which is the boxed-sticker look this replaced. */}
+        <Text style={styles.chip}>{"\u2601\uFE0E"} {cloudScore >= 80 ? "Clear" : cloudScore >= 50 ? "Partly" : "Cloudy"}</Text>
+        <Text style={styles.chip}>☾ {Math.round(100 - moonScore)}% Moon</Text>
+        <Text style={styles.chip}>◉ {seeingScore >= 75 ? "Excellent" : seeingScore >= 50 ? "Good" : "Poor"}</Text>
       </View>
 
       <Text style={styles.window}>Best window · {bestWindow}</Text>
