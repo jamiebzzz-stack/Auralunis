@@ -104,7 +104,9 @@ export const FREE_DRIFT_EVENT_LIMIT = 5;
 
 /** What a non-entitled user genuinely gets. Rendered as the "Free" column on the paywall. */
 export const freeFeatures = [
-  "The full Sky Lens planetarium — stars, constellations, Milky Way, planets and nebulae",
+  // NOT "the full Sky Lens planetarium": the Satellite and Ecliptic layers are premium, so
+  // "full" would contradict the paid column two lines down.
+  "The Sky Lens planetarium — stars, constellations, Milky Way, planets and nebulae",
   "Every constellation, in the standard visual treatment",
   "Tonight Score, Find Mode and the manual sky map",
   "Fleet, Deep Space, Golden Hour and Meteor tracking",
@@ -119,17 +121,17 @@ export const freeFeatures = [
 
 /** What the Lifetime purchase adds. Rendered as the "Lifetime" column on the paywall. */
 export const premiumFeatures = [
-  "The living universe — spectral star colour, bloom, animated Milky Way dust, and nebulae with real silhouettes",
-  "Planets as they truly look — Jupiter's cloud bands and Great Red Spot, Saturn's rings, phase-aware Venus",
-  "A cinematic Moon with craters, earthshine and god rays",
+  "The living universe — spectral star colour, star bloom and animated Milky Way dust",
+  "Detailed planets — Jupiter's cloud bands and Great Red Spot, Saturn's rings, phase-aware Venus",
+  "A cinematic Moon with craters, earthshine and atmospheric glow",
   "Sky Lens Pro — Night Vision, Cinematic Mode, Time Travel, photo capture and sky-quality presets",
   "Satellite and ecliptic layers, with live tracking of the ISS, Starlink trains and debris",
   "The complete Learn curriculum",
-  "Birth Sky — the exact sky the moment you were born",
-  "Astro Weather — know instantly whether tonight is worth going outside",
+  "Birth Sky — recreate the sky for your birth date, time and location",
+  "Astro Weather — see tonight's observing conditions at a glance",
   "Photo Planner and the full Celestial Archive",
   "The encrypted Vault, for every sky note",
-  "Full event details and reminders — never miss a meteor shower, eclipse or conjunction",
+  "Full event details, plus reminders for meteor showers, eclipses and conjunctions",
   "Train, Debris, Chain, Static and Re-Entry tracking",
   "Unlimited Cosmic Drift, premium Share Your Sky export, and the Aura Pro panels",
 ];
@@ -137,5 +139,5 @@ export const premiumFeatures = [
 /** Why it's a one-time purchase — shown under the Lifetime column. */
 export const lifetimeFeatures = [
   "One payment. No subscription, no recurring charges.",
-  "Every premium feature above, plus all future updates.",
+  "Every premium feature in the app today.",
 ];

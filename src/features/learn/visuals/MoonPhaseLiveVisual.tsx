@@ -1,31 +1,56 @@
+// MoonPhaseLiveVisual.tsx — the Moon as it actually is right now.
+//
+// This card previously cycled a hardcoded list of eight phase names every 900 ms with a fixed
+// illumination array, while telling the reader "Current lunar phase based on your date and
+// location." It was a demo animation, and the label was untrue. Both the number and the shape
+// now come from astronomy-engine through the shared lunarState() helper.
+//
+// It re-reads on a slow timer only because the Moon genuinely moves: the lit fraction changes
+// by roughly 3–4% per hour near the quarters, so a minute-scale refresh keeps a long-lived
+// screen honest without doing meaningful work.
+
 import React, { useEffect, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { AuraLunisColors } from "@/theme/tokens";
+import { lunarState } from "@/services/MoonPhase";
+import { MoonDisc } from "./MoonDisc";
 
-const PHASES = ["New Moon", "Waxing Crescent", "First Quarter", "Waxing Gibbous", "Full Moon", "Waning Gibbous", "Last Quarter", "Waning Crescent"];
+/** The Moon moves slowly; re-reading once a minute is ample and effectively free. */
+const REFRESH_MS = 60_000;
+
+const MOON_SIZE = 132;
 
 export function MoonPhaseLiveVisual() {
-  const [index, setIndex] = useState(4);
+  const [state, setState] = useState(() => lunarState());
 
   useEffect(() => {
-    const id = setInterval(() => setIndex((i) => (i + 1) % PHASES.length), 900);
+    const id = setInterval(() => setState(lunarState()), REFRESH_MS);
     return () => clearInterval(id);
   }, []);
 
-  const illumination = [2, 18, 50, 74, 100, 76, 50, 20][index];
+  // Whole percent for display; the disc keeps the unrounded value so the terminator does not
+  // visibly step as the fraction crosses a percentage boundary.
+  const shownPercent = Math.round(state.illuminationPercent);
 
   return (
     <View style={styles.card}>
       <Text style={styles.label}>LIVE MOON PHASE</Text>
       <View style={styles.row}>
         <View style={styles.moonShell}>
-          <View style={styles.moon} />
-          <View style={[styles.shadow, { width: `${100 - illumination}%` }]} />
+          <MoonDisc
+            size={MOON_SIZE}
+            illuminationPercent={state.illuminationPercent}
+            isWaxing={state.isWaxing}
+          />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={styles.title}>{PHASES[index]}</Text>
-          <Text style={styles.meta}>Illumination · {illumination}%</Text>
-          <Text style={styles.caption}>Current lunar phase based on your date and location.</Text>
+          <Text style={styles.title}>{state.name}</Text>
+          <Text style={styles.meta}>Illumination · {shownPercent}%</Text>
+          <Text style={styles.caption}>
+            {state.isWaxing
+              ? "Growing fuller each night — it sets after sunset, so look early in the evening."
+              : "Shrinking each night — it rises late, so look in the early hours."}
+          </Text>
         </View>
       </View>
     </View>
@@ -38,13 +63,9 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", marginBottom: 14
   },
   label: { color: AuraLunisColors.gold2, fontSize: 11, letterSpacing: 2, fontWeight: "900" },
-  row: { flexDirection: "row", alignItems: "center", gap: 16, marginTop: 10 },
-  moonShell: {
-    width: 92, height: 92, borderRadius: 46, overflow: "hidden", backgroundColor: "#161b2d",
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.08)"
-  },
-  moon: { ...StyleSheet.absoluteFillObject, backgroundColor: "#F2F4FF" },
-  shadow: { position: "absolute", right: 0, top: 0, bottom: 0, backgroundColor: "#030816" },
+  row: { flexDirection: "row", alignItems: "center", gap: 16, marginTop: 12 },
+  // Sized to the disc exactly; the renderer draws its own limb, so no border or clipping here.
+  moonShell: { width: MOON_SIZE, height: MOON_SIZE },
   title: { color: "#FFF", fontSize: 19, fontWeight: "900" },
   meta: { color: AuraLunisColors.gold2, fontSize: 12, marginTop: 4 },
   caption: { color: AuraLunisColors.muted, fontSize: 12, lineHeight: 18, marginTop: 8 }

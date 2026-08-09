@@ -229,6 +229,24 @@ function parseBirthTime(input: string): ParsedBirthTime | null {
   return { localTime24, exact: true, display: localTime24 };
 }
 
+
+/** Sidereal hours → "02h 39m". Sidereal time is what decides which sky faces you. */
+function formatSiderealTime(hours: number): string {
+  if (!Number.isFinite(hours)) return "—";
+  const h = Math.floor(hours);
+  const m = Math.round((hours - h) * 60);
+  const carry = m === 60;
+  return `${String(carry ? h + 1 : h).padStart(2, "0")}h ${String(carry ? 0 : m).padStart(2, "0")}m`;
+}
+
+/** Plain-language reading of where a planet sat in its arc across the sky. */
+const PLANET_STATUS_WORDS: Record<string, string> = {
+  rising: "climbing in the east",
+  culminating: "at its highest",
+  setting: "sinking toward the west",
+  below: "below the horizon",
+};
+
 export function BirthSkyScreen({ onClose }: Props) {
   const { isPremium } = useEntitlement();
   const { openPaywall } = usePaywallNavigation();
@@ -462,9 +480,11 @@ export function BirthSkyScreen({ onClose }: Props) {
           <Row label="Sun sign" value={profile.sunSign} />
           <Row label="Moon phase" value={`${profile.moonPhase} · ${profile.moonIllumination}%`} />
           <Row label={exactTimeUsed ? "Eastern sky" : "Approx. eastern sky"} value={profile.risingSign} />
-          <Row label="Dominant" value={profile.dominantConstellation} />
-          <Row label="Seasonal sky" value={profile.seasonalSky} />
-          <Row label="Planets up" value={visiblePlanets.map((planet) => planet.name).join(", ") || "None above horizon"} />
+          <Row label="Moon was in" value={profile.dominantConstellation} />
+          <Row label="Sky at that hour" value={`${profile.lightState} · Sun ${profile.sunAltitude > 0 ? "+" : ""}${profile.sunAltitude}°`} />
+          <Row label="Season there" value={profile.seasonalSky} />
+          <Row label="Local sidereal time" value={formatSiderealTime(profile.localSiderealTimeHours)} />
+          <Row label="Planets up" value={`${visiblePlanets.length} of ${profile.planets.length}${visiblePlanets.length ? ` — ${visiblePlanets.map((planet) => planet.name).join(", ")}` : " above the horizon"}`} />
           {!exactTimeUsed && (
             <Text style={styles.approximationNote}>Birth time was not entered, so horizon-based details use local noon and are approximate.</Text>
           )}
@@ -479,7 +499,14 @@ export function BirthSkyScreen({ onClose }: Props) {
                   <View style={styles.planetTextWrap}>
                     <Text style={styles.planetName}>{planet.name}</Text>
                     <Text style={styles.planetDesc}>
-                      {PLANET_BIRTH_MEANINGS[planet.name] ?? `${planet.name} was above the horizon in ${planet.constellation}.`}
+                      {PLANET_BIRTH_MEANINGS[planet.name] ?? `${planet.name} was above the horizon.`}
+                    </Text>
+                    <Text style={styles.planetFact}>
+                      {[
+                        planet.constellation ? `In ${planet.constellation}` : null,
+                        `${planet.altitude}° above the horizon`,
+                        PLANET_STATUS_WORDS[planet.status]
+                      ].filter(Boolean).join(" · ")}
                     </Text>
                   </View>
                 </View>
@@ -561,6 +588,7 @@ const styles = StyleSheet.create({
   planetDot: { width: 12, height: 12, borderRadius: 6 },
   planetTextWrap: { flex: 1 },
   planetName: { color: "#FFF", fontSize: 14, fontWeight: "700" },
+  planetFact: { color: AuraLunisColors.gold2, fontSize: 11, marginTop: 3 },
   planetDesc: { color: AuraLunisColors.muted, fontSize: 11.5, lineHeight: 16, marginTop: 1 },
   shareBtn: {
     marginTop: 18, borderRadius: 14, paddingVertical: 13, alignItems: "center",

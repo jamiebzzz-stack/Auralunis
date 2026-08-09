@@ -17,14 +17,11 @@ export interface VisualGateConfig {
   planetIllustrations: boolean;  // free=colored dots, premium=Jupiter bands etc
   
   // Moon
-  heroMoon: boolean;             // free=simple circle, premium=craters/earthshine/godRays
+  heroMoon: boolean;             // free=simple circle, premium=craters/earthshine/atmospheric glow
   
   // Milky Way
   milkyWayDetail: "basic" | "full"; // free=faint smooth, premium=dust/emission/structure
   milkyWayBoostMultiplier: number;  // free=0.4, premium=1.0
-  
-  // Nebulae (layer already gated, this controls visual quality)
-  nebulaShapes: boolean;         // premium only — custom silhouettes vs radial glows
   
   // Effects
   shootingStars: boolean;        // premium only
@@ -50,7 +47,6 @@ export function getVisualGate(isPremium: boolean): VisualGateConfig {
       heroMoon: true,
       milkyWayDetail: "full",
       milkyWayBoostMultiplier: 1.0,
-      nebulaShapes: true,
       shootingStars: true,
       hapticDiscovery: true,
       celestialPoetry: true,
@@ -72,7 +68,6 @@ export function getVisualGate(isPremium: boolean): VisualGateConfig {
     heroMoon: false,              // simple circle + phase
     milkyWayDetail: "basic",      // faint smooth band
     milkyWayBoostMultiplier: 0.4, // much fainter MW
-    nebulaShapes: false,          // layer is already gated
     shootingStars: false,         // no shooting stars
     hapticDiscovery: false,       // no haptic whispers
     celestialPoetry: false,       // no poetic pauses

@@ -1,9 +1,18 @@
 // BirthSkyService.ts — "Your Sky The Night You Were Born"
-// Computes the exact celestial configuration for any date/time/location.
-// Premium feature: generates a personal star chart with planets, moon phase,
-// and a "cosmic signature" summary.
+// Reconstructs the sky over a given place at a given moment: real planet positions, real
+// horizon state, real constellation membership, and the true ascendant.
+//
+// "Exact" was removed deliberately. The ephemeris is precise, but the RESULT is only as exact
+// as the birth time the user could supply, and a blank time falls back to local noon (see
+// parseBirthTime in BirthSkyScreen, which tracks that as `exact: false` and relabels the
+// ascendant row accordingly). Claiming exactness we cannot verify is the one thing this
+// feature must not do.
+//
+// NOTHING here may be fabricated. A previous version typed each planet with the constellation
+// "it was in" and then assigned every planet the SAME month-based lookup — invented data
+// presented to the reader as measurement. Every field below is computed for the birth moment.
 
-import { SiderealTime, Illumination, MoonPhase, Body } from "astronomy-engine";
+import { SiderealTime, Illumination, MoonPhase, Body, Equator, Horizon, Observer, Constellation } from "astronomy-engine";
 import { computePlanetaryTargets } from "@/utils/planetaryEphemeris";
 import type { ObserverLocation } from "@/features/sky-lens/accuracy/SkyLensAccuracyTypes";
 import { moonPhaseName } from "@/services/MoonPhase";
@@ -11,6 +20,9 @@ import { moonPhaseName } from "@/services/MoonPhase";
 // AsyncStorage key for the user's saved birthday (ISO 8601), set during onboarding so
 // BirthSkyScreen can reveal the birth sky later without re-asking.
 export const BIRTHDAY_STORAGE_KEY = "auralunis.birthday";
+
+/** Thrown when the birth date cannot be parsed. Callers should surface, never substitute. */
+export const INVALID_BIRTH_DATE = "INVALID_BIRTH_DATE";
 
 export interface BirthSkyProfile {
   birthDate: string;       // ISO 8601
@@ -23,8 +35,16 @@ export interface BirthSkyProfile {
   planets: BirthPlanet[];
   visibleCount: number;    // How many planets were above horizon
   cosmicSignature: string; // e.g. "Born under a waning gibbous with Venus and Jupiter flanking the zenith"
+  /** Constellation the MOON occupied — measured, replacing the old month lookup. */
   dominantConstellation: string;
-  seasonalSky: string;     // "Summer Triangle dominated" / "Orion season"
+  /** Hemisphere-aware season at the birthplace. */
+  seasonalSky: string;
+  /** Whether it was day, one of the three twilights, or full night. */
+  lightState: SkyLightState;
+  /** Sun altitude in degrees at the birth moment; negative below the horizon. */
+  sunAltitude: number;
+  /** Local sidereal time at the birthplace, in hours (0–24). */
+  localSiderealTimeHours: number;
 }
 
 export interface BirthPlanet {
@@ -32,8 +52,24 @@ export interface BirthPlanet {
   azimuth: number;
   altitude: number;
   visible: boolean;        // above horizon at birth moment
-  constellation: string;   // which constellation it was in
+  /** Real IAU constellation containing the planet, from its J2000 position. Never a guess. */
+  constellation: string;
+  /** Hours east(-) or west(+) of the meridian. 0 = culminating. */
+  hourAngleHours: number;
+  /** Where it sat in its arc across the sky at that instant. */
+  status: PlanetSkyStatus;
 }
+
+/** Position in the diurnal arc, derived from altitude and hour angle. */
+export type PlanetSkyStatus = "below" | "rising" | "culminating" | "setting";
+
+/** Sun-altitude bands. The boundaries are the standard twilight definitions. */
+export type SkyLightState =
+  | "Daylight"
+  | "Civil twilight"
+  | "Nautical twilight"
+  | "Astronomical twilight"
+  | "Night";
 
 const ZODIAC_SIGNS = [
   { name: "Capricorn",  start: [1,1],   end: [1,19]  },
@@ -50,26 +86,6 @@ const ZODIAC_SIGNS = [
   { name: "Sagittarius",start: [11,22], end: [12,21] },
   { name: "Capricorn",  start: [12,22], end: [12,31] },
 ];
-
-const MOON_PHASES = [
-  "New Moon", "Waxing Crescent", "First Quarter", "Waxing Gibbous",
-  "Full Moon", "Waning Gibbous", "Last Quarter", "Waning Crescent",
-];
-
-const CONSTELLATIONS_BY_MONTH: Record<number, string[]> = {
-  1: ["Orion", "Taurus", "Gemini"],
-  2: ["Orion", "Canis Major", "Gemini"],
-  3: ["Leo", "Cancer", "Gemini"],
-  4: ["Leo", "Virgo", "Ursa Major"],
-  5: ["Virgo", "Boötes", "Ursa Major"],
-  6: ["Scorpius", "Sagittarius", "Hercules"],
-  7: ["Scorpius", "Sagittarius", "Lyra"],
-  8: ["Cygnus", "Lyra", "Sagittarius"],
-  9: ["Cygnus", "Pegasus", "Aquarius"],
-  10: ["Pegasus", "Andromeda", "Cassiopeia"],
-  11: ["Cassiopeia", "Andromeda", "Perseus"],
-  12: ["Orion", "Taurus", "Cassiopeia"],
-};
 
 // Tropical zodiac order from ecliptic longitude 0° (Aries) onward.
 const TROPICAL_SIGNS = [
@@ -124,6 +140,102 @@ function getRisingSign(birthDate: Date, location: ObserverLocation): string {
   return TROPICAL_SIGNS[Math.floor(lambda / 30) % 12];
 }
 
+
+// ── Measured sky state ────────────────────────────────────────────────────────
+
+/** Planet name (as computePlanetaryTargets reports it) → astronomy-engine body. */
+const BODY_BY_NAME: Record<string, Body> = {
+  Mercury: Body.Mercury,
+  Venus: Body.Venus,
+  Mars: Body.Mars,
+  Jupiter: Body.Jupiter,
+  Saturn: Body.Saturn,
+  Uranus: Body.Uranus,
+  Neptune: Body.Neptune,
+};
+
+/** Local sidereal time at the birthplace, in hours 0–24. */
+function localSiderealHours(when: Date, location: ObserverLocation): number {
+  const gst = SiderealTime(when); // Greenwich apparent sidereal time, hours
+  const lst = (gst + location.longitudeDegrees / 15) % 24;
+  return (lst + 24) % 24;
+}
+
+/**
+ * IAU constellation containing a body, from its J2000 equatorial position. astronomy-engine's
+ * Constellation() is defined on J2000 coordinates (it converts to the B1875 boundaries
+ * internally), so `ofdate` MUST be false — passing coordinates of date would misplace objects
+ * near a boundary, which is exactly the kind of quiet error this replaces.
+ */
+function constellationOf(body: Body, when: Date, observer: Observer): string {
+  try {
+    const eq = Equator(body, when, observer, false, true);
+    return Constellation(eq.ra, eq.dec).name;
+  } catch {
+    return "";
+  }
+}
+
+/** Hour angle in hours, negative east of the meridian (still climbing), positive west. */
+function hourAngleHours(body: Body, when: Date, observer: Observer, lstHours: number): number {
+  try {
+    const eq = Equator(body, when, observer, true, true);
+    let h = lstHours - eq.ra;
+    while (h < -12) h += 24;
+    while (h > 12) h -= 24;
+    return h;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Where a body sat in its arc. Culmination is the meridian crossing, so a small hour angle
+ * means it was as high as it would get that day; a negative hour angle means it was still
+ * climbing in the east, positive means descending toward the west.
+ */
+function skyStatus(altitude: number, hourAngle: number): PlanetSkyStatus {
+  if (altitude <= 0) return "below";
+  if (Math.abs(hourAngle) < 0.5) return "culminating";
+  return hourAngle < 0 ? "rising" : "setting";
+}
+
+/** Sun altitude at the birth moment, in degrees. */
+function sunAltitudeDegrees(when: Date, observer: Observer): number {
+  try {
+    const eq = Equator(Body.Sun, when, observer, true, true);
+    return Horizon(when, observer, eq.ra, eq.dec, "normal").altitude;
+  } catch {
+    return 0;
+  }
+}
+
+/** Standard twilight bands. */
+function lightStateFor(sunAltitude: number): SkyLightState {
+  if (sunAltitude > 0) return "Daylight";
+  if (sunAltitude > -6) return "Civil twilight";
+  if (sunAltitude > -12) return "Nautical twilight";
+  if (sunAltitude > -18) return "Astronomical twilight";
+  return "Night";
+}
+
+/**
+ * Season at the BIRTHPLACE. The old version hardcoded northern-hemisphere seasons, so a June
+ * birth in Sydney was labelled a summer sky when it was midwinter there.
+ */
+function seasonFor(when: Date, latitudeDegrees: number): string {
+  const month = when.getUTCMonth() + 1;
+  const northern = [
+    "winter", "winter", "spring", "spring", "spring", "summer",
+    "summer", "summer", "autumn", "autumn", "autumn", "winter",
+  ][month - 1];
+  if (latitudeDegrees >= 0) return northern;
+  const opposite: Record<string, string> = {
+    winter: "summer", summer: "winter", spring: "autumn", autumn: "spring",
+  };
+  return opposite[northern];
+}
+
 /** Generate a poetic cosmic signature */
 function generateSignature(profile: Partial<BirthSkyProfile>): string {
   const vis = profile.planets?.filter(p => p.visible).map(p => p.name) ?? [];
@@ -154,30 +266,51 @@ export function computeBirthSky(
   locationName: string = "Unknown",
 ): BirthSkyProfile {
   const birthDate = new Date(birthDateISO);
-  const month = birthDate.getUTCMonth() + 1;
+  // Refuse rather than fabricate. An unparseable date otherwise reaches the ephemeris and
+  // throws something obscure from inside astronomy-engine; worse, silently substituting a
+  // fallback date would render a confident chart of the wrong sky. Same principle as the
+  // screen's refusal to cast a chart when the birthplace time zone cannot be confirmed.
+  if (Number.isNaN(birthDate.getTime())) throw new Error(INVALID_BIRTH_DATE);
+
   const sunSign = getSunSign(birthDate);
   const { name: moonPhase, illumination: moonIllumination } = getMoonPhase(birthDate);
   const risingSign = getRisingSign(birthDate, location);
-  const dominantConstellation = (CONSTELLATIONS_BY_MONTH[month] ?? ["Orion"])[0];
+
+  const observer = new Observer(
+    location.latitudeDegrees,
+    location.longitudeDegrees,
+    location.altitudeMeters ?? 0
+  );
+  const lstHours = localSiderealHours(birthDate, location);
+
+  // The Moon's REAL constellation, measured from its position — replacing a month-indexed
+  // lookup table that ignored location, time of night, and hemisphere entirely.
+  const dominantConstellation = constellationOf(Body.Moon, birthDate, observer) || "—";
 
   // Compute planet positions AT THE BIRTH MOMENT (not now) — the date arg is required,
   // otherwise computePlanetaryTargets defaults to new Date() and the whole birth chart
   // shows today's planets.
   const targets = computePlanetaryTargets(location, birthDate);
-  const planets: BirthPlanet[] = targets.map(t => ({
-    name: t.planet.name,
-    azimuth: Math.round(t.azimuth),
-    altitude: Math.round(t.altitude * 10) / 10,
-    visible: t.altitude > 0,
-    constellation: dominantConstellation, // simplified
-  }));
+  const planets: BirthPlanet[] = targets.map((t) => {
+    const body = BODY_BY_NAME[t.planet.name];
+    const hourAngle = body === undefined ? 0 : hourAngleHours(body, birthDate, observer, lstHours);
+    return {
+      name: t.planet.name,
+      azimuth: Math.round(t.azimuth),
+      altitude: Math.round(t.altitude * 10) / 10,
+      visible: t.altitude > 0,
+      // Each planet's OWN constellation, never a shared placeholder.
+      constellation: body === undefined ? "" : constellationOf(body, birthDate, observer),
+      hourAngleHours: Math.round(hourAngle * 100) / 100,
+      status: skyStatus(t.altitude, hourAngle),
+    };
+  });
 
-  const visibleCount = planets.filter(p => p.visible).length;
+  const visibleCount = planets.filter((p) => p.visible).length;
 
-  // Seasonal sky descriptor
-  const seasonalSky = month >= 6 && month <= 8 ? "Summer Triangle" :
-    month >= 12 || month <= 2 ? "winter Orion" :
-    month >= 3 && month <= 5 ? "spring Leo" : "autumn Pegasus";
+  const sunAltitude = Math.round(sunAltitudeDegrees(birthDate, observer) * 10) / 10;
+  const lightState = lightStateFor(sunAltitude);
+  const seasonalSky = seasonFor(birthDate, location.latitudeDegrees);
 
   const profile: BirthSkyProfile = {
     birthDate: birthDateISO,
@@ -192,6 +325,9 @@ export function computeBirthSky(
     cosmicSignature: "",
     dominantConstellation,
     seasonalSky,
+    lightState,
+    sunAltitude,
+    localSiderealTimeHours: Math.round(lstHours * 100) / 100,
   };
 
   profile.cosmicSignature = generateSignature(profile);

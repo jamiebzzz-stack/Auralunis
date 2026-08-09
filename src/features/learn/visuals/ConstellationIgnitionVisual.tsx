@@ -10,7 +10,7 @@ const CONSTELLATIONS = [
     sub: "The Hunter · Winter Sky",
     stars: [
       { x: 90, y: 18, mag: 0.5, name: "Betelgeuse", color: "#FF8866" },  // red supergiant
-      { x: 160, y: 22, mag: 0.2, name: "Bellatrix", color: "#B8D4FF" },  // blue
+      { x: 160, y: 22, mag: 1.64, name: "Bellatrix", color: "#B8D4FF" }, // blue giant; mag 1.64, NOT 0.2
       { x: 110, y: 62, mag: 1.7 },
       { x: 125, y: 72, mag: 1.6 },
       { x: 140, y: 82, mag: 1.7 },
