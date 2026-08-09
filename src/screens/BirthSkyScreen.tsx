@@ -2,12 +2,14 @@
 // Personal birth-sky certificate using birth date, local birth time, and birthplace.
 
 import React, { useEffect, useRef, useState } from "react";
-import { Pressable, Share, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, PixelRatio, Pressable, Share, StyleSheet, Text, TextInput, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { captureRef } from "react-native-view-shot";
+import * as Sharing from "expo-sharing";
+import * as MediaLibrary from "expo-media-library";
 import { ScreenShell } from "@/components/ScreenShell";
 import { Starfield } from "@/components/Starfield";
-import { BirthSkyCanvas } from "@/components/BirthSkyCanvas";
+import { ZODIAC_BODIES, signPositionFromLongitude } from "@/features/birthsky/tropicalZodiac";
 import { AuraLunisColors } from "@/theme/tokens";
 import { tapLight } from "@/services/HapticService";
 import { computeBirthSky, BIRTHDAY_STORAGE_KEY, type BirthSkyProfile } from "@/services/BirthSkyService";
@@ -16,6 +18,26 @@ import { fetchWithTimeout } from "@/utils/network";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { usePaywallNavigation } from "@/context/PaywallNavigationContext";
 import { resolveBirthMoment } from "@/utils/birthTime";
+import {
+  buildExplanationCards,
+  buildSkyStory
+} from "@/features/birthsky/birthSkyExplanations";
+import {
+  BirthSkyShareCard,
+  REPORT_PAGES,
+  REPORT_PAGE_COUNT,
+  QUICK_WIDTH_PX,
+  QUICK_HEIGHT_PX,
+  BASE_WIDTH,
+  CAPTURE_SCALE,
+  type ReportPage
+} from "@/features/birthsky/BirthSkyShareCard";
+import {
+  buildInterpretationGroups,
+  buildPersonalityPortrait,
+  ASTROLOGY_DISCLOSURE,
+  FRAME_DIFFERENCE_NOTE
+} from "@/features/birthsky/astrologyInterpretation";
 
 // Thrown by findBirthplace when a geocoded place has no IANA time zone — we must NOT guess
 // UTC (that silently produces a wrong chart), so generate() catches this and asks the user
@@ -247,6 +269,36 @@ const PLANET_STATUS_WORDS: Record<string, string> = {
   below: "below the horizon",
 };
 
+
+/**
+ * One collapsible explanation. Collapsed by default so the report reads as a scannable list
+ * rather than a wall of text; the summary line carries the user's own value so the collapsed
+ * state is still informative.
+ */
+function ExplainCard({ title, summary, body }: { title: string; summary: string; body: string[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Pressable
+      style={styles.explainCard}
+      onPress={() => { tapLight(); setOpen((v) => !v); }}
+      accessibilityRole="button"
+      accessibilityState={{ expanded: open }}
+      accessibilityLabel={`${title}. ${summary}`}
+    >
+      <View style={styles.explainHeader}>
+        <View style={styles.explainHeaderText}>
+          <Text style={styles.explainTitle}>{title}</Text>
+          <Text style={styles.explainSummary}>{summary}</Text>
+        </View>
+        <Text style={styles.explainChevron}>{open ? "−" : "+"}</Text>
+      </View>
+      {open && body.map((paragraph, i) => (
+        <Text key={i} style={styles.explainBody}>{paragraph}</Text>
+      ))}
+    </Pressable>
+  );
+}
+
 export function BirthSkyScreen({ onClose }: Props) {
   const { isPremium } = useEntitlement();
   const { openPaywall } = usePaywallNavigation();
@@ -258,7 +310,10 @@ export function BirthSkyScreen({ onClose }: Props) {
   const [exactTimeUsed, setExactTimeUsed] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const cardRef = useRef<View>(null);
+  // Export hosts. Rendered off-screen so the captured artwork never contains interactive UI.
+  const quickRef = useRef<View>(null);
+  const reportRefs = useRef<Record<string, View | null>>({});
+  const [reportHeights, setReportHeights] = useState<Record<string, number>>({});
 
   useEffect(() => {
     let active = true;
@@ -347,12 +402,73 @@ export function BirthSkyScreen({ onClose }: Props) {
     }
   }
 
-  async function shareBirthSky() {
+  /**
+   * Quick card — one social-ratio image. Captured from the dedicated off-screen component at an
+   * explicit 1080×1350, never from the live card (which would include the share button itself
+   * and the interpretation cards in their collapsed, contentless state).
+   */
+  async function shareQuickCard() {
     if (!profile) return;
     tapLight();
     try {
-      const uri = await captureRef(cardRef, { format: "png", quality: 1 });
-      await Share.share({ url: uri });
+      // captureRef's width/height are POINTS, which it then multiplies by the device pixel
+      // ratio. Passing pixels directly produced a 3240×4050 image on a 3× screen — 9× the
+      // intended bitmap. Dividing by the ratio pins the output at exactly 1080×1350 on any
+      // device, which also keeps the in-memory bitmap at ~5.8MB instead of ~52MB.
+      const scale = PixelRatio.get();
+      const uri = await captureRef(quickRef, {
+        format: "png", quality: 1,
+        width: QUICK_WIDTH_PX / scale, height: QUICK_HEIGHT_PX / scale,
+      });
+      if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(uri, { mimeType: "image/png" });
+      else await Share.share({ url: uri });
+    } catch {
+      /* User cancelled or capture failed. */
+    }
+  }
+
+  /**
+   * Full report — captured one page at a time. A single 1080-wide report runs many thousands of
+   * pixels tall and the bitmap can exhaust memory on older hardware, so it is split by SECTION:
+   * each page is bounded, and no section is ever cut in half. Pages are saved to Photos rather
+   * than pushed through four consecutive share sheets.
+   */
+  async function shareFullReport() {
+    if (!profile) return;
+    tapLight();
+    try {
+      // Each page is captured in its OWN try/catch. A single shared catch meant one failing
+      // page aborted the whole loop, and the report silently came out partial — two pages
+      // instead of the promised set, with no error surfaced.
+      const uris: string[] = [];
+      const failed: string[] = [];
+      for (const page of REPORT_PAGES) {
+        const ref = reportRefs.current[page];
+        if (!ref) { failed.push(page); continue; }
+        try {
+          uris.push(await captureRef(ref, {
+            format: "png", quality: 1, width: (BASE_WIDTH * CAPTURE_SCALE) / PixelRatio.get(),
+          }));
+        } catch {
+          failed.push(page);
+        }
+      }
+      if (uris.length === 0) return;
+
+      const permission = await MediaLibrary.requestPermissionsAsync(true);
+      if (permission.granted) {
+        for (const uri of uris) await MediaLibrary.saveToLibraryAsync(uri);
+        // Say plainly if any page could not be produced, rather than implying a full report.
+        Alert.alert(
+          failed.length ? "Report partly saved" : "Report saved",
+          failed.length
+            ? `${uris.length} of ${REPORT_PAGE_COUNT} pages saved to your Photos. ${failed.length} page${failed.length === 1 ? "" : "s"} could not be generated.`
+            : `All ${uris.length} pages saved to your Photos.`
+        );
+        return;
+      }
+      // Without photo access, fall back to sharing the first page rather than failing silently.
+      if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(uris[0], { mimeType: "image/png" });
     } catch {
       /* User cancelled or capture failed. */
     }
@@ -451,16 +567,47 @@ export function BirthSkyScreen({ onClose }: Props) {
       </View>
 
       {profile && (
-        <View ref={cardRef} collapsable={false} style={styles.resultCard}>
-          <View style={styles.chartWrap}>
-            <BirthSkyCanvas
-              birthDate={new Date(profile.birthDate)}
-              location={profile.location}
-              size={272}
-              dominantConstellation={profile.dominantConstellation}
-              season={extractSeason(profile)}
-            />
-            <Text style={styles.chartCaption}>The sky over {profile.locationName} when you were born</Text>
+        <>
+        <View style={styles.resultCard}>
+          {/* Tropical placement table.
+              This replaced the circular star chart. The circle looked impressive but conveyed
+              almost nothing a reader could act on — clustered planets, labels fighting for
+              space, and no way to read an actual position off it. A table gives the values the
+              rest of this screen then interprets.
+
+              TROPICAL ONLY. Every figure here comes from geocentric ecliptic longitude, never
+              from IAU constellation membership — those are different frames and usually
+              disagree (see tropicalZodiac.ts). The astronomy constellation lives in its own
+              section further down. */}
+          <View style={styles.placementCard}>
+            <Text style={styles.placementTitle}>YOUR TROPICAL PLACEMENTS</Text>
+            <Text style={styles.placementSub}>
+              Positions along the ecliptic at your birth moment, in the twelve equal signs of the
+              tropical zodiac.
+            </Text>
+            {ZODIAC_BODIES.filter((body) => profile.zodiacLongitudes[body] !== undefined).map((body) => {
+              const position = signPositionFromLongitude(profile.zodiacLongitudes[body]);
+              return (
+                <View key={body} style={styles.placementRow}>
+                  <Text style={styles.placementBody}>{body}</Text>
+                  <Text style={styles.placementSign}>{position.sign}</Text>
+                  <Text style={styles.placementDegree}>{position.display}</Text>
+                </View>
+              );
+            })}
+            <View style={styles.placementRowAccent}>
+              <Text style={styles.placementBodyAccent}>Rising</Text>
+              <Text style={styles.placementSignAccent}>{profile.risingSign}</Text>
+              <Text style={styles.placementDegreeAccent}>
+                {signPositionFromLongitude(profile.risingLongitude).display}
+              </Text>
+            </View>
+            {!exactTimeUsed && (
+              <Text style={styles.placementNote}>
+                Birth time was not entered, so the Rising degree is based on local noon and is
+                approximate. Every other placement is unaffected.
+              </Text>
+            )}
           </View>
 
           {rare && (
@@ -489,6 +636,51 @@ export function BirthSkyScreen({ onClose }: Props) {
             <Text style={styles.approximationNote}>Birth time was not entered, so horizon-based details use local noon and are approximate.</Text>
           )}
 
+          {isPremium && (
+            <>
+              <View style={styles.divider} />
+              <Text style={styles.planetsHeader}>YOUR BIRTH SKY EXPLAINED</Text>
+              <Text style={styles.explainIntro}>
+                Every line below is built from the values computed for your birth moment. Tap any card to read more.
+              </Text>
+              {buildExplanationCards(profile, exactTimeUsed).map((card) => (
+                <ExplainCard key={card.id} title={card.title} summary={card.summary} body={card.body} />
+              ))}
+
+              <View style={styles.divider} />
+              <Text style={styles.planetsHeader}>YOUR SKY STORY</Text>
+              {buildSkyStory(profile, exactTimeUsed).map((paragraph, i) => (
+                <Text key={i} style={styles.storyParagraph}>{paragraph}</Text>
+              ))}
+
+              <View style={styles.divider} />
+              <Text style={styles.symbolicHeader}>YOUR ASTROLOGICAL INTERPRETATION</Text>
+              <Text style={styles.symbolicCaveat}>{ASTROLOGY_DISCLOSURE}</Text>
+              {buildInterpretationGroups(profile.zodiacPlacements, profile.risingSign).map((group) => (
+                <View key={group.heading}>
+                  <Text style={styles.groupHeading}>{group.heading}</Text>
+                  {group.readings.map((reading) => (
+                    <ExplainCard key={reading.id} title={reading.title} summary={reading.subtitle} body={reading.body} />
+                  ))}
+                </View>
+              ))}
+
+              <Text style={styles.groupHeading}>WHY THE TWO DIFFER</Text>
+              <Text style={styles.symbolicNote}>{FRAME_DIFFERENCE_NOTE}</Text>
+              {profile.planets.filter((p) => p.constellation && p.zodiacSign && p.constellation !== p.zodiacSign).slice(0, 2).map((p) => (
+                <Text key={p.name} style={styles.contrastNote}>
+                  {`${p.name} — astronomy: physically in front of ${p.constellation}. Astrology: tropical sign ${p.zodiacSign}.`}
+                </Text>
+              ))}
+
+              <View style={styles.divider} />
+              <Text style={styles.symbolicHeader}>YOUR PERSONALITY PORTRAIT</Text>
+              {buildPersonalityPortrait(profile.zodiacPlacements, profile.risingSign, exactTimeUsed).map((paragraph, i) => (
+                <Text key={i} style={styles.symbolicNote}>{paragraph}</Text>
+              ))}
+            </>
+          )}
+
           {isPremium && visiblePlanets.length > 0 && (
             <>
               <View style={styles.divider} />
@@ -515,9 +707,14 @@ export function BirthSkyScreen({ onClose }: Props) {
           )}
 
           {isPremium ? (
-            <Pressable style={styles.shareBtn} onPress={shareBirthSky}>
-              <Text style={styles.shareText}>Share Birth Sky ✦</Text>
-            </Pressable>
+            <>
+              <Pressable style={styles.shareBtn} onPress={shareQuickCard}>
+                <Text style={styles.shareText}>Share Quick Card ✦</Text>
+              </Pressable>
+              <Pressable style={styles.shareBtnSecondary} onPress={shareFullReport}>
+                <Text style={styles.shareTextSecondary}>Share Full Report · {REPORT_PAGE_COUNT} pages</Text>
+              </Pressable>
+            </>
           ) : (
             <Pressable style={styles.unlockBtn} onPress={() => { tapLight(); openPaywall(); }}>
               <Text style={styles.unlockText}>✦ Unlock Your Full Birth Certificate</Text>
@@ -526,6 +723,29 @@ export function BirthSkyScreen({ onClose }: Props) {
 
           <Text style={styles.watermark}>✦ AuraLunis</Text>
         </View>
+
+        {/* Off-screen export hosts. These are what captureRef reads — never the live card. */}
+        <View style={styles.exportHost} pointerEvents="none" collapsable={false}>
+          <View ref={quickRef} collapsable={false}>
+            <BirthSkyShareCard profile={profile} exactTimeUsed={exactTimeUsed} variant="quick" />
+          </View>
+          {REPORT_PAGES.map((page) => (
+            <View
+              key={page}
+              ref={(node) => { reportRefs.current[page] = node; }}
+              collapsable={false}
+              onLayout={(e) => {
+                // Measured so the report's real pixel height (and therefore its bitmap cost)
+                // is a known quantity rather than an assumption.
+                const h = Math.round(e.nativeEvent.layout.height);
+                setReportHeights((prev) => (prev[page] === h ? prev : { ...prev, [page]: h }));
+              }}
+            >
+              <BirthSkyShareCard profile={profile} exactTimeUsed={exactTimeUsed} variant="report" page={page as ReportPage} />
+            </View>
+          ))}
+        </View>
+        </>
       )}
     </ScreenShell>
   );
@@ -588,8 +808,54 @@ const styles = StyleSheet.create({
   planetDot: { width: 12, height: 12, borderRadius: 6 },
   planetTextWrap: { flex: 1 },
   planetName: { color: "#FFF", fontSize: 14, fontWeight: "700" },
+  placementCard: {
+    backgroundColor: "rgba(255,255,255,0.035)", borderRadius: 18, borderWidth: 1,
+    borderColor: "rgba(217,168,78,0.22)", padding: 16, marginBottom: 4
+  },
+  placementTitle: { color: AuraLunisColors.gold2, fontSize: 11, letterSpacing: 2, fontWeight: "900" },
+  placementSub: { color: AuraLunisColors.faint, fontSize: 11, lineHeight: 16, marginTop: 6, marginBottom: 10 },
+  placementRow: {
+    flexDirection: "row", alignItems: "center", paddingVertical: 9,
+    borderTopWidth: 1, borderTopColor: "rgba(217,168,78,0.12)"
+  },
+  // The ascendant is not a body, so it gets its own emphasis and a heavier rule above it.
+  placementRowAccent: {
+    flexDirection: "row", alignItems: "center", paddingVertical: 11,
+    borderTopWidth: 1, borderTopColor: "rgba(217,168,78,0.4)", marginTop: 2
+  },
+  placementBody: { flex: 1.1, color: "#FFF", fontSize: 14, fontWeight: "800" },
+  placementSign: { flex: 1.3, color: AuraLunisColors.silver, fontSize: 14 },
+  // Tabular alignment: degrees right-align so the column reads as a column.
+  placementDegree: { color: AuraLunisColors.gold2, fontSize: 14, fontVariant: ["tabular-nums"], textAlign: "right", minWidth: 66 },
+  placementBodyAccent: { flex: 1.1, color: AuraLunisColors.gold, fontSize: 14, fontWeight: "900" },
+  placementSignAccent: { flex: 1.3, color: "#FFF", fontSize: 14, fontWeight: "700" },
+  placementDegreeAccent: { color: AuraLunisColors.gold, fontSize: 14, fontWeight: "700", fontVariant: ["tabular-nums"], textAlign: "right", minWidth: 66 },
+  placementNote: { color: AuraLunisColors.faint, fontSize: 10, lineHeight: 15, marginTop: 10 },
+  explainCard: { backgroundColor: "rgba(255,255,255,0.04)", borderRadius: 16, borderWidth: 1, borderColor: "rgba(255,255,255,0.07)", padding: 14, marginBottom: 8 },
+  explainHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
+  explainHeaderText: { flex: 1 },
+  explainTitle: { color: "#FFF", fontSize: 14, fontWeight: "800" },
+  explainSummary: { color: AuraLunisColors.gold2, fontSize: 11, marginTop: 2 },
+  explainChevron: { color: AuraLunisColors.gold2, fontSize: 20, fontWeight: "700", width: 18, textAlign: "center" },
+  explainBody: { color: AuraLunisColors.muted, fontSize: 12, lineHeight: 19, marginTop: 10 },
+  explainIntro: { color: AuraLunisColors.faint, fontSize: 11, lineHeight: 17, marginBottom: 10 },
+  storyParagraph: { color: AuraLunisColors.silver, fontSize: 13, lineHeight: 21, marginBottom: 10 },
+  // Symbolic content is visually separated from the measured sections on purpose.
+  symbolicHeader: { color: AuraLunisColors.faint, fontSize: 11, letterSpacing: 2, fontWeight: "900", marginBottom: 4 },
+  symbolicCaveat: { color: AuraLunisColors.faint, fontSize: 11, lineHeight: 17, fontStyle: "italic", marginBottom: 10 },
+  groupHeading: { color: AuraLunisColors.gold2, fontSize: 10, letterSpacing: 2, fontWeight: "900", marginTop: 14, marginBottom: 8 },
+  contrastNote: { color: AuraLunisColors.silver, fontSize: 11, lineHeight: 17, marginBottom: 6 },
+  symbolicNote: { color: AuraLunisColors.muted, fontSize: 12, lineHeight: 19, marginBottom: 8 },
   planetFact: { color: AuraLunisColors.gold2, fontSize: 11, marginTop: 3 },
   planetDesc: { color: AuraLunisColors.muted, fontSize: 11.5, lineHeight: 16, marginTop: 1 },
+  // Off-screen export hosts: laid out for capture, positioned far outside the viewport so they
+  // are never visible and never intercept touches.
+  exportHost: { position: "absolute", left: -10000, top: 0, opacity: 0 },
+  shareBtnSecondary: {
+    borderWidth: 1, borderColor: AuraLunisColors.borderGold, borderRadius: 14,
+    paddingVertical: 12, alignItems: "center", marginTop: 8
+  },
+  shareTextSecondary: { color: AuraLunisColors.gold2, fontSize: 13, fontWeight: "700" },
   shareBtn: {
     marginTop: 18, borderRadius: 14, paddingVertical: 13, alignItems: "center",
     borderWidth: 1, borderColor: AuraLunisColors.gold

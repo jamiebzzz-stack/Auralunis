@@ -16,6 +16,12 @@ import { SiderealTime, Illumination, MoonPhase, Body, Equator, Horizon, Observer
 import { computePlanetaryTargets } from "@/utils/planetaryEphemeris";
 import type { ObserverLocation } from "@/features/sky-lens/accuracy/SkyLensAccuracyTypes";
 import { moonPhaseName } from "@/services/MoonPhase";
+import {
+  tropicalSignFor,
+  tropicalLongitude,
+  ZODIAC_BODIES,
+  type ZodiacBodyName
+} from "@/features/birthsky/tropicalZodiac";
 
 // AsyncStorage key for the user's saved birthday (ISO 8601), set during onboarding so
 // BirthSkyScreen can reveal the birth sky later without re-asking.
@@ -45,6 +51,19 @@ export interface BirthSkyProfile {
   sunAltitude: number;
   /** Local sidereal time at the birthplace, in hours (0–24). */
   localSiderealTimeHours: number;
+  /**
+   * Tropical zodiac sign per body, including the Sun, Moon and Pluto — the placements the
+   * astrological reading is built from. Bodies the ephemeris cannot place are omitted rather
+   * than defaulted, so a reading is never generated for a position we do not have.
+   */
+  zodiacPlacements: Record<string, string>;
+  /**
+   * Tropical ecliptic longitude per body, in degrees. The placement table derives sign, degree
+   * and arcminutes from these. Bodies the ephemeris cannot place are omitted.
+   */
+  zodiacLongitudes: Record<string, number>;
+  /** Ecliptic longitude of the ascendant, in degrees. */
+  risingLongitude: number;
 }
 
 export interface BirthPlanet {
@@ -52,8 +71,17 @@ export interface BirthPlanet {
   azimuth: number;
   altitude: number;
   visible: boolean;        // above horizon at birth moment
-  /** Real IAU constellation containing the planet, from its J2000 position. Never a guess. */
+  /**
+   * Real IAU constellation containing the planet — ASTRONOMY. Irregular sky regions; there are
+   * 13 along the ecliptic. Usually differs from the zodiac sign below and must never be used
+   * as one (Mars sat in Cetus on the reference date, which is not a sign at all).
+   */
   constellation: string;
+  /**
+   * Tropical zodiac sign — ASTROLOGY. Twelve equal 30° divisions from the March equinox,
+   * derived from geocentric ecliptic longitude. Empty when the ephemeris cannot supply it.
+   */
+  zodiacSign: string;
   /** Hours east(-) or west(+) of the meridian. 0 = culminating. */
   hourAngleHours: number;
   /** Where it sat in its arc across the sky at that instant. */
@@ -94,19 +122,12 @@ const TROPICAL_SIGNS = [
 ];
 
 /**
- * Sun sign from the Sun's apparent ecliptic longitude (0° = Aries), which is the true
- * astronomical definition. More accurate than fixed calendar-date ranges, whose cusp
- * dates drift ±1 day year to year and break for births near midnight in non-UTC zones.
- * Low-precision Sun formula (~0.01°) — far better than the band needs.
+ * Sun sign from the SAME tropical-zodiac path as every other body. This previously used a
+ * hand-rolled low-precision solar formula, which meant the Sun and the planets were placed by
+ * two different algorithms and could disagree near a sign boundary.
  */
 function getSunSign(birthDate: Date): string {
-  const jd = 2440587.5 + birthDate.getTime() / 86400000;
-  const n = jd - 2451545.0;
-  const L = (280.46 + 0.9856474 * n) % 360;
-  const g = (((357.528 + 0.9856003 * n) % 360) * Math.PI) / 180;
-  let lambda = L + 1.915 * Math.sin(g) + 0.02 * Math.sin(2 * g);
-  lambda = ((lambda % 360) + 360) % 360;
-  return TROPICAL_SIGNS[Math.floor(lambda / 30) % 12];
+  return tropicalSignFor("Sun", birthDate)?.name ?? TROPICAL_SIGNS[0];
 }
 
 /**
@@ -128,7 +149,7 @@ function getMoonPhase(when: Date): { name: string; illumination: number } {
  * ecliptic point sits on the horizon (alt ≈ 0) in the east. This correctly depends on
  * BOTH longitude and latitude, unlike the old month/UTC-hour approximation.
  */
-function getRisingSign(birthDate: Date, location: ObserverLocation): string {
+function getRisingLongitude(birthDate: Date, location: ObserverLocation): number {
   const D2R = Math.PI / 180;
   const eps = 23.4393 * D2R; // mean obliquity of the ecliptic
   const gstHours = SiderealTime(birthDate); // Greenwich apparent sidereal time, hours
@@ -137,7 +158,7 @@ function getRisingSign(birthDate: Date, location: ObserverLocation): string {
   const phi = location.latitudeDegrees * D2R;
   let lambda = Math.atan2(Math.cos(th), -(Math.sin(th) * Math.cos(eps) + Math.tan(phi) * Math.sin(eps))) / D2R;
   lambda = ((lambda % 360) + 360) % 360;
-  return TROPICAL_SIGNS[Math.floor(lambda / 30) % 12];
+  return lambda;
 }
 
 
@@ -274,7 +295,10 @@ export function computeBirthSky(
 
   const sunSign = getSunSign(birthDate);
   const { name: moonPhase, illumination: moonIllumination } = getMoonPhase(birthDate);
-  const risingSign = getRisingSign(birthDate, location);
+  // The ascendant's precise ecliptic longitude, kept rather than reduced straight to a sign —
+  // the placement table shows an exact degree and minute, and that value was already computed.
+  const risingLongitude = getRisingLongitude(birthDate, location);
+  const risingSign = TROPICAL_SIGNS[Math.floor(risingLongitude / 30) % 12];
 
   const observer = new Observer(
     location.latitudeDegrees,
@@ -301,12 +325,26 @@ export function computeBirthSky(
       visible: t.altitude > 0,
       // Each planet's OWN constellation, never a shared placeholder.
       constellation: body === undefined ? "" : constellationOf(body, birthDate, observer),
+      // Astrology, not astronomy — a separate frame, and usually a different answer.
+      zodiacSign: tropicalSignFor(t.planet.name as ZodiacBodyName, birthDate)?.name ?? "",
       hourAngleHours: Math.round(hourAngle * 100) / 100,
       status: skyStatus(t.altitude, hourAngle),
     };
   });
 
   const visibleCount = planets.filter((p) => p.visible).length;
+
+  // Placements for the reading. Pluto is included here even though it has no az/alt entry —
+  // computePlanetaryTargets does not cover it, but its tropical sign is well defined.
+  const zodiacPlacements: Record<string, string> = {};
+  const zodiacLongitudes: Record<string, number> = {};
+  for (const bodyName of ZODIAC_BODIES) {
+    const longitude = tropicalLongitude(bodyName, birthDate);
+    if (longitude === null) continue;
+    zodiacLongitudes[bodyName] = longitude;
+    const sign = tropicalSignFor(bodyName, birthDate);
+    if (sign) zodiacPlacements[bodyName] = sign.name;
+  }
 
   const sunAltitude = Math.round(sunAltitudeDegrees(birthDate, observer) * 10) / 10;
   const lightState = lightStateFor(sunAltitude);
@@ -328,6 +366,9 @@ export function computeBirthSky(
     lightState,
     sunAltitude,
     localSiderealTimeHours: Math.round(lstHours * 100) / 100,
+    zodiacPlacements,
+    zodiacLongitudes,
+    risingLongitude,
   };
 
   profile.cosmicSignature = generateSignature(profile);

@@ -44,13 +44,15 @@ has(guardBlock, "openPaywall()", "guard's Unlock Premium opens the existing payw
 // The guard must NOT render any part of the actual feature.
 hasnt(guardBlock, "Generate My Birth Sky", "guard does NOT render the generate button");
 hasnt(guardBlock, "TextInput", "guard does NOT render the input form");
-hasnt(guardBlock, "BirthSkyCanvas", "guard does NOT render the birth-chart canvas");
+hasnt(guardBlock, "YOUR TROPICAL PLACEMENTS", "guard does NOT render the birth-chart placements");
 // The feature (form + chart) exists ONLY past the guard — reached only when isPremium is true.
 const genIdx = bs.indexOf("Generate My Birth Sky");
-const canvasIdx = bs.indexOf("<BirthSkyCanvas");
+// The circular canvas was replaced by the tropical placement table; the gate rule is
+// unchanged — the chart result must exist only past the premium guard.
+const canvasIdx = bs.indexOf("YOUR TROPICAL PLACEMENTS");
 const inputIdx = bs.indexOf("<TextInput");
 eq("Generate button is only past the guard (premium-only)", genIdx > guardIdx, true);
-eq("birth-chart canvas is only past the guard (premium-only)", canvasIdx > guardIdx, true);
+eq("birth-chart placements are only past the guard (premium-only)", canvasIdx > guardIdx, true);
 eq("input form is only past the guard (premium-only)", inputIdx > guardIdx, true);
 
 console.log("\n── Entitlement uses the single 'AuraLunis Premium' source (no new string) ──");

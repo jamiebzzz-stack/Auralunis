@@ -111,7 +111,17 @@ check("Birth Sky accepts AM/PM time", birthSky.includes("parseBirthTime") && bir
 check("Birth Sky supports 24-hour time", birthSky.includes("twentyFourHourMatch"));
 check("Birth Sky converts local time using birthplace timezone", birthSky.includes("resolveBirthMoment") && birthSky.includes("savedPlace.timezone"));
 check("Birth Sky handles DST-edge / missing-timezone without guessing a chart", birthSky.includes("nonexistent-local-time") && birthSky.includes("ambiguous-local-time") && birthSky.includes("invalid-time-zone"));
-check("Birth Sky renders chart from resolved birthplace", birthSky.includes("location={profile.location}"));
+// The circular star chart was replaced by the tropical placement table. The check that
+// matters is unchanged: the result must be computed for the RESOLVED birthplace and rendered
+// from that profile, never from a default location.
+check(
+  "Birth Sky computes the chart from the resolved birthplace",
+  birthSky.includes("computeBirthSky(birthMoment.toISOString(), savedPlace.location")
+);
+check(
+  "Birth Sky renders placements from the resolved profile",
+  birthSky.includes("YOUR TROPICAL PLACEMENTS") && birthSky.includes("profile.zodiacLongitudes")
+);
 check("Birth Sky stores local date and time separately", birthSky.includes("BIRTH_DATE_LOCAL_STORAGE_KEY") && birthSky.includes("BIRTH_TIME_LOCAL_STORAGE_KEY"));
 check("Birth Sky labels unknown-time horizon as approximate", birthSky.includes('"Approx. eastern sky"') && birthSky.includes("approximationNote"));
 

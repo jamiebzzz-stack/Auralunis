@@ -95,7 +95,12 @@ check("Birth Sky converts local time with birthplace timezone", birthSky.include
 check("Birth Sky never guesses a chart from a missing time zone or DST-edge time", birthSky.includes("nonexistent-local-time") && birthSky.includes("ambiguous-local-time") && !birthSky.includes('|| "UTC"'));
 check("Birth Sky saves local date separately from UTC instant", birthSky.includes("BIRTH_DATE_LOCAL_STORAGE_KEY"));
 check("Birth Sky saves local time separately from UTC instant", birthSky.includes("BIRTH_TIME_LOCAL_STORAGE_KEY"));
-check("Birth Sky chart uses resolved location", birthSky.includes("location={profile.location}"));
+// Same intent, new anchor: the circular chart was replaced by the tropical placement table,
+// but the chart must still be computed for the RESOLVED birthplace, never a default.
+check(
+  "Birth Sky chart uses resolved location",
+  birthSky.includes("computeBirthSky(birthMoment.toISOString(), savedPlace.location")
+);
 check("Birth Sky unknown time is labeled approximate", birthSky.includes('"Approx. eastern sky"'));
 check("Birth Sky network failure is user-visible", birthSky.includes("We couldn't find that birthplace"));
 
