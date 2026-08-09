@@ -8,6 +8,11 @@
 // the physical rotation was a fraction of that.
 //
 // The old hook is deliberately left in place and unused until this passes device testing.
+//
+// RESPONSE (2026-08-09): every filter constant here is time-based, not per-sample. See the
+// block above the constants for the measurements that forced that change. Nothing in this file
+// touches the projection, the camera basis, or Lock/drag — those were measured separately and
+// are not implicated.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DeviceMotion } from "expo-sensors";
@@ -20,30 +25,18 @@ import {
   angleBetweenQuaternions,
   type Quaternion
 } from "./orientationQuaternion";
-
-/** Sensor cadence. Matches the old pointing hook so battery behaviour is unchanged. */
-const UPDATE_INTERVAL_MS = 80;
-
-/**
- * Slerp factor per sample. One whole orientation is smoothed — never azimuth, altitude,
- * roll, or any individual star. Deliberately gentle so the sky trails the hand.
- */
-const SMOOTHING = 0.16;
-
-/**
- * Motion gate, in degrees of orientation change per sample. Below this the device is treated
- * as still and the orientation is frozen EXACTLY — not slowly drifting toward a noisy target.
- */
-const STILL_THRESHOLD_DEGREES = 0.18;
-
-/** Consecutive quiet samples required before the scene freezes (about a third of a second). */
-const STILL_CONFIRM_SAMPLES = 4;
-
-/**
- * A single sample further than this from the current orientation is discarded as implausible.
- * Real hand motion cannot cover 90 degrees in one 80 ms sample.
- */
-const MAX_PLAUSIBLE_STEP_DEGREES = 90;
+// All filter timing and gating rules live in the React-free orientationFilter module, so they
+// are unit-testable under plain Node. Nothing here is expressed "per sample".
+import {
+  UPDATE_INTERVAL_MS,
+  RESPONSE_TIME_CONSTANT_MS,
+  STILL_THRESHOLD_DEGREES_PER_SECOND,
+  STILL_CONFIRM_MS,
+  MAX_PLAUSIBLE_RATE_DEGREES_PER_SECOND,
+  angularRateDegreesPerSecond,
+  resolveDeltaMs,
+  smoothingFactor
+} from "./orientationFilter";
 
 export interface QuaternionPointingState {
   /** Current smoothed orientation. Identity until the first valid sample arrives. */
@@ -63,7 +56,8 @@ export function useQuaternionPointing(enabled: boolean = true): QuaternionPointi
 
   const smoothedRef = useRef<Quaternion | null>(null);
   const rawRef = useRef<Quaternion>(IDENTITY_QUATERNION);
-  const quietCountRef = useRef(0);
+  /** Accumulated quiet time in ms — duration, not sample count, so cadence cannot change it. */
+  const quietMsRef = useRef(0);
 
   const readLiveOrientation = useCallback(() => rawRef.current, []);
 
@@ -101,26 +95,33 @@ export function useQuaternionPointing(enabled: boolean = true): QuaternionPointi
           return;
         }
 
+        // Real elapsed time for this sample. DeviceMotion reports its own interval; it is
+        // trusted only when sane, so a stalled JS thread cannot distort the filter.
+        const deltaMs = resolveDeltaMs(motion?.interval, UPDATE_INTERVAL_MS);
+
         const step = angleBetweenQuaternions(previous, next);
+        const rate = angularRateDegreesPerSecond(step, deltaMs);
 
-        // Implausible single-frame jump — drop it rather than teleport the sky.
-        if (step > MAX_PLAUSIBLE_STEP_DEGREES) return;
+        // Implausible rotation — drop it rather than teleport the sky.
+        if (rate > MAX_PLAUSIBLE_RATE_DEGREES_PER_SECOND) return;
 
-        // Stillness gate. Once confirmed still the orientation is frozen bit-for-bit:
+        // Stillness gate, accumulated in MILLISECONDS so it confirms after the same real
+        // duration at any cadence. Once confirmed still the orientation is frozen bit-for-bit:
         // no slerp, no creep. Only real movement resumes tracking.
-        if (step < STILL_THRESHOLD_DEGREES) {
-          quietCountRef.current += 1;
-          if (quietCountRef.current >= STILL_CONFIRM_SAMPLES) {
+        if (rate < STILL_THRESHOLD_DEGREES_PER_SECOND) {
+          quietMsRef.current += deltaMs;
+          if (quietMsRef.current >= STILL_CONFIRM_MS) {
             if (!isStill) setIsStill(true);
             return;
           }
         } else {
-          quietCountRef.current = 0;
+          quietMsRef.current = 0;
           if (isStill) setIsStill(false);
         }
 
-        // Smooth the WHOLE orientation along the shortest arc.
-        const smoothed = slerp(previous, next, SMOOTHING);
+        // Smooth the WHOLE orientation along the shortest arc, by a factor derived from the
+        // real elapsed time — never a fixed per-sample constant.
+        const smoothed = slerp(previous, next, smoothingFactor(deltaMs, RESPONSE_TIME_CONSTANT_MS));
         smoothedRef.current = smoothed;
         setOrientation(smoothed);
       });
