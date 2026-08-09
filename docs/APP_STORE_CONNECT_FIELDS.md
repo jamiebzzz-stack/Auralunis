@@ -95,10 +95,10 @@ PRIVACY FIRST
 No account required. No ads. No tracking. Your observations stay on your device in an encrypted vault. We don't sell data. We don't even collect it.
 
 PREMIUM
-Free: Celestial Dial, basic sky view, ISS tracking, Learn, Zodiac.
-Premium: Full Sky Lens AR, 35 constellation figures, all satellites, Birth Sky, Astro Weather, Photo Planner, Night Vision, Time Travel, encrypted vault, and everything we build next.
+Free: the Sky Lens planetarium, Tonight Score, Find Mode, Fleet/Deep Space/Golden Hour/Meteor tracking, three starter Learn lessons, and Celestial Calendar browsing.
+Lifetime: premium visual treatment and Sky Lens Pro tools, satellite and ecliptic layers, the full Learn curriculum, Birth Sky, Astro Weather, Photo Planner, Celestial Archive, encrypted Vault, full event details and reminders, and everything we build next.
 
-$9.99/month · $49.99/year · $129.99 Lifetime
+AuraLunis Lifetime — $29.99, one time. No subscription, no recurring charges.
 
 Ocoee Studios · ocoeestudios.com
 ```
@@ -145,13 +145,23 @@ location (to compute star/planet positions for the observer), and
 motion sensors (to determine which direction the phone is pointing).
 
 No account creation is required. No user data is transmitted to our
-servers. Subscription management is handled by RevenueCat/Apple.
+servers. Purchases are handled by RevenueCat/Apple.
 
-Premium features can be tested with a Sandbox Apple ID. Monthly and annual
-subscriptions may include a 7-day introductory free trial for eligible
-customers only; eligibility is determined by Apple, and ineligible customers
-see the standard subscription price. Lifetime has no trial. Sky Lens includes
-a Simulation Mode for testing without live sensors (see public review notes).
+AuraLunis offers a SINGLE in-app purchase: AuraLunis Lifetime, $29.99,
+non-consumable, one time. There is no subscription and no free trial, so
+nothing renews and there is no trial period to evaluate.
+
+To reach it: open the app, go to Settings > Membership > "View Lifetime", or
+tap any premium feature (for example Sky > Your Birth Sky). Either route opens
+the same purchase screen. It can be tested with a Sandbox Apple ID.
+
+Legacy note: monthly and annual subscription products still exist in App Store
+Connect because existing subscribers retain access through them, but they were
+removed from the active RevenueCat offering and are NOT offered to new
+purchasers. The app never displays a subscription price.
+
+Sky Lens includes a Simulation Mode for testing without live sensors (see
+public review notes).
 
 Contact: admin@ocoeestudios.com
 ```
@@ -160,13 +170,22 @@ Contact: admin@ocoeestudios.com
 
 | Reference Name | Product ID | Type | Price |
 |----------------|-----------|------|-------|
-| AuraLunis Monthly | `com.ocoeestudios.auralunis.premium.monthly` | Auto-renewable | $9.99 |
-| AuraLunis Annual | `com.ocoeestudios.auralunis.premium.annual` | Auto-renewable | $49.99 |
-| AuraLunis Lifetime | `com.ocoeestudios.auralunis.lifetime` | Non-consumable | $129.99 |
+| AuraLunis Lifetime | `com.ocoeestudios.auralunis.lifetime` | Non-consumable | $29.99 |
 
-Subscription Group: `AuraLunis Premium`
+This is the ONLY product offered for sale. It is the only package in the
+RevenueCat `default` offering (`$rc_lifetime`).
+
 Entitlement identifier (RevenueCat): `AuraLunis Premium` (exact — space + capitals)
-Introductory offer: 7-day free trial on monthly and annual subscriptions for eligible customers only. Eligibility is determined by Apple. Lifetime is a one-time purchase with no trial.
+Introductory offer: none. A one-time purchase carries no trial and nothing renews.
+
+LEGACY, NOT FOR SALE — retained in App Store Connect only so existing
+subscribers keep access and can manage their own subscriptions. Removed from
+the RevenueCat offering; never shown to new purchasers:
+
+| AuraLunis Monthly | `com.ocoeestudios.auralunis.premium.monthly` | Auto-renewable | legacy |
+| AuraLunis Annual | `com.ocoeestudios.auralunis.premium.annual` | Auto-renewable | legacy |
+
+Subscription Group: `AuraLunis Premium` (legacy subscribers only)
 
 > The Lifetime product ID is `com.ocoeestudios.auralunis.lifetime` (the old
 > `...lifetime.founders` product was deleted in ASC and recreated without the

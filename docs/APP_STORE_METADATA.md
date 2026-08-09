@@ -81,15 +81,19 @@ AuraLunis is an astronomy companion app. Key features to test:
 
 3. LEARN: Browse Planets, Constellations, Nebulae, and Galaxies lessons.
 
-4. SETTINGS: "Manage Plan" shows the subscription paywall.
+4. SETTINGS: Membership > "View Lifetime" opens the purchase screen.
+   Tapping any premium feature (e.g. Sky > Your Birth Sky) opens the same screen.
    RevenueCat sandbox: test with a sandbox Apple ID.
    Restore Purchases button is on the Membership screen.
 
-Subscription: AuraLunis Premium (single entitlement)
-- Monthly: $9.99/month (com.ocoeestudios.auralunis.premium.monthly)
-- Annual:  $49.99/year (com.ocoeestudios.auralunis.premium.annual)
-- Lifetime: $129.99 one-time (com.ocoeestudios.auralunis.lifetime)
-- Monthly and annual subscriptions may include a 7-day introductory free trial for eligible customers, as determined by Apple; ineligible customers see the standard price. Lifetime has no trial.
+Purchase: AuraLunis Premium (single entitlement)
+- AuraLunis Lifetime: $29.99 one-time, non-consumable
+  (com.ocoeestudios.auralunis.lifetime)
+- This is the only product offered. There is no subscription, nothing renews,
+  and there is no free trial.
+- Legacy: the monthly and annual subscription products still exist in App Store
+  Connect so existing subscribers keep access, but they were removed from the
+  RevenueCat offering and are never shown to new purchasers.
 
 No login required. Location permission is optional but recommended.
 Demo credentials: N/A (no account system).

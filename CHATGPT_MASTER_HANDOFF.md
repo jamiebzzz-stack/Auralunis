@@ -23,6 +23,19 @@
 > ---
 >
 # AuraLunis — Master Handoff for ChatGPT
+
+> ⛔ **PRICING IN THIS DOCUMENT IS OUT OF DATE.**
+>
+> AuraLunis is **Lifetime-only: $29.99 one-time**, as of 2026-08-09. There is no
+> subscription, nothing renews, and there is no free trial. The monthly/annual
+> packages were removed from the RevenueCat offering; re-adding those plan cards
+> produces a purchase button that silently fails.
+>
+> Source of truth: `src/features/paywall/MonetizationCatalog.ts` and `CLAUDE.md`.
+> Pricing tables below are retained as a record of the retired model — do not
+> implement from them.
+
+
 **Updated:** June 22, 2026 (end of massive build session)
 **Repo:** `jamiebzzz-stack/Auralunis` (GitHub)
 **Local folder:** `~/chronaura` (repo was renamed on GitHub; local kept old name)

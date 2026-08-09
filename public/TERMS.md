@@ -27,14 +27,17 @@ Ocoee Studios is not liable for physical injury, property damage, or legal infra
 
 Sky positions are computed using astronomy-engine and publicly available NORAD Two-Line Element (TLE) data. While AuraLunis uses high-precision orbital elements, we do not warrant the absolute accuracy of real-time satellite trajectories, atmospheric interference corrections, or local horizon calculations. **Do not rely on AuraLunis for navigation, aviation, or any safety-critical decisions.**
 
-## 5. Subscriptions and Billing
+## 5. Purchases and Billing
 
-Premium features are offered via auto-renewable subscriptions processed through Apple In-App Purchases:
+Premium features are unlocked by a single one-time purchase processed through Apple In-App Purchases:
 
-- **AuraLunis Premium:** $9.99/month or $49.99/year. Monthly and annual subscriptions may include a 7-day introductory free trial for eligible customers, as determined by Apple; customers who are not eligible are charged the standard price.
-- **Lifetime:** $129.99 one-time purchase (non-renewing) that unlocks all Premium features permanently.
+- **AuraLunis Lifetime:** $29.99, one time. It unlocks all Premium features permanently, including future updates. It is **not a subscription** — nothing renews, no recurring charge is made, and it carries **no free trial**. Prices shown may vary by region.
 
-Payment is charged to your Apple ID at confirmation of purchase. Subscriptions auto-renew unless cancelled at least 24 hours before the end of the current billing period. Manage or cancel subscriptions in **iOS Settings → Apple ID → Subscriptions**.
+Payment is charged to your Apple ID at confirmation of purchase. Refunds are handled by Apple under the App Store terms.
+
+### Existing subscriptions
+
+AuraLunis no longer sells monthly or annual subscriptions. If you purchased one previously it is unaffected: it continues to grant Premium access and continues to renew on its existing terms until you cancel. Those subscriptions auto-renew unless cancelled at least 24 hours before the end of the current billing period, and your account is charged for renewal within 24 hours prior to the end of the period at the same price. Manage or cancel in **iOS Settings → Apple ID → Subscriptions**. No refunds are given for partial subscription periods.
 
 ## 6. Telemetry and Privacy
 

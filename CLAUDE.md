@@ -37,12 +37,29 @@ Home · Sky · Learn · Vault · Settings
 There is **no "Watch" tab** and no watch-face feature — remove any such references.
 
 ## Pricing (locked — source of truth: `src/features/paywall/MonetizationCatalog.ts`)
-- **Horizon Free** — always free
-- **AuraLunis Premium monthly** — $9.99/month
-- **AuraLunis Premium annual** — $49.99/year ($4.17/mo, billed annually)
-- **Lifetime** — $129.99 one-time purchase
 
-A 7-day introductory free trial may be available to eligible new subscribers on the monthly and annual plans. Apple determines eligibility, so trial wording must appear only when StoreKit confirms both the introductory offer and the customer’s eligibility. Lifetime includes no trial.
+⛔ **LIFETIME-ONLY. Do not restore the three-tier paywall.** It was removed
+deliberately on 2026-08-09 and reintroducing it is a regression, not a fix.
+
+- **Horizon Free** — always free
+- **AuraLunis Lifetime** — **$29.99 one-time**, the ONLY purchasable product
+
+There is NO subscription, nothing renews, and there is NO free trial — a
+one-time purchase carries no introductory offer. Any monthly/annual price or
+trial wording in the UI is a bug.
+
+**Why this matters:** the monthly and annual packages were removed from the
+RevenueCat `default` offering remotely. A plan card whose package is absent
+resolves to `not_available` in RevenueCatService, so re-adding those cards
+produces a purchase button that silently does nothing — the exact defect this
+replaced. If subscriptions are ever reinstated, they must return to the
+RevenueCat offering FIRST.
+
+The monthly/annual **product IDs deliberately remain** in `RevenueCatIds`:
+existing subscribers still hold the entitlement through them, and
+`classifyAuraLunisMembership()` reads those exact IDs to tell an active
+subscriber ("Manage Subscription") from a lifetime owner ("Lifetime Access").
+Removing them would misclassify every existing subscriber. Do not tidy them away.
 
 Bundle ID: `com.ocoeestudios.auralunis` (Ocoee Studios LLC).
 
@@ -51,14 +68,18 @@ RevenueCat **product IDs** (must match App Store Connect exactly — current sou
 - `com.ocoeestudios.auralunis.premium.annual`
 - `com.ocoeestudios.auralunis.lifetime`
 
-RevenueCat **package IDs** (offering): `premium_monthly`, `premium_annual`, `$rc_lifetime`.
+RevenueCat **package IDs**: the `default` offering contains **only `$rc_lifetime`**.
+`premium_monthly` and `premium_annual` still exist as packages but were REMOVED from the
+offering — they resolve to `not_available` if a plan card tries to purchase them.
 
 **Entitlement identifier (exact): `AuraLunis Premium`** — all three products unlock this
 single entitlement. Do NOT use the old snake_case string `auralunis_premium`; it is not the
 entitlement identifier and must not appear in code or docs.
 
-The first-open paywall (`ThreeTierPaywallModal`) shows exactly these three options —
-Monthly, Annual, and Lifetime; Annual is selected by default. There is **no "Aura Pro" or
+The paywall (`ThreeTierPaywallModal` — filename kept to avoid churning eight self-tests)
+shows exactly ONE option: AuraLunis Lifetime. There is no tier selector and nothing is
+"selected by default". It also renders a Free vs Lifetime comparison drawn from the
+verified entitlement gates. There is **no "Aura Pro" or
 "Sovereign" purchase tier**: the Sovereign tier was removed, and the Aura Pro panels are
 premium *features* under `AuraLunis Premium`, not a separate purchasable tier.
 

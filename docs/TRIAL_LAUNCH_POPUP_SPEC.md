@@ -1,5 +1,15 @@
 # AuraLunis 7-Day Trial Launch Popup
 
+> ⚠️ **HISTORICAL — pricing and offer details below are superseded.**
+>
+> AuraLunis is **Lifetime-only: $29.99 one-time**, as of 2026-08-09 — no
+> subscription, no renewal, no free trial. This document is kept as a record of
+> the retired three-tier model and is not a description of the shipping app.
+>
+> Source of truth: `src/features/paywall/MonetizationCatalog.ts` and `CLAUDE.md`.
+
+
+
 ## Purpose
 Show a polished AuraLunis Premium offer when the user first opens the app.
 (The current first-open surface is `ThreeTierPaywallModal`.)

@@ -20,6 +20,19 @@
 >
 # AuraLunis — Full App Handoff for Gemini
 
+> ⛔ **PRICING IN THIS DOCUMENT IS OUT OF DATE.**
+>
+> AuraLunis is **Lifetime-only: $29.99 one-time**, as of 2026-08-09. There is no
+> subscription, nothing renews, and there is no free trial. The monthly/annual
+> packages were removed from the RevenueCat offering; re-adding those plan cards
+> produces a purchase button that silently fails.
+>
+> Source of truth: `src/features/paywall/MonetizationCatalog.ts` and `CLAUDE.md`.
+> Pricing tables below are retained as a record of the retired model — do not
+> implement from them.
+
+
+
 > **Last updated:** Session 8 (monetization + live TLE pipeline)
 > Read this before suggesting any code changes. Much of what you might suggest is already built.
 

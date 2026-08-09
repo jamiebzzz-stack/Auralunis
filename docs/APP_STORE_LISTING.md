@@ -45,11 +45,11 @@ data stay on your device. Your Vault is encrypted.
 
 Free: Celestial Dial, basic Sky Lens, selected lessons, ISS tracking, Zodiac,
 Tonight Score.
-AuraLunis Premium ($9.99/month or $49.99/year): full Sky Lens AR with all layers,
+AuraLunis Lifetime ($29.99, one time — no subscription): full Sky Lens AR with all layers,
 35 constellation figures with mythology, live satellite tracking, Birth Sky,
 Astro Weather, Astrophotography Planner, Night Vision, Time Travel, and the
 encrypted Vault.
-Lifetime ($129.99 one-time): every Premium feature, plus all future updates.
+One purchase unlocks every Premium feature, including future updates. There is no subscription and no free trial.
 
 Subscriptions auto-renew unless cancelled at least 24 hours before the end of the
 current period. Manage subscriptions in Settings > Apple ID > Subscriptions.

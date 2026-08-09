@@ -1,5 +1,15 @@
 # AuraLunis — Final Sandbox + Device Test Script
 
+> ⚠️ **HISTORICAL — pricing and offer details below are superseded.**
+>
+> AuraLunis is **Lifetime-only: $29.99 one-time**, as of 2026-08-09 — no
+> subscription, no renewal, no free trial. This document is kept as a record of
+> the retired three-tier model and is not a description of the shipping app.
+>
+> Source of truth: `src/features/paywall/MonetizationCatalog.ts` and `CLAUDE.md`.
+
+
+
 Run this once before App Store submission. Everything here is **sandbox-only / physical-device**
 work that the simulator cannot exercise (fresh sim installs always return trial-ELIGIBLE and never
 hit real StoreKit). App state at time of writing: `main` @ `6180de8`, premium gating + paywall
