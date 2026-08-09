@@ -43,14 +43,14 @@ export function PremiumModeGate({ modeName, modeDescription, onUpgrade }: Premiu
         <Text style={styles.valueLine}>✦  Space debris mission loop</Text>
       </View>
 
-      {/* Pricing hint */}
+      {/* Pricing hint — fallback price; the paywall shows the live localized one. */}
       <Text style={styles.pricingHint}>
-        From {AuraLunisPricing.annualMonthly}, billed annually
+        {AuraLunisPricing.lifetime} one-time · no subscription
       </Text>
 
       {/* CTA */}
       <TouchableOpacity style={styles.ctaButton} onPress={handleUpgrade}>
-        <Text style={styles.ctaText}>Unlock Premium</Text>
+        <Text style={styles.ctaText}>Unlock Lifetime</Text>
       </TouchableOpacity>
 
       <Text style={styles.footerNote}>

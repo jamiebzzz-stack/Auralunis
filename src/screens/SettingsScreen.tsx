@@ -149,17 +149,19 @@ export function SettingsScreen() {
         <LogoMark size={126} showWordmark showDescriptor centered />
         <Text style={styles.heroTagline}>{AuraLunisBrand.tagline}</Text>
         <Text style={styles.heroCopy}>
-          Manage subscription, appearance, privacy, Sky Lens calibration,
+          Manage your membership, appearance, privacy, Sky Lens calibration,
           notifications, learning preferences, and local data.
         </Text>
         <Text style={styles.syncState}>{hydrated ? "Settings saved locally" : "Loading local settings…"}</Text>
       </View>
 
-      <SettingsSection title="Subscription">
+      <SettingsSection title="Membership">
         <GlassPanel accent>
-          <Text style={styles.infoTitle}>AuraLunis Memberships</Text>
+          <Text style={styles.infoTitle}>AuraLunis Lifetime</Text>
+          {/* Fallback price only — the paywall itself shows the live localized StoreKit price.
+              Monthly/annual are no longer sold, so no subscription price is advertised here. */}
           <Text style={styles.infoCopy}>
-            AuraLunis Premium: {AuraLunisPricing.monthly} or {AuraLunisPricing.annual}. Lifetime {AuraLunisPricing.lifetime} one-time.
+            {AuraLunisPricing.lifetime} — {AuraLunisPricing.lifetimeSubtitle}
           </Text>
           {/* Copy + primary CTA come from resolveMembershipCta(membershipKind), so the card
               can never show contradictory subscriber/non-subscriber states. Non-subscriber
@@ -346,7 +348,7 @@ export function SettingsScreen() {
 
         <Pressable style={styles.secondaryButton} onPress={() => Alert.alert(
           "Frequently Asked Questions",
-          "How do I use Sky Lens?\nPoint your phone at the sky. Stars, constellations, and planets align to the direction your phone is pointing.\n\nWhy can't I see the Milky Way?\nTurn toward the south (heading ~160-180°). The galactic core is brightest in Sagittarius.\n\nHow do I find a specific object?\nLook for the 'Pan to...' hint at the bottom of Sky Lens. It guides you to bright objects.\n\nIs there a free trial?\nThe monthly and annual plans support Apple's 7-day introductory trial for eligible new subscribers. Apple determines eligibility and shows the trial at checkout only when your account qualifies; otherwise standard pricing applies. Lifetime has no trial.\n\nHow do I restore my purchase?\nGo to Settings → Manage Subscription → Restore Purchases.\n\nNeed more help?\nTap 'Contact Support' below to email us."
+          "How do I use Sky Lens?\nPoint your phone at the sky. Stars, constellations, and planets align to the direction your phone is pointing.\n\nWhy can't I see the Milky Way?\nTurn toward the south (heading ~160-180°). The galactic core is brightest in Sagittarius.\n\nHow do I find a specific object?\nLook for the 'Pan to...' hint at the bottom of Sky Lens. It guides you to bright objects.\n\nIs there a free trial?\nThere's no trial, because there's no subscription — AuraLunis Lifetime is a single one-time purchase. A lot of the app is free forever, so you can explore properly before deciding whether to unlock the rest.\n\nWhat do I get for free?\nThe Sky Lens planetarium with stars, constellations, the Milky Way, planets and nebulae; Tonight Score and Find Mode; Fleet, Deep Space, Golden Hour and Meteor tracking; three starter Learn lessons; the Celestial Calendar event list; and Share Your Sky card creation.\n\nHow do I restore my purchase?\nGo to Settings → Restore Purchases.\n\nNeed more help?\nTap 'Contact Support' below to email us."
         )}>
           <Text style={styles.secondaryButtonText}>FAQ / Help</Text>
         </Pressable>

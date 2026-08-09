@@ -82,11 +82,14 @@ eq("entitlement is exactly \"AuraLunis Premium\"", RevenueCatIds.entitlement, "A
 eq("monthly product id", RevenueCatIds.products.premiumMonthly, "com.ocoeestudios.auralunis.premium.monthly");
 eq("annual product id", RevenueCatIds.products.premiumAnnual, "com.ocoeestudios.auralunis.premium.annual");
 eq("lifetime product id", RevenueCatIds.products.lifetime, "com.ocoeestudios.auralunis.lifetime");
-eq("lifetime price preserved", lifetime && lifetime.displayPrice, "$129.99");
-const monthly = plans.find((p) => p.interval === "monthly");
-const annual = plans.find((p) => p.interval === "annual");
-if (monthly && monthly.displayPrice.includes("$9.99")) ok("monthly price preserved ($9.99)"); else bad(`monthly price changed: ${monthly && monthly.displayPrice}`);
-if (annual && annual.displayPrice.includes("$49.99")) ok("annual price preserved ($49.99)"); else bad(`annual price changed: ${annual && annual.displayPrice}`);
+eq("lifetime fallback price", lifetime && lifetime.displayPrice, "$29.99");
+// Lifetime-only: monthly/annual were removed from the RevenueCat Offering, so they must not
+// appear as purchasable plans. Their PRODUCT IDs above deliberately remain — existing
+// subscribers still hold the entitlement through them and classifyAuraLunisMembership()
+// needs those exact IDs to tell a subscriber from a lifetime owner.
+eq("exactly one purchasable plan", plans.length, 1);
+if (!plans.find((p) => p.interval === "monthly")) ok("monthly is not a purchasable plan"); else bad("monthly still offered but is not in the Offering");
+if (!plans.find((p) => p.interval === "annual")) ok("annual is not a purchasable plan"); else bad("annual still offered but is not in the Offering");
 
 console.log(`\nRelease-candidate self-test: ${pass} passed, ${fail} failed.`);
 process.exit(fail === 0 ? 0 : 1);

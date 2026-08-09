@@ -127,15 +127,16 @@ check("birth-chart setup stays optional and skippable", birthPrompt.includes("Ma
 check("onboarding does not advertise removed camera AR", !onboarding.includes("Point your phone at the sky"));
 
 const monetization = read("src/features/paywall/MonetizationCatalog.ts");
-for (const price of ["$9.99/month", "$49.99/year", "$129.99"]) {
-  check(`current price present: ${price}`, monetization.includes(price));
+check("current lifetime price present: $29.99", monetization.includes("$29.99"));
+// Lifetime-only: monthly/annual left the RevenueCat Offering, so no subscription price may be
+// advertised. A plan card whose package is absent produces a dead purchase button.
+for (const stale of ["$9.99", "$49.99", "$129.99"]) {
+  check(`retired price absent: ${stale}`, !monetization.includes(stale));
 }
-// A 7-day Apple intro trial may be offered to eligible new subscribers. The claim must be
-// CONDITIONAL (eligibility-gated), never an unconditional "everyone gets a trial".
+// A one-time purchase has no introductory offer, so no trial may be claimed at all.
 check(
-  "trial claim is conditional (eligibility-gated)",
-  monetization.includes("may be available to eligible new subscribers") &&
-    !monetization.includes("No free trials on any plan")
+  "no free-trial claim (lifetime carries no intro offer)",
+  !/free trial/i.test(monetization) && !/eligible new subscribers/i.test(monetization)
 );
 check("lifetime RevenueCat package id is canonical", monetization.includes('lifetime:          "$rc_lifetime"'));
 check("premium entitlement identifier is exact", monetization.includes('entitlement: "AuraLunis Premium"'));

@@ -109,16 +109,16 @@ check("birth-chart prompt explains birthplace and birth time are needed", birthP
 check("birth-chart setup is optional, not a tour screen", birthPrompt.includes("Maybe Later") && birthPrompt.includes("Entirely optional"));
 check("onboarding no longer advertises camera AR", !onboarding.includes("Point your phone at the sky"));
 
-check("current monthly price is $9.99", monetization.includes("$9.99/month"));
-check("current annual price is $49.99", monetization.includes("$49.99/year"));
-check("current lifetime price is $129.99", monetization.includes("$129.99"));
-// The old "No free trials on any plan" claim is retired: a 7-day Apple intro trial may be
-// offered to eligible new subscribers. Guard that the trial is described as CONDITIONAL
-// (eligibility-gated), never as an unconditional promise every user receives.
+check("current lifetime price is $29.99", monetization.includes("$29.99"));
+// Lifetime-only paywall: no subscription price may be advertised anywhere in the catalog.
+for (const stale of ["$9.99", "$49.99", "$129.99"]) {
+  check(`retired price absent from catalog: ${stale}`, !monetization.includes(stale));
+}
+// A one-time purchase carries no introductory offer, so the catalog must make no trial
+// promise at all — conditional or otherwise.
 check(
-  "trial copy is conditional (eligibility-gated), not unconditional",
-  monetization.includes("may be available to eligible new subscribers") &&
-    !/No free trials on any plan/.test(monetization)
+  "catalog makes no free-trial promise (lifetime has no intro offer)",
+  !/free trial/i.test(monetization) && !/eligible new subscribers/i.test(monetization)
 );
 check("lifetime package identifier is correct", monetization.includes('"$rc_lifetime"'));
 check("entitlement identifier is exact", monetization.includes('"AuraLunis Premium"'));

@@ -72,13 +72,16 @@ for (const term of [
   check(`RevenueCat service: ${term}`, service.includes(term));
 }
 
-// Real three-tier paywall: Monthly, Annual, Lifetime, plus Restore Purchases. (The old
-// "Horizon Free / Aura Pro / Sovereign Coming Later" tier gating belonged to the retired
-// chronaura model and is no longer part of the shipped paywall.)
-check("paywall copy: Monthly tier", paywall.includes("Monthly"));
-check("paywall copy: Annual tier", paywall.includes("Annual"));
+// Lifetime-only paywall. The RevenueCat `default` Offering contains just `$rc_lifetime`, and
+// the paywall must offer exactly what can actually be sold: a card whose package is absent
+// from the Offering resolves to `not_available` and gives the user a dead purchase button.
 check("paywall copy: Lifetime tier", paywall.includes("Lifetime"));
 check("paywall copy: Restore Purchases", paywall.includes("Restore Purchases"));
+check("paywall purchases the lifetime package", paywall.includes("onPurchase(lifetimePlan.id)"));
+check("paywall renders the free-vs-lifetime comparison", paywall.includes("freeFeatures") && paywall.includes("premiumFeatures"));
+// No selectable subscription tier may return without also returning to the Offering.
+check("paywall has no monthly tier card", !paywall.includes("premium_monthly"));
+check("paywall has no annual tier card", !paywall.includes("premium_annual"));
 
 // ── 7-day introductory trial wiring ────────────────────────────────────────────
 // The trial is Apple-owned (an introductory offer on the monthly/annual products). The app
@@ -145,12 +148,12 @@ check(
   service.includes("return {}") && offersHook.includes('status: "unavailable"')
 );
 
-// 9. Renewal / trial-renewal disclosure is present (in the copy helper) and rendered by the modal.
+// 9. A one-time purchase has nothing to renew, so resolvePlanCopy returns disclosure: null for
+// lifetime and NO renewal sentence is rendered. The modal still renders the disclosure slot
+// conditionally, so the required Apple text reappears automatically if subscriptions return.
 check(
-  "renewal disclosure present",
-  copy.includes("renews automatically") &&
-    copy.includes("After the free trial") &&
-    paywall.includes("{disclosure}")
+  "lifetime yields no renewal disclosure",
+  copy.includes("disclosure: null") && paywall.includes("{copy.disclosure && ")
 );
 
 

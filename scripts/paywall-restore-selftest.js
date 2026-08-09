@@ -123,7 +123,7 @@ const ctaFor = (info) => resolveMembershipCta(classifyAuraLunisMembership(info))
 // A. no entitlement → non-subscriber, paywall CTA, never manage
 const none = resolveMembershipCta("none");
 eq("A none → ctaKind paywall", none.ctaKind, "paywall");
-eq("A none → label 'View Memberships'", none.ctaLabel, "View Memberships");
+eq("A none → label 'View Lifetime'", none.ctaLabel, "View Lifetime");
 eq("A none → not a manage action", none.ctaKind !== "manage", true);
 eq("A none (from CustomerInfo) → paywall", ctaFor(NONE_INFO).ctaKind, "paywall");
 // E. loading/unknown/error fail-closed: EntitlementContext yields "none"; unexpected values default to non-subscriber
