@@ -123,16 +123,15 @@ check("onboarding explains exact birthplace and time are still needed", onboardi
 check("onboarding does not advertise removed camera AR", !onboarding.includes("Point your phone at the sky"));
 
 const monetization = read("src/features/paywall/MonetizationCatalog.ts");
-for (const price of ["$9.99/month", "$49.99/year", "$129.99"]) {
-  check(`current price present: ${price}`, monetization.includes(price));
-}
-// A 7-day Apple intro trial may be offered to eligible new subscribers. The claim must be
-// CONDITIONAL (eligibility-gated), never an unconditional "everyone gets a trial".
-check(
-  "trial claim is conditional (eligibility-gated)",
-  monetization.includes("may be available to eligible new subscribers") &&
-    !monetization.includes("No free trials on any plan")
-);
+const paywall = read("src/features/paywall/ThreeTierPaywallModal.tsx");
+check("legacy monthly price metadata remains $9.99", monetization.includes("$9.99/month"));
+check("legacy annual price metadata remains $49.99", monetization.includes("$49.99/year"));
+check("current lifetime fallback price is $29.99", monetization.includes('displayPrice: "$29.99"'));
+check("retired $129.99 lifetime fallback is absent", !monetization.includes("$129.99"));
+check("new-customer monetization contract is lifetime-only", monetization.includes("NEW CUSTOMERS") && monetization.includes("offer Lifetime only"));
+check("legacy subscription contract is retained", monetization.includes("LEGACY CUSTOMERS") && monetization.includes("restore purchases"));
+check("new-customer paywall selects Lifetime only", paywall.includes('plans.find(p => p.id === "lifetime")'));
+check("new-customer paywall has no trial language", !/free trial|7-day|7 days free/i.test(paywall));
 check("lifetime RevenueCat package id is canonical", monetization.includes('lifetime:          "$rc_lifetime"'));
 check("premium entitlement identifier is exact", monetization.includes('entitlement: "AuraLunis Premium"'));
 
