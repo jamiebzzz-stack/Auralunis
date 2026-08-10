@@ -61,9 +61,18 @@ export function SkyLensLayersSheet({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      {/* Tap anywhere off the sheet to dismiss — the sky stays visible behind it. */}
-      <Pressable style={styles.scrim} onPress={() => { if (armed) onClose(); }}>
-        <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
+      <View style={styles.scrim}>
+        {/* Backdrop is a SIBLING behind the sheet, not a Pressable parent around it.
+            Nested Pressables can compete for the iOS responder and make child rows feel
+            dead even though the modal itself opened correctly. */}
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={() => { if (armed) onClose(); }}
+          accessibilityRole="button"
+          accessibilityLabel="Close Layers"
+        />
+
+        <View style={styles.sheet}>
           <View style={styles.grabber} />
 
           <Text style={styles.title}>Layers</Text>
@@ -137,8 +146,8 @@ export function SkyLensLayersSheet({
           >
             <Text style={[styles.doneText, { color: accent }]}>Done</Text>
           </Pressable>
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
     </Modal>
   );
 }
