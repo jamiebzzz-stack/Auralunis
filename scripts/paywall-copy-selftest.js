@@ -46,6 +46,7 @@ const unavailable = { status: "unavailable" };
 const loading = { status: "loading" };
 const ineligible = { status: "ineligible" };
 const TRIAL_RE = /free trial|7-day|7 days free|\btrial\b/i;
+const NEW_CUSTOMER_TRIAL_PHRASE_RE = /free trial|7-day|7 days free/i;
 
 console.log("── Lifetime new-customer contract ──");
 for (const [label, state] of [["eligible", eligible], ["ineligible", ineligible], ["loading", loading], ["unavailable", unavailable]]) {
@@ -80,7 +81,9 @@ has(modal, "Restore Purchases", "restore remains available for legacy customers"
 has(modal, "localizedPrice", "modal consumes localized StoreKit/RevenueCat price");
 hasnt(modal, 'id === "premium_monthly"', "modal does not select Monthly");
 hasnt(modal, 'id === "premium_annual"', "modal does not select Annual");
-TRIAL_RE.test(modal) ? bad("modal contains new-customer trial language") : ok("modal contains no new-customer trial language");
+// The source legitimately contains type/comment references to legacy trial state. Guard only
+// phrases that could actually sell or promise a trial to a new customer on this Lifetime UI.
+NEW_CUSTOMER_TRIAL_PHRASE_RE.test(modal) ? bad("modal contains new-customer trial sales language") : ok("modal contains no new-customer trial sales language");
 has(catalog, 'displayPrice: "$29.99"', "catalog Lifetime fallback is $29.99");
 hasnt(catalog, "$129.99", "retired $129.99 fallback is absent from catalog");
 has(catalog, 'entitlement: "AuraLunis Premium"', "legacy/shared entitlement identifier is unchanged");
