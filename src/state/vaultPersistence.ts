@@ -113,12 +113,26 @@ export function foldAuxiliarySlot(
 ): { items: VaultItem[]; unknownEntries: unknown[]; changed: boolean } {
   const known = new Set(base.map((item) => item.id));
   const extras = slot.valid.filter((item) => !known.has(item.id));
-  const changed = extras.length > 0 || slot.rejected.length > 0;
+
+  // Unparsable entries are deduplicated by value. Without this, a recovery slot holding a
+  // copy of entries already carried in `unknownEntries` folds them back in a second time,
+  // and because the enlarged main blob then re-fails parsing on the next launch the count
+  // DOUBLES every launch (2, 4, 8, 16 ...). Identity comparison cannot help here: the slot
+  // is decrypted and JSON-parsed separately, so equal entries are always distinct objects.
+  const seen = new Set(unknownEntries.map((entry) => JSON.stringify(entry)));
+  const freshUnknowns = slot.rejected.filter((entry) => {
+    const key = JSON.stringify(entry);
+    if (seen.has(key)) return false;
+    seen.add(key); // also collapses duplicates within the slot itself
+    return true;
+  });
+
+  const changed = extras.length > 0 || freshUnknowns.length > 0;
 
   return {
     items: extras.length > 0 ? [...extras, ...base] : base,
     unknownEntries:
-      slot.rejected.length > 0 ? [...unknownEntries, ...slot.rejected] : unknownEntries,
+      freshUnknowns.length > 0 ? [...unknownEntries, ...freshUnknowns] : unknownEntries,
     changed
   };
 }

@@ -123,10 +123,15 @@ export function AuraLunisVaultProvider({ children }: { children: React.ReactNode
           if (decrypted) {
             const { valid, rejected } = splitVaultItems(JSON.parse(decrypted) as unknown);
 
-            // Hold unparsable entries verbatim so later writes carry them through. Also keep
-            // a byte-exact recovery copy as belt-and-braces for a future schema migration.
+            // Hold unparsable entries verbatim so later writes carry them through.
+            //
+            // No recovery copy is made here, deliberately. The blob decrypted fine — it just
+            // contains a record this build does not understand, and composeWritePayload keeps
+            // that record in the main blob losslessly. Copying it to the recovery slot as
+            // well meant the very next line re-read it and folded the same unparsable entry
+            // back in, doubling it on every launch (2, 4, 8, 16 ...). The recovery slot is
+            // for a genuinely UNREADABLE blob only — see the decrypt-failure branch below.
             unknownEntriesRef.current = rejected;
-            if (rejected.length > 0) await preserveRecovery(saved);
 
             // Always merge: writes are lossless now, so nothing here justifies skipping it.
             const merged = await mergeAuxiliarySlots(valid);

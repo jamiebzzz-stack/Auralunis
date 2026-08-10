@@ -142,6 +142,48 @@ console.log("\n── Part C: the H4 + M4 scenario, end to end ──");
   eq("C launch4 both notes visible", relaunch.valid.map((i) => i.id).sort(), ["keeper", "pending-1"]);
 }
 
+console.log("\n── Part E: an unknown entry must never multiply ──");
+{
+  // The defect this guards: a healthy launch used to copy the readable main blob into the
+  // recovery slot merely because it held an unparsable record, then immediately folded that
+  // slot back in — duplicating the record. The enlarged blob re-failed parsing next launch,
+  // so the count DOUBLED every time: 1 -> 2 -> 4 -> 8 -> 16.
+  let main = [note("keeper", "the user's existing note"), UNKNOWN];
+
+  for (let launch = 1; launch <= 5; launch += 1) {
+    const { valid, rejected } = V.splitVaultItems(main);
+    // Healthy load: unparsable entries are held, and NO recovery copy is taken (they already
+    // persist losslessly in the main blob). Nothing to fold, so the vault is simply rewritten.
+    main = V.composeWritePayload(valid, rejected, false);
+    const copies = V.splitVaultItems(main).rejected.length;
+    eq(`E launch ${launch}: exactly one unknown entry`, copies, 1);
+  }
+  eq("E the real note survives every launch", V.splitVaultItems(main).valid.map((i) => i.id), ["keeper"]);
+
+  // Defence in depth for a recovery slot already sitting on a user's device from an older
+  // build: folding it must not duplicate a record we are already carrying.
+  const legacySlot = V.splitVaultItems([note("keeper", "x"), UNKNOWN]);
+  const folded = V.foldAuxiliarySlot([note("keeper", "x")], legacySlot, [UNKNOWN]);
+  eq("E legacy recovery slot does not duplicate a known unknown", folded.unknownEntries, [UNKNOWN]);
+  eq("E nothing to merge, so no rewrite is triggered", folded.changed, false);
+
+  // A slot carrying the same record twice collapses to one.
+  const dupSlot = { valid: [], rejected: [UNKNOWN, JSON.parse(JSON.stringify(UNKNOWN))] };
+  eq(
+    "E duplicates within one slot collapse",
+    V.foldAuxiliarySlot([], dupSlot, []).unknownEntries,
+    [UNKNOWN]
+  );
+
+  // A genuinely NEW unknown record must still be adopted.
+  const OTHER = { id: "future-2", type: "nebula-sketch", payload: 1 };
+  eq(
+    "E a genuinely new unknown entry is still adopted",
+    V.foldAuxiliarySlot([], { valid: [], rejected: [OTHER] }, [UNKNOWN]).unknownEntries,
+    [UNKNOWN, OTHER]
+  );
+}
+
 console.log("\n── Part D: source invariants that must not regress ──");
 {
   const ctx = fs.readFileSync(path.join(SRC, "state/AuraLunisVaultContext.tsx"), "utf8");
@@ -154,6 +196,12 @@ console.log("\n── Part D: source invariants that must not regress ──");
   // M4 / stranding: the merge must not be gated on dropped entries.
   hasnt("droppedEntries ?", "D auxiliary merge is not gated on dropped entries");
   has("await mergeAuxiliarySlots(valid)", "D healthy load always merges auxiliary slots");
+  // A readable blob must NOT be copied to recovery just because it holds an unknown record;
+  // that copy is what made the entry duplicate on every launch.
+  hasnt(
+    "if (rejected.length > 0) await preserveRecovery(saved)",
+    "D healthy load takes no recovery copy for merely-unparsable entries"
+  );
   // The slot may only be removed after a durable write.
   has("await AsyncStorage.removeItem(key)", "D auxiliary slot is cleared only inside the merge");
   has("selectWriteTarget(failed)", "D write target comes from the shared decision fn");
