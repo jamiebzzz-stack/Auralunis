@@ -29,7 +29,7 @@ Show a polished AuraLunis Premium offer when the user first opens the app.
 ## Pricing (single premium entitlement: `AuraLunis Premium`)
 - Monthly: $9.99 — 7-day intro trial only when Apple confirms eligibility
 - Annual: $49.99 — 7-day intro trial only when Apple confirms eligibility
-- Lifetime: $129.99 — no trial
+- AuraLunis Lifetime: $29.99 — no trial (the only purchasable product)
 
 ## Production Handoff
 Real purchases should use StoreKit / RevenueCat.

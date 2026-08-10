@@ -134,7 +134,7 @@ OrbitalAlignmentScreen opens as a full-screen modal from the Sky tab — not a s
 |---|---|---|
 | AuraLunis Premium monthly | $9.99/mo | 7-day intro trial only when Apple confirms eligibility |
 | AuraLunis Premium annual | $49.99/yr | 7-day intro trial only when Apple confirms eligibility |
-| Lifetime | $129.99 one-time | No trial |
+| AuraLunis Lifetime | $29.99 one-time | No trial |
 
 A trial is never promised unconditionally — the offer is shown only when StoreKit reports both the introductory offer and the customer's eligibility.
 

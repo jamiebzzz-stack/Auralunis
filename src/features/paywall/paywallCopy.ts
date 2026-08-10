@@ -26,7 +26,7 @@ import type { PlanInterval, TrialState } from "./usePaywallOffers";
 export type PaywallPlanCopy = {
   /** true only for a store-confirmed eligible subscription offer */
   isTrial: boolean;
-  /** right-aligned price on the plan card, e.g. "$9.99/month" · "$129.99 one-time" */
+  /** right-aligned price on the plan card, e.g. "$29.99 one-time" (legacy: "$9.99/month") */
   priceText: string;
   /** subtitle under the plan name, and the CTA supporting line */
   detailText: string;

@@ -31,7 +31,7 @@ App Store Connect: AuraLunis, SpicyCalc, Peptendium listed
 Full-screen paywall is built and wired. `src/features/paywall/PaywallScreen.tsx` is the
 canonical export of `ThreeTierPaywallModal`:
 - Header "Unlock the Full Cosmos" + starfield bg; X close.
-- All 3 plans visible/selectable: Annual $49.99/yr (BEST VALUE, pre-selected), Monthly
+- SUPERSEDED (three-tier era; the shipping paywall is Lifetime-only at $29.99): All 3 plans visible/selectable: Annual $49.99/yr (BEST VALUE, pre-selected), Monthly
   $9.99/mo, Lifetime $129.99 one-time. A 7-day introductory trial is shown on monthly and
   annual only when Apple confirms eligibility; lifetime has no trial. Never promise a trial
   unconditionally.

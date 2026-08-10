@@ -16,7 +16,7 @@ hit real StoreKit). App state at time of writing: `main` @ `6180de8`, premium ga
 hardening + trial-wording docs all merged.
 
 **Facts to check against (do not change — these are the shipped values):**
-- Products: `com.ocoeestudios.auralunis.premium.monthly` ($9.99/mo), `…premium.annual` ($49.99/yr), `…lifetime` ($129.99 one-time)
+- Products: `com.ocoeestudios.auralunis.premium.monthly` ($9.99/mo), `…premium.annual` ($49.99/yr), `…lifetime` ($29.99 one-time)
 - Packages: `premium_monthly`, `premium_annual`, `$rc_lifetime`
 - Entitlement (exact): `AuraLunis Premium`
 - Trial: 7-day intro on monthly + annual, **eligible customers only** (Apple-determined); **lifetime never has a trial**
@@ -69,8 +69,8 @@ Fresh install → open app → complete/**Skip** onboarding → Settings → **V
 ### 1d. Lifetime (never a trial)
 - [ ] Paywall → tap the **Lifetime** row
 - [ ] Heading changes to **"Unlock the Living Universe"** (no trial wording)
-- [ ] CTA: **"Unlock Lifetime"** with sub-line **"One-time purchase · $129.99"**; the renewal/trial disclosure **disappears**
-- [ ] Purchase → sandbox sheet shows **$129.99 one-time** (no trial line) → success → premium unlocks permanently
+- [ ] CTA: **"Unlock Lifetime"** with sub-line **"One-time purchase · $29.99"**; the renewal/trial disclosure **disappears**
+- [ ] Purchase → sandbox sheet shows **$29.99 one-time** (no trial line) → success → premium unlocks permanently
 
 ### 1e. Purchase edge cases
 - [ ] **Cancel** the Apple sheet mid-purchase → paywall stays, no unlock, no crash, no error toast that implies failure-of-config
@@ -95,7 +95,7 @@ Make an account ineligible one of two ways:
 - [ ] Heading is **"Unlock the Living Universe"** (no trial promise), NOT "Start your 7-day free trial"
 - [ ] Monthly CTA: **"Subscribe Monthly"**, supporting line **"$9.99 per month"** — **no** "free"/"trial"/"7-day" anywhere
 - [ ] Annual CTA: **"Subscribe Annually"**, supporting line **"$49.99 per year"** — no trial wording
-- [ ] Lifetime unchanged: **"Unlock Lifetime" / "One-time purchase · $129.99"**
+- [ ] Lifetime unchanged: **"Unlock Lifetime" / "One-time purchase · $29.99"**
 - [ ] Purchasing as ineligible charges the **standard price immediately** (sandbox sheet shows no free-trial line)
 
 ### 2c. Loading / offline resilience

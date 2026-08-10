@@ -91,6 +91,9 @@ jobs:
       - name: Paywall / restore-truthfulness self-test
         run: npm run qa:paywall-restore
 
+      - name: Monetization surface truthfulness self-test
+        run: npm run qa:paywall-copy
+
       - name: Release-candidate hardening self-test
         run: npm run qa:release-candidate
 

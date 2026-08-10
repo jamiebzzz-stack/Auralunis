@@ -177,5 +177,75 @@ eq(
   `${WORD[FREE_LEARN_LESSON_IDS.length]} starter Learn lessons`
 );
 
+console.log("\n── Part D: every user-facing monetization surface ──");
+// Parts A–C cover the paywall itself. This part exists because the regression that actually
+// shipped elsewhere was NOT in the paywall: a premium gate screen rendered
+// "From $4.17/month, billed annually" next to an Unlock CTA, because the monthly/annual
+// pricing tokens were still reachable. These guards scan the surfaces a new customer can
+// reach, so retired subscription pricing cannot reappear anywhere that sells to them.
+//
+// IMPORTANT: legacy-subscriber identifiers, entitlement recognition, restore and Apple
+// subscription-management logic are REQUIRED and must never be flagged here. Only
+// new-customer SALES language and retired PRICES are prohibited.
+
+const gate = read("src/components/PremiumModeGate.tsx");
+const entitlement = read("src/features/paywall/entitlementStatus.ts");
+const settings = read("src/screens/SettingsScreen.tsx");
+const terms = read("src/screens/TermsScreen.tsx");
+const appRoot = read("App.tsx");
+const publicTerms = read("public/TERMS.md");
+const claudeMd = read("CLAUDE.md");
+
+// D1. Premium gate — the exact surface that regressed on the other lineage.
+has(gate, "AuraLunisPricing.lifetime", "gate quotes the Lifetime price token");
+hasnt(gate, "annualMonthly", "gate does not quote the retired annual-monthly token");
+hasnt(gate, "AuraLunisPricing.monthly", "gate does not quote a monthly price");
+hasnt(gate, "AuraLunisPricing.annual", "gate does not quote an annual price");
+hasnt(gate, "billed annually", "gate does not advertise annual billing");
+
+// D2. Retired prices and new-customer sales phrases, across every reachable surface.
+const SALES_SURFACES = [
+  ["PremiumModeGate", gate],
+  ["SettingsScreen", settings],
+  ["TermsScreen", terms],
+  ["App.tsx", appRoot],
+  ["entitlementStatus", entitlement],
+  ["public/TERMS.md", publicTerms],
+  ["CLAUDE.md", claudeMd],
+];
+const RETIRED = ["$129.99", "$4.17", "$9.99/month", "$49.99/year", "Most Popular", "Cancel anytime"];
+for (const [label, blob] of SALES_SURFACES) {
+  for (const stale of RETIRED) hasnt(blob, stale, `D ${label} free of retired "${stale}"`);
+}
+
+// D3. Pre-launch wording is no longer true — the app ships.
+for (const [label, blob] of [["App.tsx", appRoot], ["SettingsScreen", settings]]) {
+  hasnt(blob, "once AuraLunis is live", `D ${label} has no pre-launch purchase wording`);
+  hasnt(blob, "Subscriptions available after launch", `D ${label} has no retired subscription alert`);
+}
+
+// D4. Non-subscriber CTA points at Lifetime; legacy CTA preserved.
+has(entitlement, 'ctaLabel: "View Lifetime"', "D non-subscriber CTA points to Lifetime");
+has(entitlement, 'ctaLabel: "Manage Subscription"', "D legacy subscriber keeps Apple management CTA");
+has(entitlement, "activeSubscriptions", "D legacy subscription recognition preserved");
+
+// D5. Legacy product IDs must survive — required to recognize existing subscribers.
+const catalogSrc = read("src/features/paywall/MonetizationCatalog.ts");
+for (const id of [
+  "com.ocoeestudios.auralunis.lifetime",
+  "com.ocoeestudios.auralunis.premium.monthly",
+  "com.ocoeestudios.auralunis.premium.annual",
+]) {
+  has(catalogSrc, id, `D product id preserved: ${id}`);
+}
+has(catalogSrc, 'entitlement: "AuraLunis Premium"', "D entitlement identifier is exact");
+
+// D6. Legal/user-facing terms state the current contract.
+has(terms, "$29.99", "D in-app Terms quote the current Lifetime price");
+has(terms, "not a subscription", "D in-app Terms state Lifetime is not a subscription");
+has(terms, "no free trial", "D in-app Terms state Lifetime has no trial");
+has(publicTerms, "$29.99", "D published Terms quote the current Lifetime price");
+has(claudeMd, "$29.99", "D agent-facing contract quotes the current Lifetime price");
+
 console.log(`\nPaywall-copy self-test: ${pass} passed, ${fail} failed.`);
 process.exit(fail === 0 ? 0 : 1);

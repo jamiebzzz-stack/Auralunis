@@ -26,7 +26,7 @@
 6. In App Store Connect → In-App Purchases, create:
    - `com.ocoeestudios.auralunis.premium.monthly` — $9.99/month auto-renewable
    - `com.ocoeestudios.auralunis.premium.annual` — $49.99/year auto-renewable
-   - `com.ocoeestudios.auralunis.lifetime` — $129.99 one-time non-consumable (reference name and display name both "Lifetime")
+   - `com.ocoeestudios.auralunis.lifetime` — $29.99 one-time non-consumable (reference name and display name both "Lifetime")
    - No free trial / introductory offer on any plan.
 7. In RevenueCat → Products, import all three products
 8. Create an Entitlement with the EXACT identifier `AuraLunis Premium` (with the space and capitals — not `auralunis_premium`). Attach all three products to it.

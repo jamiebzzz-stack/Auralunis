@@ -29,7 +29,7 @@
 - [ ] `AuraLunis Premium` entitlement verified
 - [ ] monthly purchase verified ($9.99)
 - [ ] annual purchase verified ($49.99)
-- [ ] lifetime purchase verified ($129.99)
+- [ ] lifetime purchase verified ($29.99)
 - [ ] intro-trial eligibility verified (7-day trial shown on monthly/annual only when Apple confirms eligibility)
 - [ ] restore verified
 - [ ] cancellation and renewal copy verified

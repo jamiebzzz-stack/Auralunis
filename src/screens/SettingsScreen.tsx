@@ -79,7 +79,10 @@ export function SettingsScreen() {
     try {
       const result = await restoreAuraLunisPurchases();
       if (result.status === "not_configured") {
-        Alert.alert("Restore Purchases", "Purchases will be available once AuraLunis is live on the App Store.");
+        // The old pre-launch wording promised availability at some future launch. That is no
+        // longer true — the app ships, and this branch only means App Store purchase services
+        // are unreachable right now.
+        Alert.alert("Restore Purchases", "AuraLunis could not connect to App Store purchase services right now. Please try again in a moment.");
         return;
       }
       if (result.status === "error") {

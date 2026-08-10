@@ -1,3 +1,5 @@
+> **HISTORICAL — SUPERSEDED.** Pricing below reflects a retired three-tier plan. The shipping contract is AuraLunis Lifetime $29.99 one-time only (no trial, no recurring billing). Monthly/annual exist only for legacy subscriber recognition.
+
 > ⚠️ Historical document
 >
 > This file is retained for historical context only. Product, pricing, navigation, entitlement, camera/AR, Watch/watchOS, and architecture details may be obsolete. Use `CLAUDE.md` and the current merged code as the active source of truth.

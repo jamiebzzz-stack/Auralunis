@@ -35,7 +35,7 @@ The branch workflow runs:
 - Birth Sky requires birth date, local birth time, and birthplace for horizon-based accuracy.
 - The onboarding Birth Sky is explicitly a date-only preview and does not claim exact planets or horizon.
 - Weather uses keyless Open-Meteo and falls back safely when offline.
-- Launch pricing is $9.99 monthly, $49.99 annual, and $129.99 lifetime, with no free trial.
+- Launch pricing is AuraLunis Lifetime $29.99 one-time only, with no free trial and no recurring billing. Monthly/annual product IDs are retained solely so existing legacy subscribers keep entitlement, restore and Apple subscription management; they are not sold to new customers.
 
 ## Device verification still required
 
