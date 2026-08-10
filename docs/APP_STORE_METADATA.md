@@ -21,25 +21,25 @@ WHAT MAKES IT DIFFERENT
 
 • Tonight Score — a single number (0-100) telling you how good tonight's sky is, computed from weather, moon phase, and visible planets.
 
-• Sky Lens AR — point your camera at the sky and AuraLunis labels the planets, the Moon, constellation lines, and satellites in real time, aligned to your compass and location. Runs on-device — no internet needed.
+• Sky Lens — explore planets, the Moon, constellation lines, and satellites aligned to your location and device orientation.
 
-• Birth Sky Profile — see the exact sky the moment you were born: your moon phase, sun sign, rising constellation, and visible planets.
+• Birth Sky Profile — see the sky for your birth place, date, and time: moon phase, sun sign, rising constellation, and visible planets.
 
-• Cosmic Vault — encrypted journal for observations and reflections. NaCl encryption, key in your Keychain. We can't read it.
+• Cosmic Vault — encrypted journal for observations and reflections. NaCl encryption, key in your Keychain.
 
-• 35 Constellation Figures — constellation lines drawn across the real sky with Greek mythology cards, plus the twelve zodiac constellations and the Sun's current sign.
+• Constellation Figures — constellation lines, mythology cards, zodiac constellations, and current solar position.
 
-• Eclipse & Events Calendar — algorithmically generated eclipses, meteor showers, supermoons, and conjunctions for the years ahead.
+• Eclipse & Events Calendar — eclipses, meteor showers, supermoons, and conjunctions for the years ahead.
 
 PREMIUM FEATURES
 
-• Full Sky Lens AR with all layers (deep sky, Milky Way, nebulae)
-• Live satellite tracking — ISS, Starlink trains, debris, re-entry, chain and static modes
-• Astro Weather — hour-by-hour observing forecast (cloud, seeing, transparency)
-• Astrophotography Planner — 500 Rule & NPF Rule exposure calculator, Milky Way core timing
-• Night Vision Mode (red-on-black for real stargazing)
-• Time Travel — scrub the sky forward and back in time
-• Birth Sky cosmic certificate
+• Full Sky Lens premium layers
+• Live satellite tracking
+• Astro Weather observing forecast
+• Astrophotography Planner
+• Night Vision Mode
+• Time Travel
+• Birth Sky
 • Encrypted Cosmic Vault
 
 PRIVACY-FIRST
@@ -47,6 +47,12 @@ PRIVACY-FIRST
 Your data stays on your device. Vault entries are encrypted. No account required. No ads. No tracking. Only approximate coordinates are sent to Open-Meteo for the weather forecast.
 
 Made by Ocoee Studios. Your Time, Written in the Stars
+
+## Purchase model
+
+New customers are offered **AuraLunis Lifetime** only — a one-time, non-consumable purchase. U.S. storefront price: **$29.99**. Localized StoreKit pricing is shown in-app. There is no subscription, recurring charge, or free trial on the new-customer paywall.
+
+Existing legacy Monthly and Annual subscribers retain their previously purchased access and normal restore/manage-subscription behavior; those subscription products are not presented as selectable new-customer purchases in-app.
 
 ## Keywords (100 chars)
 astronomy,stargazing,planets,moon,constellation,eclipse,night sky,telescope,stars,cosmos
@@ -68,32 +74,16 @@ Secondary: Weather
 → Rating: 4+ (suitable for all ages)
 
 ## App Review Notes
-```
-AuraLunis is an astronomy companion app. Key features to test:
+Use the canonical current block in `public/APP_STORE_REVIEW_NOTES.md`.
 
-1. HOME: Tap to see Tonight Score (computed from weather + moon).
-   The Celestial Dial shows real planetary positions.
+Current monetization summary for review:
+- New customer product: Lifetime — `com.ocoeestudios.auralunis.lifetime` — $29.99 U.S. — one-time non-consumable.
+- Legacy Monthly: `com.ocoeestudios.auralunis.premium.monthly` — retained for existing subscribers only.
+- Legacy Annual: `com.ocoeestudios.auralunis.premium.annual` — retained for existing subscribers only.
+- Shared RevenueCat entitlement: `AuraLunis Premium`.
+- New-customer paywall does not present Monthly/Annual, trial, or recurring-billing copy.
 
-2. SKY: Star field with Find Mode and Milky Way / Deep Sky toggles.
-   Sky Lens requires camera + motion permissions. A built-in
-   Simulation Mode lets you test the AR alignment without sensors
-   (see the public review-notes block in public/APP_STORE_REVIEW_NOTES.md).
+No login required. Demo credentials: N/A.
 
-3. LEARN: Browse Planets, Constellations, Nebulae, and Galaxies lessons.
-
-4. SETTINGS: "Manage Plan" shows the subscription paywall.
-   RevenueCat sandbox: test with a sandbox Apple ID.
-   Restore Purchases button is on the Membership screen.
-
-Subscription: AuraLunis Premium (single entitlement)
-- Monthly: $9.99/month (com.ocoeestudios.auralunis.premium.monthly)
-- Annual:  $49.99/year (com.ocoeestudios.auralunis.premium.annual)
-- Lifetime: $129.99 one-time (com.ocoeestudios.auralunis.lifetime)
-- Monthly and annual subscriptions may include a 7-day introductory free trial for eligible customers, as determined by Apple; ineligible customers see the standard price. Lifetime has no trial.
-
-No login required. Location permission is optional but recommended.
-Demo credentials: N/A (no account system).
-```
-
-## What's New (v1.0)
-Welcome to AuraLunis — Your Sky. Your Story. This is the first release.
+## What's New (v1.0.2)
+AuraLunis now offers a simple one-time Lifetime unlock for new customers while preserving access for existing subscribers.
