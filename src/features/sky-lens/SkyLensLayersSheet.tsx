@@ -39,14 +39,10 @@ export function SkyLensLayersSheet({
   const accent = nightMode ? "#B64A4A" : AuraLunisColors.gold;
 
   // ── INPUT GUARD ───────────────────────────────────────────────────────────────
-  // A tap that lands while the sheet is still animating in should NOT flip a switch.
-  // This is not hypothetical: while driving the simulator I toggled Zodiac, Grid,
-  // Satellites and Ecliptic on entirely by accident, and the result was pixel-for-pixel
-  // the "cluttered default" bug we spent a round chasing. A stray tap must never be able
-  // to silently reconfigure the sky.
-  //
-  // The sheet stays DISARMED for 300ms after it becomes visible, and re-disarms the moment
-  // it closes, so the press that opened it (or a press landing mid-animation) is swallowed.
+  // Swallow only the opening press itself. A long 300ms lockout made the sheet feel
+  // unresponsive on a physical iPhone, especially when a user immediately tapped a row.
+  // 120ms is enough to prevent the opener from leaking through while keeping the controls
+  // responsive as soon as the fade is visibly underway.
   const [armed, setArmed] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -57,7 +53,7 @@ export function SkyLensLayersSheet({
       return;
     }
     setArmed(false);
-    timer.current = setTimeout(() => setArmed(true), 300);
+    timer.current = setTimeout(() => setArmed(true), 120);
     return () => {
       if (timer.current) clearTimeout(timer.current);
     };
@@ -82,17 +78,13 @@ export function SkyLensLayersSheet({
               return (
                 <Pressable
                   key={def.key}
-                  // A locked (premium) row opens the paywall rather than toggling, so it
-                  // is announced as a disabled switch with a hint — not a live on/off switch.
                   accessibilityRole={locked || comingSoon ? "button" : "switch"}
                   accessibilityState={{ checked: on, disabled: comingSoon || locked }}
                   accessibilityLabel={`${def.label}${comingSoon ? ", coming soon" : locked ? ", locked" : on ? ", on" : ", off"}`}
                   accessibilityHint={locked ? "Requires AuraLunis Premium" : comingSoon ? "Coming soon" : undefined}
-                  // Only a deliberate press on the row itself toggles. Blank space between
-                  // rows belongs to the sheet body, which does nothing.
                   hitSlop={{ top: 2, bottom: 2, left: 6, right: 6 }}
                   onPress={() => {
-                    if (!armed) return; // still animating in — swallow the stray tap
+                    if (!armed) return;
                     if (comingSoon || locked) onLockedPress(def);
                     else onToggle(def.key);
                   }}
@@ -122,8 +114,6 @@ export function SkyLensLayersSheet({
                     ) : null}
                   </View>
 
-                  {/* A quiet track/knob switch — no platform Switch, so it inherits the
-                      gold-on-midnight language of the rest of Sky Lens. */}
                   <View
                     style={[
                       styles.track,
