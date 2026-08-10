@@ -1,61 +1,49 @@
-# AuraLunis — Apple Subscription Compliance
+# AuraLunis — Apple Purchase Compliance
 
-## Required by Apple (App Review Guidelines 3.1.2)
+## Current monetization contract
 
-### Restore Purchases button
-- [x] Present on the Membership screen
-- [x] Calls `Purchases.restorePurchases()` via RevenueCat
-- [x] Shows confirmation alert on success/failure
-- Location: Settings → Manage Plan → Restore Purchases
+### New customers
+- The in-app purchase surface offers **AuraLunis Lifetime only**.
+- Product ID: `com.ocoeestudios.auralunis.lifetime`
+- Type: non-consumable / one-time purchase
+- U.S. storefront price: **$29.99**
+- Runtime display price comes from StoreKit/RevenueCat localized pricing; `$29.99` is the safe fallback.
+- No subscription, recurring billing, or free-trial language appears on the new-customer paywall.
 
-### Subscription management deep link
-- [x] "Manage Subscription" button links to Apple Settings
-- [x] Uses `Linking.openURL('https://apps.apple.com/account/subscriptions')`
-- Location: Settings → Manage Plan → Manage Subscription
-
-### Auto-renewable disclosures (required on paywall)
-The paywall must clearly state:
-- [x] Price per billing period ($9.99/month or $49.99/year)
-- [x] Trial is eligibility-gated: monthly/annual may include a 7-day introductory free trial for eligible customers (Apple-determined); lifetime has no trial
-- [x] "Payment will be charged to your Apple ID account at the confirmation of purchase"
-- [x] "Subscription automatically renews unless cancelled at least 24 hours before the end of the current period"
-- [x] Links to Terms of Use and Privacy Policy
-
-### Terms of Use link
-- Must be accessible from the paywall
-- Must be accessible from Settings
-- URL: ocoeestudios.com/auralunis/terms
-
-### Privacy Policy link
-- Must be accessible from the paywall
-- Must be accessible from Settings
-- Must be entered in App Store Connect
-- URL: ocoeestudios.com/auralunis/privacy
-
-## RevenueCat Product IDs
+### Existing legacy subscribers
+The legacy subscription products remain valid so existing subscribers can continue to use their previously purchased access and normal Apple subscription-management flows:
 
 | Product | ID | Type |
 |---|---|---|
-| Premium Monthly | `com.ocoeestudios.auralunis.premium.monthly` | Auto-renewable |
-| Premium Annual | `com.ocoeestudios.auralunis.premium.annual` | Auto-renewable |
-| Lifetime | `com.ocoeestudios.auralunis.lifetime` | Non-consumable |
+| Premium Monthly | `com.ocoeestudios.auralunis.premium.monthly` | Auto-renewable legacy subscription |
+| Premium Annual | `com.ocoeestudios.auralunis.premium.annual` | Auto-renewable legacy subscription |
 
-## Entitlement
-`AuraLunis Premium` — exact identifier (with the space and capitals, NOT a snake_case slug). All three products unlock this single entitlement. A mismatch means purchases succeed but never unlock premium.
+These products are **not selectable on the new-customer in-app paywall**. Do not detach them from the shared RevenueCat entitlement merely to hide them from new customers.
 
-## Offering
-`default` — contains packages `premium_monthly`, `premium_annual`, and `$rc_lifetime`.
+## RevenueCat
 
-## Free trial
-Monthly and annual subscriptions may include a 7-day introductory free trial for eligible customers only; eligibility is determined by Apple, so not every customer receives it. Lifetime is a one-time purchase with no trial.
-Configure in App Store Connect → In-App Purchases → each product → Introductory Offer.
+### Entitlement
+`AuraLunis Premium` — exact identifier, including space and capitalization.
 
-## Sandbox testing
-1. Create a sandbox Apple ID in App Store Connect → Users and Access → Sandbox Testers
-2. Sign out of your real Apple ID on the test device
-3. Attempt purchase in the app — it will prompt for sandbox credentials
-4. Sandbox subscriptions renew at accelerated rates (monthly = 5 min, annual = 1 hour)
+Lifetime and eligible legacy Monthly/Annual purchases unlock this same entitlement so restore/access remains backward-compatible.
 
-## Grace period
-Enable Billing Grace Period in App Store Connect → App → Subscriptions → Billing Grace Period.
-This gives users 6-16 days to fix payment issues before losing access.
+### Current offering
+`default` — public new-customer offering contains only package `$rc_lifetime` mapped to `com.ocoeestudios.auralunis.lifetime`.
+
+Legacy Monthly/Annual products may remain in the RevenueCat product catalog and attached to the entitlement without being present in the current offering.
+
+## Restore Purchases
+- Restore remains available from the purchase/settings flow.
+- Restore success is based on the actual `AuraLunis Premium` entitlement, not merely a completed restore call.
+- Existing Monthly/Annual customers must continue to restore successfully.
+- Lifetime purchasers must continue to restore successfully.
+
+## Subscription management
+- Existing active Monthly/Annual subscribers retain the Manage Subscription path to Apple's subscription-management UI.
+- Lifetime customers are shown a non-recurring Lifetime Access state, not a Manage Subscription action.
+
+## Terms and Privacy
+The new-customer Lifetime paywall keeps Terms, Privacy, and Restore Purchases accessible. Because the offered product is non-consumable Lifetime, the paywall must not show auto-renewal or trial disclosures that apply only to subscriptions.
+
+## App Store Connect operational rule
+Do not use **Remove from Sale** on Monthly/Annual as a shortcut for hiding them in-app when the business requirement is to preserve legacy subscriber renewals. New-customer availability is controlled by the in-app Lifetime-only paywall and RevenueCat's Lifetime-only current offering.
