@@ -23,7 +23,7 @@ import { openAuraLunisSubscriptionManagement, restoreAuraLunisPurchases } from "
 import { requestNotificationPermission } from "@/services/NotificationService";
 
 // Single source of truth for the footer version: app.json → expo config.
-const APP_VERSION = Constants.expoConfig?.version ?? "1.0.1";
+const APP_VERSION = Constants.expoConfig?.version ?? "1.0.2";
 
 type SettingRowProps = {
   title: string;
