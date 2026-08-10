@@ -1,19 +1,16 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { decryptVault, encryptVault, isEncrypted } from "@/services/VaultEncryption";
-
-const VAULT_STORAGE_KEY = "auralunis.vault.prototype.v2";
-const VAULT_RECOVERY_STORAGE_KEY = "auralunis.vault.recovery.v1";
-
-export type VaultItemType = "note" | "lifesky" | "capture" | "seal" | "lesson" | "archive";
-
-export type VaultItem = {
-  id: string;
-  type: VaultItemType;
-  title: string;
-  detail: string;
-  createdAtISO: string;
-};
+import {
+  VAULT_STORAGE_KEY,
+  VAULT_RECOVERY_STORAGE_KEY,
+  VAULT_PENDING_STORAGE_KEY,
+  splitVaultItems,
+  selectWriteTarget,
+  composeWritePayload,
+  foldAuxiliarySlot,
+  type VaultItem
+} from "./vaultPersistence";
 
 type VaultContextValue = {
   items: VaultItem[];
@@ -23,34 +20,9 @@ type VaultContextValue = {
   clearPrototypeVault: () => Promise<void>;
 };
 
+export type { VaultItem, VaultItemType } from "./vaultPersistence";
+
 const VaultContext = createContext<VaultContextValue | undefined>(undefined);
-const validItemTypes = new Set<VaultItemType>([
-  "note",
-  "lifesky",
-  "capture",
-  "seal",
-  "lesson",
-  "archive"
-]);
-
-function sanitizeVaultItems(value: unknown): VaultItem[] {
-  if (!Array.isArray(value)) return [];
-
-  return value.filter((item): item is VaultItem => {
-    if (!item || typeof item !== "object") return false;
-
-    const candidate = item as Partial<VaultItem>;
-
-    return (
-      typeof candidate.id === "string" &&
-      typeof candidate.type === "string" &&
-      validItemTypes.has(candidate.type as VaultItemType) &&
-      typeof candidate.title === "string" &&
-      typeof candidate.detail === "string" &&
-      typeof candidate.createdAtISO === "string"
-    );
-  });
-}
 
 export function AuraLunisVaultProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = useState<VaultItem[]>([]);
@@ -61,6 +33,12 @@ export function AuraLunisVaultProvider({ children }: { children: React.ReactNode
   const recoveryPreservedRef = useRef(false);
   const writeChainRef = useRef<Promise<void>>(Promise.resolve());
   const revisionRef = useRef(0);
+  // Entries this build cannot parse (older or newer schema). They are held verbatim and
+  // re-appended to every main-blob write, so a sanitising read can never silently erase
+  // them. This is what makes main-blob writes LOSSLESS even when the stored data contains
+  // entries we do not understand — and therefore why an unparsable entry no longer needs to
+  // block persistence or suppress recovery merges.
+  const unknownEntriesRef = useRef<unknown[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -76,44 +54,107 @@ export function AuraLunisVaultProvider({ children }: { children: React.ReactNode
       }
     }
 
+    /**
+     * Read one auxiliary slot (pending / recovery). Returns null when the slot is absent or
+     * cannot be read YET — the caller then leaves it in place for a future launch rather
+     * than deleting data it could not understand.
+     */
+    async function readAuxSlot(
+      key: string
+    ): Promise<{ valid: VaultItem[]; rejected: unknown[] } | null> {
+      try {
+        const stored = await AsyncStorage.getItem(key);
+        if (!stored) return null;
+        const decrypted = await decryptVault(stored);
+        if (!decrypted) return null;
+        return splitVaultItems(JSON.parse(decrypted) as unknown);
+      } catch {
+        return null;
+      }
+    }
+
+    /**
+     * Fold pending-session and preserved-recovery entries back into the main vault.
+     *
+     * Runs on EVERY healthy load. It is deliberately not gated on "did this load drop
+     * entries?": once unparsable entries are captured in unknownEntriesRef they are carried
+     * through every write, so there is no longer any reason to suppress the merge — and
+     * suppressing it would strand a pending note indefinitely whenever the vault happens to
+     * contain one unparsable entry (that entry re-fails parsing on every future launch).
+     *
+     * A slot is deleted only after its contents are durably written into the main blob.
+     */
+    async function mergeAuxiliarySlots(base: VaultItem[]): Promise<VaultItem[]> {
+      let merged = base;
+
+      for (const key of [VAULT_PENDING_STORAGE_KEY, VAULT_RECOVERY_STORAGE_KEY]) {
+        try {
+          const slot = await readAuxSlot(key);
+          if (!slot) continue; // unreadable or absent — keep it for a later launch
+
+          const folded = foldAuxiliarySlot(merged, slot, unknownEntriesRef.current);
+
+          if (folded.changed) {
+            // Persist BEFORE deleting the only other copy. If this throws, the catch below
+            // leaves the slot intact and the next launch retries.
+            const encrypted = await encryptVault(
+              JSON.stringify(composeWritePayload(folded.items, folded.unknownEntries, false))
+            );
+            await AsyncStorage.setItem(VAULT_STORAGE_KEY, encrypted);
+            merged = folded.items;
+            unknownEntriesRef.current = folded.unknownEntries;
+          }
+
+          await AsyncStorage.removeItem(key);
+        } catch {
+          // Leave this slot for the next launch; keep whatever merged successfully.
+        }
+      }
+
+      return merged;
+    }
+
     async function hydrate() {
       try {
         const saved = await AsyncStorage.getItem(VAULT_STORAGE_KEY);
 
-        if (active && saved) {
+        if (saved) {
           const decrypted = await decryptVault(saved);
           if (decrypted) {
-            const raw = JSON.parse(decrypted) as unknown;
-            const parsed = sanitizeVaultItems(raw);
-            const droppedEntries = Array.isArray(raw) && parsed.length !== raw.length;
+            const { valid, rejected } = splitVaultItems(JSON.parse(decrypted) as unknown);
 
-            if (droppedEntries) {
-              // Keep the exact original blob available for recovery before exposing the
-              // sanitized subset. Never silently erase older-schema or malformed entries.
-              const preserved = await preserveRecovery(saved);
-              loadFailedRef.current = !preserved;
-            }
+            // Hold unparsable entries verbatim so later writes carry them through. Also keep
+            // a byte-exact recovery copy as belt-and-braces for a future schema migration.
+            unknownEntriesRef.current = rejected;
+            if (rejected.length > 0) await preserveRecovery(saved);
 
-            if (active) setItems(parsed);
+            // Always merge: writes are lossless now, so nothing here justifies skipping it.
+            const merged = await mergeAuxiliarySlots(valid);
+            if (active) setItems(merged);
 
-            // Seamless migration for valid legacy data only. If sanitization removed
-            // anything, retain the original main blob; a later intentional user save can
-            // replace it only after the recovery copy exists.
-            if (!isEncrypted(saved) && !droppedEntries) {
-              const encrypted = await encryptVault(JSON.stringify(parsed));
+            // Seamless migration of unencrypted legacy data. Safe even with unparsable
+            // entries present, because they are written back alongside the parsed ones.
+            if (!isEncrypted(saved)) {
+              const encrypted = await encryptVault(
+                JSON.stringify(composeWritePayload(merged, unknownEntriesRef.current, false))
+              );
               await AsyncStorage.setItem(VAULT_STORAGE_KEY, encrypted);
             }
           } else {
-            // Preserve unreadable ciphertext before blocking writes. This protects the
-            // original data while allowing a future recovery path or app update.
+            // Decrypt failed (transient Keychain outage, tamper, or a wrong key). Preserve
+            // the unreadable ciphertext and block ALL main-blob writes for the whole
+            // session — a later launch may still read it. New items go to the pending slot.
             const preserved = await preserveRecovery(saved);
             loadFailedRef.current = true;
             recoveryPreservedRef.current = preserved;
           }
+        } else {
+          // No main blob: restore anything earlier sessions left in the auxiliary slots.
+          const merged = await mergeAuxiliarySlots([]);
+          if (active && merged.length > 0) setItems(merged);
         }
       } catch {
-        // Storage/decryption/parse failure: keep the current blob untouched. We cannot
-        // safely persist replacement data unless a recovery copy was already made.
+        // Storage/decryption/parse failure: keep the current blob untouched.
         loadFailedRef.current = true;
       } finally {
         if (active) setHydrated(true);
@@ -129,11 +170,21 @@ export function AuraLunisVaultProvider({ children }: { children: React.ReactNode
 
   useEffect(() => {
     if (!hydrated) return;
-    if (loadFailedRef.current && !recoveryPreservedRef.current) return;
-    if (loadFailedRef.current && items.length === 0) return;
+
+    // While a load failure stands the MAIN blob is untouchable for the entire session: the
+    // next healthy launch may still read it, and overwriting it would turn a transient
+    // failure into permanent loss. Items created now go to the PENDING slot instead and are
+    // folded in on the next healthy launch (see mergeAuxiliarySlots).
+    const failed = loadFailedRef.current;
+    if (failed && items.length === 0) return; // nothing new to save this session
+    const targetKey = selectWriteTarget(failed);
 
     const revision = ++revisionRef.current;
-    const snapshot = JSON.stringify(items);
+    // Unparsable entries ride along on every main-blob write so a sanitising read never
+    // erases them. The pending slot holds only this session's new items.
+    const snapshot = JSON.stringify(
+      composeWritePayload(items, unknownEntriesRef.current, failed)
+    );
 
     // Recover from any unexpected prior rejection, then serialize writes. Revision
     // checks prevent an older snapshot from landing after a newer user action.
@@ -143,8 +194,7 @@ export function AuraLunisVaultProvider({ children }: { children: React.ReactNode
         if (revision !== revisionRef.current) return;
         const encrypted = await encryptVault(snapshot);
         if (revision !== revisionRef.current) return;
-        await AsyncStorage.setItem(VAULT_STORAGE_KEY, encrypted);
-        if (revision === revisionRef.current) loadFailedRef.current = false;
+        await AsyncStorage.setItem(targetKey, encrypted);
       })
       .catch(() => {
         // Encryption, Keychain, or storage failure: leave the existing ciphertext intact.
@@ -155,10 +205,11 @@ export function AuraLunisVaultProvider({ children }: { children: React.ReactNode
     const addItem = (item: Omit<VaultItem, "id" | "createdAtISO">) => {
       const now = new Date().toISOString();
 
-      // A genuine user add may start a new main Vault only after the previous blob has
-      // been preserved. If preservation failed, state remains usable for this session but
-      // the persistence effect stays blocked rather than destroying recoverable data.
-      if (recoveryPreservedRef.current) loadFailedRef.current = false;
+      // NOTE, deliberately absent: adding an item must NOT clear loadFailedRef. The previous
+      // version unblocked persistence here whenever a recovery copy existed, which let the
+      // effect overwrite the main blob with just the new item — stranding the user's existing
+      // notes in a slot nothing ever read. New items now persist to the pending slot for the
+      // rest of this session and are merged in on the next healthy launch.
 
       setItems((previous) => [
         {
@@ -185,7 +236,12 @@ export function AuraLunisVaultProvider({ children }: { children: React.ReactNode
         setItems([]);
         loadFailedRef.current = false;
         recoveryPreservedRef.current = false;
-        await AsyncStorage.multiRemove([VAULT_STORAGE_KEY, VAULT_RECOVERY_STORAGE_KEY]);
+        unknownEntriesRef.current = [];
+        await AsyncStorage.multiRemove([
+          VAULT_STORAGE_KEY,
+          VAULT_RECOVERY_STORAGE_KEY,
+          VAULT_PENDING_STORAGE_KEY
+        ]);
       }
     };
   }, [hydrated, items]);

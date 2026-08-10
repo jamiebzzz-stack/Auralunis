@@ -22,7 +22,7 @@ export interface SpatialTarget {
 export interface AlignmentResult {
   /** Bearing from observer to target, degrees from true north (0-360) */
   targetAzimuth: number;
-  /** Elevation angle from observer to target, degrees above horizon */
+  /** Signed elevation from observer to target, degrees (negative = below the horizon) */
   targetElevation: number;
   /** Signed azimuth diff: positive = target is to the right of device heading */
   azimuthDiff: number;
@@ -56,9 +56,13 @@ function normalizeSigned(deg: number): number {
 
 /**
  * Compute the azimuth (bearing) and elevation from an observer on Earth's
- * surface to a target at a given lat/lon/altitude using great-circle bearing
- * + simple geometric elevation (flat-earth approx works well for LEO targets
- * observed over short arcs; accuracy is ~0.2° for ISS).
+ * surface to a target at a given lat/lon/altitude.
+ *
+ * Azimuth is the great-circle initial bearing. Elevation is the true geometric
+ * look-angle derived from Earth-centered position vectors, so it accounts for
+ * curvature and is SIGNED: a target below the observer's horizon returns a
+ * negative angle (−90° for the antipode). Callers that only want visible objects
+ * must filter on elevation themselves.
  */
 export function computeAzimuthElevation(
   observer: ObserverLocation,
@@ -75,21 +79,43 @@ export function computeAzimuthElevation(
     Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
   const bearing = (toDeg(Math.atan2(y, x)) + 360) % 360;
 
-  // Surface distance (km) via haversine
+  // Elevation from Earth-centered positions, so curvature is fully accounted for and the
+  // result is SIGNED. The previous atan2(altitude, surfaceDistance) flat-plane form fed
+  // two always-positive arguments into atan2 and then clamped with Math.max(0, …), so it
+  // could never return a negative angle: a satellite whose sub-point was thousands of km
+  // away — past the horizon, or on the opposite face of the planet — was still reported as
+  // above the horizon, and the radar granted locks on it. It also mis-stated the angle for
+  // genuinely visible passes (~5° off at 1000 km separation, worse near the horizon).
   const R = 6371;
-  const dLat = lat2 - lat1;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
-  const surfaceDistKm = 2 * R * Math.asin(Math.sqrt(a));
+  const lon1 = toRad(observer.longitudeDegrees);
+  const lon2 = toRad(target.longitudeDegrees);
+  const cosLat1 = Math.cos(lat1);
+  const cosLat2 = Math.cos(lat2);
 
-  // Elevation: arctan(altitude / surface_distance)
-  // Clamp surface distance to avoid divide-by-zero at zero separation
-  const elevation = toDeg(
-    Math.atan2(target.altitudeKm, Math.max(surfaceDistKm, 0.1))
-  );
+  const obsX = R * cosLat1 * Math.cos(lon1);
+  const obsY = R * cosLat1 * Math.sin(lon1);
+  const obsZ = R * Math.sin(lat1);
 
-  return { azimuth: bearing, elevation: Math.max(0, elevation) };
+  const targetRadius = R + Math.max(0, target.altitudeKm);
+  const tgtX = targetRadius * cosLat2 * Math.cos(lon2);
+  const tgtY = targetRadius * cosLat2 * Math.sin(lon2);
+  const tgtZ = targetRadius * Math.sin(lat2);
+
+  // Range vector observer → target.
+  const rangeX = tgtX - obsX;
+  const rangeY = tgtY - obsY;
+  const rangeZ = tgtZ - obsZ;
+  const rangeKm = Math.hypot(rangeX, rangeY, rangeZ);
+
+  // Degenerate: target sits on the observer. Report straight up rather than dividing by 0.
+  if (!(rangeKm > 1e-6)) return { azimuth: bearing, elevation: 90 };
+
+  // Observer's local vertical is the unit radial through their position.
+  const sinElevation =
+    (rangeX * obsX + rangeY * obsY + rangeZ * obsZ) / (rangeKm * R);
+  const elevation = toDeg(Math.asin(Math.max(-1, Math.min(1, sinElevation))));
+
+  return { azimuth: bearing, elevation };
 }
 
 export function calculateAlignment(

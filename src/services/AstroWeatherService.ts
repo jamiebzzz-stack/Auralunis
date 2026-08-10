@@ -125,6 +125,21 @@ export async function fetchAstroWeather(
     // API unavailable — generate simulated data
   }
 
+  // Open-Meteo's hourly series starts at 00:00 LOCAL TODAY (timezone=auto), not at the
+  // current hour. Taking the first 24 entries therefore scored a user's "tonight" forecast
+  // almost entirely from hours that had already elapsed this morning, while the genuinely
+  // upcoming after-midnight hours — already fetched via forecast_days=2 — were sliced away.
+  // Keep the hour currently in progress and everything after it.
+  //
+  // The simulated fallback below already starts at `now`, so it needs no filtering; this
+  // runs before that fallback so an all-past series correctly falls back rather than
+  // producing an empty forecast.
+  const currentHourStartMs = now.getTime() - 3600000;
+  weatherHours = weatherHours.filter((w) => {
+    const t = new Date(w.time).getTime();
+    return Number.isFinite(t) && t >= currentHourStartMs;
+  });
+
   // Fallback: simulate if no API data
   if (weatherHours.length === 0) {
     for (let i = 0; i < 24; i++) {

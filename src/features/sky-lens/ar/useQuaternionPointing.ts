@@ -14,6 +14,8 @@ import { DeviceMotion } from "expo-sensors";
 import {
   IDENTITY_QUATERNION,
   quaternionFromDeviceMotion,
+  quaternionFromAxisAngle,
+  multiplyQuaternions,
   isValidQuaternion,
   normalizeQuaternion,
   slerp,
@@ -56,7 +58,21 @@ export interface QuaternionPointingState {
   readLiveOrientation: () => Quaternion;
 }
 
-export function useQuaternionPointing(enabled: boolean = true): QuaternionPointingState {
+export function useQuaternionPointing(
+  enabled: boolean = true,
+  /**
+   * Local magnetic declination in degrees, east-positive (see magneticDeclination.ts).
+   *
+   * Core Motion attitude is referenced to MAGNETIC north while celestial targets are
+   * TRUE-north azimuths. Correcting here — at the single point every sample passes through —
+   * means freeze, drag, the unlock blend, the Euler readouts and the projection all inherit
+   * true north automatically, with no second place to keep in sync.
+   *
+   * 0 (the default, and every failure path in the resolver) reproduces the previous
+   * behaviour exactly.
+   */
+  trueNorthOffsetDegrees: number = 0
+): QuaternionPointingState {
   const [orientation, setOrientation] = useState<Quaternion>(IDENTITY_QUATERNION);
   const [available, setAvailable] = useState(false);
   const [isStill, setIsStill] = useState(false);
@@ -64,6 +80,13 @@ export function useQuaternionPointing(enabled: boolean = true): QuaternionPointi
   const smoothedRef = useRef<Quaternion | null>(null);
   const rawRef = useRef<Quaternion>(IDENTITY_QUATERNION);
   const quietCountRef = useRef(0);
+
+  // Read through a ref at sample time: the declination resolves asynchronously after mount,
+  // and threading it through the effect deps would resubscribe the sensor mid-session. The
+  // 0 -> D step then flows through the existing slerp smoothing, so the sky glides to true
+  // north rather than snapping.
+  const declinationRef = useRef(0);
+  declinationRef.current = Number.isFinite(trueNorthOffsetDegrees) ? trueNorthOffsetDegrees : 0;
 
   const readLiveOrientation = useCallback(() => rawRef.current, []);
 
@@ -90,7 +113,22 @@ export function useQuaternionPointing(enabled: boolean = true): QuaternionPointi
         const sample = quaternionFromDeviceMotion(rotation.alpha, rotation.beta, rotation.gamma);
         // Reject anything non-finite or degenerate before it can reach the scene.
         if (!isValidQuaternion(sample)) return;
-        const next = normalizeQuaternion(sample);
+
+        // MAGNETIC -> TRUE north. The world frame here is NWU (X = magnetic north, Y = west,
+        // Z = up), and a rotation of phi about +Z maps a direction at compass bearing b to
+        // bearing b - phi. A physical direction with magnetic bearing b has TRUE bearing
+        // b + D, so the re-expression we want is phi = -D. multiplyQuaternions(a, b) applies
+        // b then a, so the correction goes on the LEFT of the device attitude.
+        const declination = declinationRef.current;
+        const corrected =
+          declination === 0
+            ? sample
+            : multiplyQuaternions(
+                quaternionFromAxisAngle({ x: 0, y: 0, z: 1 }, (-declination * Math.PI) / 180),
+                sample
+              );
+
+        const next = normalizeQuaternion(corrected);
         rawRef.current = next;
 
         const previous = smoothedRef.current;

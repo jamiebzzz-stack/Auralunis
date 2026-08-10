@@ -29,6 +29,7 @@ import { computeStargazingIndex } from "@/services/StargazingIndexService";
 import { fetchCurrentWeather, type WeatherSnapshot } from "@/services/WeatherService";
 // Live quaternion orientation + Lock Sky + drag-to-pan. This is the path that renders.
 import { useSkyOrientation, DRAG_ACTIVATION_POINTS } from "./ar/useSkyOrientation";
+import { resolveMagneticDeclination } from "./ar/magneticDeclination";
 import { cameraBasisFromQuaternion, quaternionLookingAt, eulerReadoutFromQuaternion } from "./ar/orientationQuaternion";
 import { useParallaxOffset } from "./ar/useParallaxOffset";
 import { getFleet, simulateTick, syncLiveTLEData, isFleetLive } from "@/services/AtmosphereExplorerService";
@@ -136,7 +137,21 @@ export function SkyLensScreen({ onClose, focusTarget, onOpenLearn }: Props) {
   // useDevicePointing damps its follow factor further as zoom climbs (see
   // zoomDampingMultiplier there). This replaces a `smoothAlpha` value that was computed
   // here and passed in, but which the hook never actually read.
-  const skyOrientation = useSkyOrientation(true);
+  // TRUE NORTH. Device attitude is magnetic-north referenced; celestial targets are
+  // true-north azimuths. Resolve the local declination once (never prompts; 0 on any
+  // failure = the previous behaviour) and let the orientation pipeline correct every sample.
+  const [magneticDeclinationDegrees, setMagneticDeclinationDegrees] = useState(0);
+  useEffect(() => {
+    let active = true;
+    resolveMagneticDeclination().then((declination) => {
+      if (active && Number.isFinite(declination)) setMagneticDeclinationDegrees(declination);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const skyOrientation = useSkyOrientation(true, magneticDeclinationDegrees);
   // Gesture callbacks are created once; read the live handlers through a ref.
   const skyOrientationRef = useRef(skyOrientation);
   skyOrientationRef.current = skyOrientation;

@@ -17,7 +17,7 @@
     "qa:sky": "node ./qa/sky-lens-accuracy-check.js",
     "qa:whole": "node ./qa/whole-app-qa-check.js",
     "qa:native-device": "node ./scripts/native-device-preflight.js",
-    "qa:all": "npm run qa:static && npm run qa:sky && npm run qa:whole && npm run qa:native-device && npm run qa:revenuecat && npm run qa:aura-pro && npm run qa:fresh-bugs && npm run qa:ephemeris && npm run qa:satellite && npm run qa:moon-phase && npm run qa:learn-visuals && npm run qa:event-timing && npm run qa:birth-sky && npm run qa:birth-sky-share && npm run qa:skylens && npm run qa:labels && npm run qa:orion && npm run qa:planets && npm run qa:release-config && npm run qa:a11y && npm run qa:timezone && npm run qa:reduced-motion && npm run qa:release-cleanup && npm run qa:locale-seasons && npm run qa:paywall-restore && npm run qa:release-candidate && npm run qa:onboarding && npm run qa:notifications && npm run qa:location && npm run qa:paywall-reopen && npm run qa:birthsky && npm run qa:photo-planner && npm run qa:astro-weather && npm run qa:reminders && npm run qa:archive && npm run qa:telemetry-modes && npm run qa:aura-pro-panels && npm run qa:vault && npm run qa:share && npm run qa:calendar && npm run qa:learn && npm run qa:vault-write && npm run qa:telemetry-controls && npm run qa:paywall-copy && npm run qa:skylens-dynamic-type && npm run qa:first-light && npm run qa:first-light-wiring",
+    "qa:all": "npm run qa:static && npm run qa:sky && npm run qa:whole && npm run qa:native-device && npm run qa:revenuecat && npm run qa:aura-pro && npm run qa:fresh-bugs && npm run qa:ephemeris && npm run qa:satellite && npm run qa:moon-phase && npm run qa:learn-visuals && npm run qa:event-timing && npm run qa:birth-sky && npm run qa:birth-sky-share && npm run qa:skylens && npm run qa:labels && npm run qa:orion && npm run qa:planets && npm run qa:release-config && npm run qa:a11y && npm run qa:timezone && npm run qa:reduced-motion && npm run qa:release-cleanup && npm run qa:locale-seasons && npm run qa:paywall-restore && npm run qa:release-candidate && npm run qa:onboarding && npm run qa:notifications && npm run qa:location && npm run qa:paywall-reopen && npm run qa:birthsky && npm run qa:photo-planner && npm run qa:astro-weather && npm run qa:reminders && npm run qa:archive && npm run qa:telemetry-modes && npm run qa:aura-pro-panels && npm run qa:vault && npm run qa:share && npm run qa:calendar && npm run qa:learn && npm run qa:vault-write && npm run qa:vault-recovery && npm run qa:telemetry-controls && npm run qa:paywall-copy && npm run qa:skylens-dynamic-type && npm run qa:first-light && npm run qa:first-light-wiring",
     "eas:dev:ios": "npx eas-cli@latest build --platform ios --profile development",
     "eas:sim:ios": "npx eas-cli@latest build --platform ios --profile development-simulator",
     "eas:preview:ios": "npx eas-cli@latest build --platform ios --profile preview",
@@ -63,7 +63,8 @@
     "qa:telemetry-controls": "node ./scripts/telemetry-controls-selftest.js",
     "qa:skylens-dynamic-type": "node ./scripts/skylens-dynamic-type-selftest.js",
     "qa:first-light": "node ./scripts/first-light-selftest.js",
-    "qa:first-light-wiring": "node ./scripts/first-light-wiring-selftest.js"
+    "qa:first-light-wiring": "node ./scripts/first-light-wiring-selftest.js",
+    "qa:vault-recovery": "node ./scripts/vault-recovery-selftest.js"
   },
   "dependencies": {
     "@expo-google-fonts/cinzel": "^0.2.3",

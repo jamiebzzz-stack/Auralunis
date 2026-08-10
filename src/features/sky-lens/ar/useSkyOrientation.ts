@@ -51,8 +51,15 @@ export interface SkyOrientationState {
   applyDrag: (deltaXPoints: number, deltaYPoints: number) => void;
 }
 
-export function useSkyOrientation(enabled: boolean = true): SkyOrientationState {
-  const { orientation: live, available, isStill, readLiveOrientation } = useQuaternionPointing(enabled);
+export function useSkyOrientation(
+  enabled: boolean = true,
+  /** Local magnetic declination, east-positive — see useQuaternionPointing. */
+  trueNorthOffsetDegrees: number = 0
+): SkyOrientationState {
+  const { orientation: live, available, isStill, readLiveOrientation } = useQuaternionPointing(
+    enabled,
+    trueNorthOffsetDegrees
+  );
 
   const [isLocked, setIsLocked] = useState(false);
   const [frozen, setFrozen] = useState<Quaternion | null>(null);
