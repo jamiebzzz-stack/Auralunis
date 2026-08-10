@@ -14,6 +14,7 @@ import {
 } from "@/features/learn/LearnCatalog";
 import type { LearnCategoryId } from "@/features/learn/LearnTypes";
 import { LearnVisualForCategory } from "@/features/learn/LearnCategoryVisual";
+import { keepBlackHolesAfterStars } from "@/features/learn/learnCategoryOrder";
 import { useLearnPreferences } from "@/features/learn/learnPreferences";
 import { LearnDetailScreen } from "@/screens/LearnDetailScreen";
 import { useEntitlement } from "@/hooks/useEntitlement";
@@ -88,7 +89,7 @@ export function LearnScreen() {
       return index === -1 ? prefs.interests.length + 1 : index;
     };
 
-    return [...learnCategories].sort((a, b) => {
+    const personalized = [...learnCategories].sort((a, b) => {
       const aLevelRank = categoryMatchesLevel(a.id) ? 0 : 1;
       const bLevelRank = categoryMatchesLevel(b.id) ? 0 : 1;
       if (aLevelRank !== bLevelRank) return aLevelRank - bLevelRank;
@@ -98,6 +99,11 @@ export function LearnScreen() {
       return learnCategories.findIndex((category) => category.id === a.id)
         - learnCategories.findIndex((category) => category.id === b.id);
     });
+
+    // Black Holes was added after Learn preferences shipped, so existing saved interest arrays
+    // do not rank it. Keep the pedagogic Stars → Black Holes sequence without disturbing the
+    // user's personalized order for every other category.
+    return keepBlackHolesAfterStars(personalized);
   }, [categoryMatchesLevel, prefs.interests]);
 
   useEffect(() => {
@@ -159,7 +165,7 @@ export function LearnScreen() {
       <View style={styles.hero}>
         <Text style={styles.heroTitle}>A living astronomy guide.</Text>
         <Text style={styles.heroCopy}>
-          Learn planets, constellations, stars, the Moon, nebulae, galaxies, and the Milky Way
+          Learn planets, constellations, stars, black holes, the Moon, nebulae, galaxies, and the Milky Way
           through real live visuals instead of static blocks alone.
         </Text>
         <Text style={styles.heroFree}>

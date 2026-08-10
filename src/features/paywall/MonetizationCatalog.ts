@@ -126,7 +126,7 @@ export const premiumFeatures = [
   "A cinematic Moon with craters, earthshine and atmospheric glow",
   "Sky Lens Pro — Night Vision, Cinematic Mode, Time Travel, photo capture and sky-quality presets",
   "Satellite and ecliptic layers, with live tracking of the ISS, Starlink trains and debris",
-  "The complete Learn curriculum",
+  "The complete Learn curriculum — including the Black Holes guide",
   "Birth Sky — recreate the sky for your birth date, time and location",
   "Astro Weather — see tonight's observing conditions at a glance",
   "Photo Planner and the full Celestial Archive",

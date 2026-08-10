@@ -44,6 +44,10 @@ const hasnt = (hay, needle, n) => (!hay.includes(needle) ? ok(n) : bad(`${n} —
 
 const { learnTopics, learnCategories, isLearnLessonFree, FREE_LEARN_LESSON_IDS } =
   require(path.join(SRC, "features/learn/LearnCatalog.ts"));
+const { keepBlackHolesAfterStars } =
+  require(path.join(SRC, "features/learn/learnCategoryOrder.ts"));
+const { premiumFeatures } =
+  require(path.join(SRC, "features/paywall/MonetizationCatalog.ts"));
 
 const topics = learnTopics.filter((t) => t.categoryId === "black_holes");
 const prose = topics.map((t) => `${t.title} ${t.summary} ${t.body ?? ""} ${t.keyFacts.join(" ")}`).join("\n");
@@ -62,6 +66,21 @@ const category = learnCategories.find((c) => c.id === "black_holes");
 // Typographic glyph, matching the rest of Learn — no emoji.
 if (!/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}️]/u.test(category.icon)) ok(`1 icon is a plain glyph (${category.icon})`);
 else bad(`1 icon uses emoji presentation: ${category.icon}`);
+
+// Existing saved Learn preferences predate Black Holes, so personalization can otherwise push
+// the new unranked category to the tail. The post-pass must preserve every category while
+// keeping Stars → Black Holes adjacent.
+for (const sample of [
+  ["planets", "stars", "constellations", "deep_sky", "moon", "milky_way", "solar_system", "black_holes", "beginner_path"],
+  ["black_holes", "moon", "stars", "planets", "deep_sky"],
+  ["stars", "black_holes", "deep_sky"],
+]) {
+  const ordered = keepBlackHolesAfterStars(sample.map((id) => ({ id })));
+  const orderedIds = ordered.map((item) => item.id);
+  eq("1 personalized order keeps Black Holes directly after Stars", orderedIds.indexOf("black_holes"), orderedIds.indexOf("stars") + 1);
+  eq("1 personalized order drops no category", orderedIds.length, sample.length);
+  eq("1 personalized order duplicates no category", new Set(orderedIds).size, sample.length);
+}
 
 // 2. Lesson coverage.
 if (topics.length >= 10) ok(`2 ${topics.length} lessons`);
@@ -104,6 +123,10 @@ const commercial = `${prose}\n${visualSrc}`;
 for (const word of ["Subscribe", "subscription", "Monthly", "Annual", "free trial", "7-day", "$9.99", "$49.99"]) {
   hasnt(commercial, word, `5 no "${word}" wording`);
 }
+const blackHolePaywallLine = premiumFeatures.find((feature) => /Black Holes/.test(feature));
+if (blackHolePaywallLine) ok("5 Lifetime paywall names the Black Holes guide");
+else bad("5 Lifetime paywall does not mention the Black Holes guide");
+hasnt(blackHolePaywallLine ?? "", "subscription", "5 Black Holes paywall line does not reintroduce subscription wording");
 
 console.log("\n── Scientific accuracy ──");
 
@@ -177,7 +200,7 @@ hasnt(visualSrc, "photograph of", "12 makes no photographic claim");
 hasnt(visualSrc, "setInterval", "12 no animation implying live data");
 hasnt(visualSrc, "LIVE", "12 no LIVE label on a schematic");
 
-// 13. The teaching elements are present.
+// 13. The teaching elements are present and the shadow is not conflated with the horizon.
 for (const [needle, description] of [
   ["Shadow", "shadow region"],
   ["Accretion disk", "accretion disk"],
@@ -187,7 +210,9 @@ for (const [needle, description] of [
   has(visualSrc, needle, `13 shows ${description}`);
 }
 has(visualSrc, "not every black hole", "13 jets labelled as not universal");
-has(visualSrc, "the black hole itself emits nothing", "13 states the hole emits no light");
+has(visualSrc, "visible light comes from the gas, not the hole", "13 distinguishes disk light from the hole");
+has(visualSrc, "larger than the event horizon itself", "13 says the apparent shadow is larger than the horizon");
+hasnt(visualSrc, "horizon casts", "13 does not describe the shadow as something the horizon literally casts");
 
 // 14. Learn-owned: it must not reach into Sky Lens rendering.
 hasnt(visualSrc, "sky-lens", "14 does not import Sky Lens code");

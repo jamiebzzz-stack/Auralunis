@@ -4,9 +4,11 @@
 // on screen says so. It is drawn to teach four specific things, and each element exists
 // because it carries one of them:
 //
-//   · the SHADOW — the dark region the horizon casts against surrounding light. The horizon
-//     itself is a boundary, not a surface, so it is drawn as an absence rather than an object.
-//   · the ACCRETION DISK — the black hole emits nothing; the light comes from heated gas.
+//   · the SHADOW — the apparent dark region produced by captured light paths and extreme
+//     lensing. It is larger than the event horizon itself; the horizon is a boundary, not a
+//     dark physical surface painted on the sky.
+//   · the ACCRETION DISK — visible light comes from heated gas around the black hole, not from
+//     the hole itself.
 //   · GRAVITATIONAL LENSING — the disk's far side is bent up and over into view above and
 //     below the shadow. That arc is the single most important thing in the picture: it is why
 //     black-hole imagery looks the way it does, and it is real physics, not artistic licence.
@@ -27,7 +29,7 @@ const W = 300;
 const H = 220;
 const CX = W / 2;
 const CY = H / 2;
-/** Radius of the shadow — the dark region, not a drawn surface. */
+/** Radius of the apparent shadow — deliberately not labelled as the horizon radius. */
 const SHADOW_R = 30;
 
 export function BlackHoleVisual() {
@@ -76,10 +78,11 @@ export function BlackHoleVisual() {
           {/* Diffuse halo of the surrounding emission. */}
           <Circle cx={CX} cy={CY} r={72} fill="url(#bhGlow)" />
 
-          {/* SHADOW — drawn last over the lensed light so it reads as an absence in the glow
-              rather than as a black ball sitting in front of it. */}
+          {/* SHADOW — drawn last over the lensed light so it reads as an absence in the glow.
+              This is the apparent shadow, not a drawing of the event horizon itself. */}
           <Circle cx={CX} cy={CY} r={SHADOW_R} fill="#04050A" />
-          {/* Photon ring: light grazing the hole on near-circular paths, piled up at the rim. */}
+          {/* Photon-ring cue: light strongly lensed around the compact object. This is schematic,
+              not a claim that the horizon sits on this visible ring. */}
           <Circle cx={CX} cy={CY} r={SHADOW_R + 1.5} fill="none" stroke="#FFD9A0" strokeWidth={1.6} strokeOpacity={0.75} />
 
           {/* Foreground disk — passes IN FRONT of the shadow, so it is drawn over it. The left
@@ -92,16 +95,18 @@ export function BlackHoleVisual() {
       </View>
 
       <View style={styles.legend}>
-        <Legend swatch="#04050A" ring label="Shadow" note="the dark region the horizon casts" />
-        <Legend swatch="#FFC46B" label="Accretion disk" note="heated gas — the black hole itself emits nothing" />
+        <Legend swatch="#04050A" ring label="Shadow" note="apparent dark region from light capture and lensing" />
+        <Legend swatch="#FFC46B" label="Accretion disk" note="heated gas — visible light comes from the gas, not the hole" />
         <Legend swatch="#FFE9B8" label="Lensed far side" note="light from behind, bent into view" />
         <Legend swatch="#9FD4FF" label="Jets" note="in some accreting systems — not every black hole" />
       </View>
 
       <Text style={styles.caption}>
-        A black hole gives off no light of its own. Everything visible here is material around
-        it, and the arc above and below the shadow is the far side of the disk, its light bent
-        toward you by curved spacetime. Schematic, not to scale, and not a telescope image.
+        A black hole gives off no visible light of its own. Everything luminous here is material
+        around it. The dark shadow is an apparent region shaped by light capture and extreme
+        lensing, and is larger than the event horizon itself. The arcs above and below are the
+        far side of the disk, bent into view by curved spacetime. Schematic, not to scale, and
+        not a telescope image.
       </Text>
     </View>
   );
