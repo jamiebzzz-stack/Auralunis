@@ -32,6 +32,7 @@ const skyLens = read("src/features/sky-lens/SkyLensScreen.tsx");
 const birthSky = read("src/screens/BirthSkyScreen.tsx");
 const onboarding = read("src/features/onboarding/OnboardingFlow.tsx");
 const monetization = read("src/features/paywall/MonetizationCatalog.ts");
+const paywall = read("src/features/paywall/ThreeTierPaywallModal.tsx");
 const weather = read("src/services/WeatherService.ts");
 
 check("RevenueCat startup rejection guarded", app.includes("configureRevenueCat().catch"));
@@ -106,17 +107,17 @@ check("onboarding avoids exact horizon claims", !onboarding.includes("Above the 
 check("onboarding explains birthplace and birth time are needed", onboarding.includes("birthplace") && onboarding.includes("birth time"));
 check("onboarding no longer advertises camera AR", !onboarding.includes("Point your phone at the sky"));
 
-check("current monthly price is $9.99", monetization.includes("$9.99/month"));
-check("current annual price is $49.99", monetization.includes("$49.99/year"));
-check("current lifetime price is $129.99", monetization.includes("$129.99"));
-// The old "No free trials on any plan" claim is retired: a 7-day Apple intro trial may be
-// offered to eligible new subscribers. Guard that the trial is described as CONDITIONAL
-// (eligibility-gated), never as an unconditional promise every user receives.
-check(
-  "trial copy is conditional (eligibility-gated), not unconditional",
-  monetization.includes("may be available to eligible new subscribers") &&
-    !/No free trials on any plan/.test(monetization)
-);
+// Monetization contract: new customers see Lifetime only at the App Store-matched $29.99
+// fallback; legacy subscription identifiers remain solely for restore/entitlement management.
+check("legacy monthly price metadata remains $9.99", monetization.includes("$9.99/month"));
+check("legacy annual price metadata remains $49.99", monetization.includes("$49.99/year"));
+check("current lifetime fallback price is $29.99", monetization.includes('displayPrice: "$29.99"'));
+check("retired $129.99 lifetime fallback is absent", !monetization.includes("$129.99"));
+check("catalog documents lifetime-only new-customer offering", monetization.includes("NEW CUSTOMERS") && monetization.includes("offer Lifetime only"));
+check("catalog documents legacy subscription retention", monetization.includes("LEGACY CUSTOMERS") && monetization.includes("restore purchases"));
+check("new-customer paywall selects Lifetime", paywall.includes('plans.find(p => p.id === "lifetime")'));
+check("new-customer paywall purchases Lifetime", paywall.includes("onPurchase(lifetime.id)"));
+check("new-customer paywall has no free-trial language", !/free trial|7-day|7 days free/i.test(paywall));
 check("lifetime package identifier is correct", monetization.includes('"$rc_lifetime"'));
 check("entitlement identifier is exact", monetization.includes('"AuraLunis Premium"'));
 check("retired founder pricing is absent", !monetization.includes("$24.99") && !monetization.includes("FOUNDER OFFER"));
@@ -183,7 +184,7 @@ check("review mode stays dev + explicit-flag gated",
 check("review pointing override falls back to live sensor pointing off review mode",
   skyLensScreen.includes("if (!reviewMode) return sensorPointing;"));
 
-// Dev-only "Preview Paywall" button in Settings — lets QA inspect trial/pricing states
+// Dev-only "Preview Paywall" button in Settings — lets QA inspect pricing states
 // without altering release behavior. It MUST stay guarded by __DEV__ so it is stripped
 // from production builds, and it MUST open the real paywall (openPaywall), not a stub.
 const settingsScreen = read("src/screens/SettingsScreen.tsx");
