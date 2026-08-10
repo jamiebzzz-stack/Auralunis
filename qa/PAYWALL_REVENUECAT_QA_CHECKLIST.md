@@ -1,53 +1,43 @@
-# AuraLunis Paywall + RevenueCat QA Checklist
+# AuraLunis — Lifetime-Only Paywall + RevenueCat QA
 
 Tester:
 Build:
 Sandbox account:
 Date:
 
-## First-open paywall
-- [ ] Three-tier paywall opens on fresh install
-- [ ] Horizon Free button dismisses paywall
-- [ ] Monthly / Annual toggle works
-- [ ] Horizon+ monthly displays $2.99/month
-- [ ] Horizon+ annual displays $19.99/year
-- [ ] Aura Pro monthly displays $5.99/month
-- [ ] Aura Pro annual displays $49.99/year
-- [ ] Aura Pro is visually emphasized
-- [ ] Sovereign displays $299/year
-- [ ] Sovereign says waitlist / coming later
-- [ ] Sovereign cannot trigger an App Store purchase
-- [ ] Restore Purchases button is visible
-- [ ] Trial copy says eligible new subscribers
-
-## App Store Connect
-- [ ] One `AuraLunis Memberships` subscription group exists
-- [ ] Horizon+ products are Level 3
-- [ ] Aura Pro products are Level 2
-- [ ] Sovereign product is Level 1
-- [ ] Monthly and annual products of each tier share the same level
-- [ ] 7-day introductory free trial configured on all paid products
-- [ ] Product metadata is available in sandbox
+## New-customer paywall
+- [ ] Paywall shows **Lifetime only**.
+- [ ] No Monthly option is visible/selectable.
+- [ ] No Annual option is visible/selectable.
+- [ ] U.S. fallback price is **$29.99 one-time**.
+- [ ] Live localized StoreKit/RevenueCat price replaces the fallback when available.
+- [ ] No free-trial wording appears.
+- [ ] No auto-renewal / recurring-subscription wording appears.
+- [ ] Restore Purchases is visible.
+- [ ] Terms and Privacy are accessible.
+- [ ] Lifetime purchase unlocks `AuraLunis Premium`.
 
 ## RevenueCat
-- [ ] `horizon_plus` entitlement exists
-- [ ] `aura_pro` entitlement exists
-- [ ] `sovereign` entitlement exists
-- [ ] `auralunis_launch` offering exists
-- [ ] Horizon+ and Aura Pro launch packages appear in current offering
-- [ ] Sovereign package is withheld from public launch offering
-- [ ] Public iOS SDK key added to app config
+- [ ] Entitlement identifier is exactly `AuraLunis Premium`.
+- [ ] Current offering is `default`.
+- [ ] Current offering contains only `$rc_lifetime` → `com.ocoeestudios.auralunis.lifetime`.
+- [ ] Monthly and Annual are **not** in the current new-customer offering.
+- [ ] Legacy Monthly/Annual products remain attached to the `AuraLunis Premium` entitlement.
 
-## Sandbox purchase flow
-- [ ] Horizon+ monthly purchase works
-- [ ] Horizon+ annual purchase works
-- [ ] Aura Pro monthly purchase works
-- [ ] Aura Pro annual purchase works
-- [ ] Purchase cancellation leaves user in free tier
-- [ ] Restore Purchases refreshes entitlement
-- [ ] Manage Subscription opens App Store subscription-management URL
-- [ ] Trial terms appear only when sandbox user is eligible
-- [ ] Second trial is not falsely promised after prior group trial use
+## App Store Connect
+- [ ] Lifetime product ID is `com.ocoeestudios.auralunis.lifetime`.
+- [ ] Lifetime is a non-consumable one-time purchase.
+- [ ] U.S. Lifetime price is $29.99.
+- [ ] Monthly and Annual remain approved for legacy subscriber continuity.
+- [ ] Monthly/Annual review notes explain they are legacy-only and not presented to new customers in-app.
+
+## Legacy subscriber regression
+- [ ] Existing Monthly subscriber remains premium.
+- [ ] Existing Annual subscriber remains premium.
+- [ ] Monthly restore recovers `AuraLunis Premium`.
+- [ ] Annual restore recovers `AuraLunis Premium`.
+- [ ] Active legacy subscriber sees Manage Subscription.
+- [ ] Lifetime customer does not see a recurring-subscription management CTA.
 
 ## Result
 - [ ] PASS

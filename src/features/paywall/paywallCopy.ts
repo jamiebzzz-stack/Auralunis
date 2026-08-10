@@ -9,6 +9,9 @@
 // no-offer, unknown, error — and lifetime in ALL states resolve to plan-accurate PAID copy with
 // no "free", "trial", "7-day", or "7 days free" wording anywhere.
 //
+// The current new-customer paywall calls this resolver only for Lifetime. Subscription branches
+// remain here for legacy-safe/testable behavior if a legacy surface ever needs them.
+//
 // Type-only imports keep this module free of runtime dependencies (no React / RevenueCat), so it
 // can be unit-tested directly under node.
 
@@ -17,7 +20,7 @@ import type { PlanInterval, TrialState } from "./usePaywallOffers";
 export type PaywallPlanCopy = {
   /** true only for a store-confirmed eligible subscription offer */
   isTrial: boolean;
-  /** right-aligned price on the plan card, e.g. "$9.99/month" · "$129.99 one-time" */
+  /** right-aligned price on the plan card, e.g. "$9.99/month" · "$29.99 one-time" */
   priceText: string;
   /** subtitle under the plan name, and the CTA supporting line */
   detailText: string;
@@ -64,7 +67,7 @@ function titleCaseAdjective(adjective: string): string {
  * Resolve every user-visible string for one plan from its store-resolved trial state.
  *
  * @param interval       monthly | annual | lifetime
- * @param displayPrice   catalog fallback price, e.g. "$9.99/month" · "$49.99/year" · "$129.99"
+ * @param displayPrice   catalog fallback price, e.g. "$9.99/month" · "$49.99/year" · "$29.99"
  * @param localizedPrice live localized store price (recurring/one-time) or null
  * @param trial          store-resolved trial state (never derived here)
  */
