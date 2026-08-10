@@ -1,12 +1,16 @@
 // MonetizationCatalog.ts
-// AuraLunis pricing — optimized for launch.
-// Three products: Monthly, Annual, Lifetime (one-time).
+// AuraLunis monetization source of truth.
 //
-// FREE TRIAL: a 7-day introductory trial may be available to eligible new subscribers on
-// the monthly and annual plans. The trial is an Apple-configured introductory offer — it
-// is NOT defined here and is NOT granted by the app. StoreKit/RevenueCat reports the offer
-// and per-account eligibility; the paywall (see usePaywallOffers.ts) only shows trial copy
-// when both are confirmed. Lifetime is a one-time purchase and never carries a trial.
+// NEW CUSTOMERS: the active RevenueCat offering and in-app paywall offer Lifetime only.
+// LEGACY CUSTOMERS: Monthly and Annual product/package identifiers remain here so existing
+// subscribers can keep their AuraLunis Premium entitlement, restore purchases, and manage
+// their subscriptions. Keeping legacy IDs in the catalog does NOT make them purchasable in
+// the current offering.
+//
+// StoreKit/RevenueCat localized pricing is the runtime source of truth. The displayPrice values
+// below are safe fallbacks for loading/offline states and therefore must match App Store Connect.
+// Lifetime is a one-time purchase and never carries trial or recurring-billing language.
+//
 // NOTE: the lifetime App Store / RevenueCat *product id* is
 // `com.ocoeestudios.auralunis.lifetime`. Its RevenueCat *package* identifier is the
 // dashboard default `$rc_lifetime` — that's what the offering uses, so the code must
@@ -36,16 +40,18 @@ export interface PlanOption {
   productId: string;
   name: string;
   interval: "monthly" | "annual" | "lifetime";
-  /** Primary price display — e.g. "$49.99/year" */
+  /** Primary fallback price display — live StoreKit/RevenueCat localized price wins at runtime. */
   displayPrice: string;
   /** Secondary line — monthly equivalent or subtitle */
   subtitle: string;
   revenueCatPackageId: string;
   badge?: string;
-  /** Effective monthly price for an annual plan — e.g. "$4.17/mo" */
+  /** Effective monthly price for an annual plan — legacy metadata only. */
   effectiveMonthly?: string;
 }
 
+// Monthly and Annual entries are intentionally retained for legacy entitlement recognition,
+// restore, and subscription-management flows. The new-customer paywall selects only `lifetime`.
 export const plans: PlanOption[] = [
   {
     id: "premium_annual",
@@ -72,7 +78,7 @@ export const plans: PlanOption[] = [
     productId: RevenueCatIds.products.lifetime,
     name: "Lifetime",
     interval: "lifetime",
-    displayPrice: "$129.99",
+    displayPrice: "$29.99",
     subtitle: "Pay once. Own the sky forever.",
     revenueCatPackageId: RevenueCatIds.packages.lifetime,
     badge: "Best value",
