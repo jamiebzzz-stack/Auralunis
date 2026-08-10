@@ -16,10 +16,12 @@ AuraLunis is an astronomy companion app that computes real-time positions of cel
 
 3. To activate Simulation Mode: on the "Acquiring telemetry…" loading screen, tap **"Enable Simulation Mode"**. This injects synthetic GPS coordinates and a slowly rotating orientation stream so that the 2D radar scope, alignment score, and proximity haptics can all be evaluated without physical movement or outdoor GPS signal.
 
-4. All other tabs (Home, Watch, Learn, Settings) are fully functional without sensor access.
+4. All other tabs are fully functional without sensor access.
 
-**Subscription testing:**
-- AuraLunis Premium can be tested using a Sandbox Apple ID. No charge is applied in the Sandbox environment. Monthly and annual subscriptions may include a 7-day introductory free trial for eligible customers, as determined by Apple. Customers who are not eligible will see the standard subscription price. The lifetime purchase does not include a trial.
-- RevenueCat product IDs: `com.ocoeestudios.auralunis.premium.monthly`, `com.ocoeestudios.auralunis.premium.annual`, and `com.ocoeestudios.auralunis.lifetime` (a one-time "Lifetime" purchase). All three unlock the single "AuraLunis Premium" entitlement.
+**Purchase testing:**
+- New customers are offered **AuraLunis Lifetime** only: `com.ocoeestudios.auralunis.lifetime`, a non-consumable one-time purchase. The U.S. storefront price is $29.99; localized StoreKit pricing is displayed in-app. Lifetime has no trial and no recurring charge.
+- Existing legacy Monthly (`com.ocoeestudios.auralunis.premium.monthly`) and Annual (`com.ocoeestudios.auralunis.premium.annual`) subscribers continue to retain access, restore purchases, and manage their existing subscriptions. These legacy subscription products are not presented as selectable new-customer purchases in the app.
+- Lifetime and eligible legacy subscription purchases unlock the single RevenueCat entitlement `AuraLunis Premium`.
+- Restore Purchases remains available for customers with prior eligible purchases.
 
 **Demo credentials:** None required — the app does not use email/password sign-in.
