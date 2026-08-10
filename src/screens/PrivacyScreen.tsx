@@ -6,7 +6,7 @@ export function PrivacyScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.title}>AuraLunis Privacy Policy</Text>
-      <Text style={styles.updated}>Last updated: June 2026</Text>
+      <Text style={styles.updated}>Last updated: August 2026</Text>
 
       <Text style={styles.body}>
         Your privacy matters to us. AuraLunis is designed to keep your data on your device. This policy explains what data we access, why, and how it stays private.
@@ -35,7 +35,7 @@ export function PrivacyScreen() {
 
       <Text style={styles.subheading}>RevenueCat</Text>
       <Text style={styles.body}>
-        Manages subscription status. Receives an anonymous app user ID and Apple purchase receipts. Does not receive your location, health data, observations, or any personal content. Privacy policy: revenuecat.com/privacy
+        Manages purchase and entitlement status. Receives an anonymous app user ID and Apple purchase receipts. Does not receive your location, health data, observations, or any personal content. Privacy policy: revenuecat.com/privacy
       </Text>
 
       <Text style={styles.subheading}>Open-Meteo</Text>
