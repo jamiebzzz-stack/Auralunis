@@ -6,7 +6,7 @@
 // subscription. They are NOT offered for new purchases in RevenueCat's current offering
 // and must not be shown as selectable plans in this paywall.
 //
-// Lifetime is a one-time purchase and never carries trial language.
+// Lifetime is a one-time purchase with no recurring billing.
 
 import React, { useState } from "react";
 import {
@@ -101,7 +101,7 @@ export function ThreeTierPaywallModal({ visible, onClose, onPurchase, onRestore 
           </TouchableOpacity>
 
           <Text style={styles.oneTimeDisclosure}>
-            One-time purchase. No free trial, subscription, or recurring billing.
+            One-time purchase. No subscription or recurring billing.
           </Text>
 
           <Text style={styles.sectionLabel}>What you get</Text>
