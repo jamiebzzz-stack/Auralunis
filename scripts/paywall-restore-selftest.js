@@ -4,9 +4,9 @@
 //   - restore success is shown ONLY when the exact "AuraLunis Premium" entitlement is active
 //   - a completed restore with no entitlement does not unlock premium
 //   - a genuine restore error is a DISTINCT path (not "not configured")
-//   - "Manage Subscription" is shown only for an active auto-renewing subscription
+//   - "Manage Subscription" is shown only for an active auto-renewing legacy subscription
 //   - lifetime is classified as lifetime (never a subscription, never trial copy)
-//   - the ungated Settings trial sentence is gone; trial copy stays paywall-eligibility-gated
+//   - new customers get a Lifetime-only CTA; no legacy subscription sales copy leaks into Settings
 //   - the entitlement constant is exactly "AuraLunis Premium"
 // Pure logic is executed; UI/handler shape is asserted by scanning source (no RN runtime).
 
@@ -87,10 +87,8 @@ has(app, 'result.status === "error"', "App.tsx shows a distinct restore error me
 hasnt(app, "refreshed the membership status for this App Store account", "App.tsx no longer claims vague success");
 
 console.log("\n── Manage Subscription visibility ──");
-// Gating now flows through the resolver's ctaKind (see the state-matrix section below).
 has(settings, 'membershipCta.ctaKind === "manage"', "Manage Subscription shown only for the resolver's manage state");
 has(settings, 'membershipCta.ctaKind === "lifetime"', "Lifetime renders its own non-recurring state, not a manage button");
-// The manage button must not be rendered purely from isPremium anymore.
 hasnt(settings, "isPremium ? styles.actionButton : styles.secondaryButton", "Manage Subscription no longer rendered for every premium/non-premium user");
 
 console.log("\n── Trial language ──");
@@ -99,8 +97,6 @@ const offers = read("src/features/paywall/usePaywallOffers.ts");
 has(offers, 'p.interval !== "lifetime"', "usePaywallOffers excludes lifetime from intro-offer eligibility");
 has(offers, 'status: "unavailable"', "usePaywallOffers marks lifetime trial unavailable");
 const modal = read("src/features/paywall/ThreeTierPaywallModal.tsx");
-// Trial copy now lives in the pure resolvePlanCopy helper: lifetime is forced trial-free, and
-// trial wording is produced ONLY for the store-confirmed eligible branch. The modal delegates.
 const copyHelper = read("src/features/paywall/paywallCopy.ts");
 has(copyHelper, 'interval === "lifetime"', "resolvePlanCopy forces lifetime trial-free");
 has(copyHelper, 'trial.status === "eligible"', "resolvePlanCopy renders trial copy only for the eligible branch");
@@ -120,15 +116,16 @@ const LIFETIME_INFO = { entitlements: { active: { [ENT]: {} } }, activeSubscript
 const NONE_INFO = { entitlements: { active: {} }, activeSubscriptions: [] };
 const ctaFor = (info) => resolveMembershipCta(classifyAuraLunisMembership(info));
 
-// A. no entitlement → non-subscriber, paywall CTA, never manage
+// A. no entitlement → new-customer Lifetime paywall CTA, never manage
 const none = resolveMembershipCta("none");
 eq("A none → ctaKind paywall", none.ctaKind, "paywall");
-eq("A none → label 'View Memberships'", none.ctaLabel, "View Memberships");
+eq("A none → label 'View Lifetime'", none.ctaLabel, "View Lifetime");
+eq("A none → Lifetime-only status copy", none.statusCopy, "Unlock AuraLunis Premium for life with one purchase.");
 eq("A none → not a manage action", none.ctaKind !== "manage", true);
 eq("A none (from CustomerInfo) → paywall", ctaFor(NONE_INFO).ctaKind, "paywall");
 // E. loading/unknown/error fail-closed: EntitlementContext yields "none"; unexpected values default to non-subscriber
 eq("E unknown/loading value → paywall (fail-closed)", resolveMembershipCta("loading").ctaKind, "paywall");
-eq("E unknown value → never manage", resolveMembershipCta("weird") .ctaKind !== "manage", true);
+eq("E unknown value → never manage", resolveMembershipCta("weird").ctaKind !== "manage", true);
 // B. active monthly → manage
 eq("B monthly → ctaKind manage", ctaFor(SUB_MONTHLY).ctaKind, "manage");
 eq("B monthly → label 'Manage Subscription'", ctaFor(SUB_MONTHLY).ctaLabel, "Manage Subscription");
@@ -141,7 +138,6 @@ eq("D lifetime → ctaKind lifetime", life.ctaKind, "lifetime");
 eq("D lifetime → never manage", life.ctaKind !== "manage", true);
 eq("D lifetime → truthful active label", life.ctaLabel, "Lifetime Access");
 eq("D lifetime (from CustomerInfo) → lifetime", ctaFor(LIFETIME_INFO).ctaKind, "lifetime");
-// manage ONLY for subscription; paywall ONLY for non-subscriber
 eq("manage kind only for subscription states", [none, life].every((c) => c.ctaKind !== "manage"), true);
 eq("paywall kind only for non-subscriber", resolveMembershipCta("subscription").ctaKind !== "paywall" && life.ctaKind !== "paywall", true);
 
@@ -153,7 +149,9 @@ has(set, "membershipCta.statusCopy", "card copy comes from the resolver (never c
 has(set, 'membershipCta.ctaKind === "manage"', "Manage action gated on ctaKind manage");
 has(set, 'membershipCta.ctaKind === "paywall"', "paywall action gated on ctaKind paywall");
 has(set, 'membershipCta.ctaKind === "lifetime"', "lifetime renders its own non-recurring state");
-// lifetime block must not invoke subscription management
+has(set, "New purchases are Lifetime only.", "Settings explicitly states Lifetime-only new purchases");
+hasnt(set, "AuraLunisPricing.monthly", "Settings does not advertise legacy Monthly pricing");
+hasnt(set, "AuraLunisPricing.annual", "Settings does not advertise legacy Annual pricing");
 const lifeIdx = set.indexOf('membershipCta.ctaKind === "lifetime"');
 const lifeWindow = lifeIdx >= 0 ? set.slice(lifeIdx, lifeIdx + 220) : "";
 hasnt(lifeWindow, "handleManageSubscription", "lifetime state never calls handleManageSubscription");
