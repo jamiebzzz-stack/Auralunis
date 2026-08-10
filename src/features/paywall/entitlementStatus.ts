@@ -14,11 +14,6 @@ export type EntitlementCustomerInfo = {
 
 export type MembershipKind = "none" | "subscription" | "lifetime";
 
-/**
- * True only when the EXACT AuraLunis entitlement ("AuraLunis Premium") is active. Never
- * matches on "any entitlement" and never falls back to a different identifier. The bare
- * fact that a restore/purchase call completed is NOT sufficient — only an active entitlement.
- */
 export function hasAuraLunisEntitlement(
   customerInfo: EntitlementCustomerInfo,
   entitlementId: typeof RevenueCatIds.entitlement = RevenueCatIds.entitlement
@@ -26,14 +21,6 @@ export function hasAuraLunisEntitlement(
   return Boolean(customerInfo.entitlements.active[entitlementId]);
 }
 
-/**
- * Classify the customer's AuraLunis membership from the store's CustomerInfo:
- *   - "none":         entitlement not active.
- *   - "subscription": entitlement active AND an active auto-renewing monthly/annual sub.
- *   - "lifetime":     entitlement active via the one-time lifetime product (no active sub).
- * Subscription-vs-lifetime is derived from `activeSubscriptions` product IDs, so a lifetime
- * owner is never told they have a subscription to manage.
- */
 export function classifyAuraLunisMembership(customerInfo: EntitlementCustomerInfo): MembershipKind {
   if (!hasAuraLunisEntitlement(customerInfo)) return "none";
   const active = customerInfo.activeSubscriptions ?? [];
@@ -43,23 +30,13 @@ export function classifyAuraLunisMembership(customerInfo: EntitlementCustomerInf
   return hasActiveSubscription ? "subscription" : "lifetime";
 }
 
-/** What the Settings membership card should render and do, per membership state. */
 export type MembershipCtaKind = "paywall" | "manage" | "lifetime";
 export type MembershipCta = {
-  /** Truthful one-line status describing the current membership state. */
   statusCopy: string;
-  /** The single primary CTA label for this state. */
   ctaLabel: string;
-  /** What tapping the primary CTA should do (or `lifetime` = non-actionable active badge). */
   ctaKind: MembershipCtaKind;
 };
 
-/**
- * Single deterministic mapping from membership state → Settings card presentation.
- * Pure and total: any unexpected value (loading / unknown / error, all of which surface
- * as `membershipKind === "none"` from the fail-closed EntitlementContext) resolves to the
- * non-subscriber state — never a false active claim, never subscription management.
- */
 export function resolveMembershipCta(membershipKind: MembershipKind): MembershipCta {
   switch (membershipKind) {
     case "subscription":
@@ -77,8 +54,8 @@ export function resolveMembershipCta(membershipKind: MembershipKind): Membership
     case "none":
     default:
       return {
-        statusCopy: "Unlock the full sky with AuraLunis Premium — subscribe or own it for life.",
-        ctaLabel: "View Memberships",
+        statusCopy: "Unlock AuraLunis Premium for life with one purchase.",
+        ctaLabel: "View Lifetime",
         ctaKind: "paywall",
       };
   }
