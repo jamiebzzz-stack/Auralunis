@@ -232,7 +232,7 @@ export default function App() {
         trackPaywallEvent("purchase_complete", { planId });
         await refreshEntitlement(); // flip the whole app to premium immediately
         setPaywallVisible(false);
-        Alert.alert("Welcome to AuraLunis Premium", "Your membership is active.");
+        Alert.alert("AuraLunis Lifetime Unlocked", "Premium access is active on this Apple ID.");
         return;
       }
 
@@ -242,8 +242,11 @@ export default function App() {
       }
 
       if (result.status === "not_configured" || result.status === "not_available") {
-        // No live RevenueCat key / offering yet (e.g. before launch) — never crash.
-        Alert.alert("Subscriptions available after launch", "Premium plans will be purchasable once AuraLunis is live on the App Store.");
+        // RevenueCat / StoreKit is temporarily unavailable. Never describe Lifetime as a subscription.
+        Alert.alert(
+          "Purchase unavailable",
+          "AuraLunis Lifetime could not be loaded from the App Store right now. Please try again in a moment."
+        );
         return;
       }
     } catch {
@@ -260,8 +263,8 @@ export default function App() {
 
       if (result.status === "not_configured") {
         Alert.alert(
-          "Subscriptions available after launch",
-          "Purchases can be restored once AuraLunis is live on the App Store."
+          "Restore unavailable",
+          "AuraLunis could not connect to App Store purchase services right now. Please try again in a moment."
         );
         return;
       }
@@ -279,7 +282,7 @@ export default function App() {
       Alert.alert(
         "Restore Purchases",
         result.entitled
-          ? "Your AuraLunis Premium membership has been restored."
+          ? "Your AuraLunis Premium access has been restored."
           : "No active AuraLunis purchase was found on this Apple ID."
       );
     } catch {
