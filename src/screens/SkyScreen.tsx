@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { TAB_BAR_STYLE } from "@/navigation/RootTabs";
@@ -32,7 +32,6 @@ export function SkyScreen() {
   const { openPaywall } = usePaywallNavigation();
   const [skyLensOpen, setSkyLensOpen] = useState(false);
   const [manualMapOpen, setManualMapOpen] = useState(false);
-  const [galaxyModeOn, setGalaxyModeOn] = useState(false);
   const [alignmentOpen, setAlignmentOpen] = useState(false);
   const [birthSkyOpen, setBirthSkyOpen] = useState(false);
   const [astroWeatherOpen, setAstroWeatherOpen] = useState(false);
@@ -141,7 +140,6 @@ export function SkyScreen() {
     <ScreenShell title="Sky Lens + Archive" subtitle="Sky">
       {manualMapOpen ? <ManualSkyMap onClose={() => setManualMapOpen(false)} /> : null}
 
-
       <FeatureCard
         title="AuraLunis Sky Lens"
         description="Sensor-aligned live planetarium with celestial overlays, Find Mode, Birth Overlay, guided exploration, and capture."
@@ -202,12 +200,20 @@ export function SkyScreen() {
         actionLabel="Find Venus"
         onPress={() => {
           const venus = findBody(sky, "venus");
-          Alert.alert(
-            "Find Mode · Venus",
-            venus && venus.aboveHorizon
-              ? `Venus is up now: compass azimuth ${Math.round(venus.azimuthDegrees)}°, altitude ${Math.round(venus.altitudeDegrees)}° above the horizon. Point your phone there. On-device, the compass and gyro align the overlay arrow to this position.`
-              : "Venus is below the horizon right now. Find Mode will point you to it once it rises."
-          );
+          if (!venus) {
+            Alert.alert("Find Mode · Venus", "Venus position data is unavailable right now.");
+            return;
+          }
+          setFocusTarget({
+            raHours: venus.rightAscensionHours,
+            decDegrees: venus.declinationDegrees,
+            name: "Venus",
+            subtitle: "Planet",
+            description: venus.aboveHorizon
+              ? "Follow the on-screen guide to bring Venus into view."
+              : "Venus is below the horizon right now; Find Mode will show its current visibility status."
+          });
+          setSkyLensOpen(true);
         }}
       />
 
@@ -253,9 +259,12 @@ export function SkyScreen() {
 
       <FeatureCard
         title="Milky Way / Galaxy Mode"
-        description={`Milky Way band, Galactic Center, Great Rift, dust lanes, and best viewing guidance. Current state: ${galaxyModeOn ? "On" : "Off"}.`}
-        actionLabel={galaxyModeOn ? "Hide Galaxy Mode" : "Show Galaxy Mode"}
-        onPress={() => setGalaxyModeOn((previous) => !previous)}
+        description="Explore the Milky Way band, Galactic Center, Great Rift, dust lanes, and deep-sky layers in the live Sky Lens planetarium."
+        actionLabel="Open in Sky Lens"
+        onPress={() => {
+          setFocusTarget(null);
+          setSkyLensOpen(true);
+        }}
       />
 
       <SatelliteThermalOverlayPanel />
@@ -275,7 +284,7 @@ export function SkyScreen() {
           key={object.id}
           title={object.name}
           description={`${object.summary}\n\nLayer: ${object.skyLensLayer.replace("_", " ")} · Best season: ${displaySeasonLabel(object.bestSeason ?? "Varies", location?.latitudeDegrees)} · Naked-eye: ${object.visibleToNakedEye ? "sometimes" : "usually no"}`}
-          actionLabel="Save + Find"
+          actionLabel="Save to Vault"
           onPress={() => {
             // Saving to the (premium) Vault requires entitlement — free users get the paywall.
             if (!isPremium) { openPaywall(); return; }
