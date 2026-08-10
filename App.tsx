@@ -182,8 +182,8 @@ export default function App() {
       }
 
       if (result.status === "not_configured" || result.status === "not_available") {
-        // No live RevenueCat key / offering yet (e.g. before launch) — never crash.
-        Alert.alert("Subscriptions available after launch", "Premium plans will be purchasable once AuraLunis is live on the App Store.");
+        // No live RevenueCat key / current offering yet — never crash or advertise retired plans.
+        Alert.alert("Purchase unavailable", "AuraLunis Lifetime is temporarily unavailable from the App Store. Please try again later.");
         return;
       }
     } catch {
@@ -200,8 +200,8 @@ export default function App() {
 
       if (result.status === "not_configured") {
         Alert.alert(
-          "Subscriptions available after launch",
-          "Purchases can be restored once AuraLunis is live on the App Store."
+          "Restore unavailable",
+          "Purchases cannot be restored right now. Please try again when the App Store connection is available."
         );
         return;
       }
