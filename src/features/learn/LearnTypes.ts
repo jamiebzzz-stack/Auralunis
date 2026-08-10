@@ -6,6 +6,7 @@ export type LearnCategoryId =
   | "stars"
   | "deep_sky"
   | "milky_way"
+  | "black_holes"
   | "beginner_path";
 
 /**

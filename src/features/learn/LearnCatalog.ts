@@ -514,7 +514,159 @@ export const learnTopics: LearnTopic[] = [
     skyLensAction: "Find the Veil Nebula in Sky Lens",
     archiveAction: "Open Remnants",
     skyTarget: { raHours: 20.76, decDegrees: 30.72, name: "Veil Nebula", subtitle: "Supernova Remnant · NGC 6960/6992", description: "A large shell remnant in Cygnus, spectacular through an O III filter." }
-  }
+  },
+
+  // ── Black Holes ─────────────────────────────────────────────────────────────
+  // Accuracy rules applied throughout, because these are the claims popular science
+  // usually gets wrong: not every supernova leaves a black hole, not every black hole has
+  // an accretion disk or jets, black holes do not "suck" anything in, and the singularity
+  // is what classical general relativity predicts rather than a settled description of the
+  // interior. Anything speculative is labelled as such in the text itself, not just here.
+  {
+    id: "bh-what-is-a-black-hole",
+    categoryId: "black_holes",
+    title: "What Is a Black Hole?",
+    level: "beginner",
+    summary: "A region where gravity is strong enough that nothing which crosses the boundary can get back out — not even light.",
+    body: "A black hole is a region of spacetime where gravity has become so strong that nothing crossing its boundary can return, including light. That boundary is called the event horizon.\n\nThe horizon is not a surface. There is nothing there to touch or bump into — no shell, no membrane, no wall. It is simply the last place from which a signal can still escape outward. An astronaut falling through a sufficiently large black hole's horizon would not feel a moment of crossing.\n\nAt the centre, classical general relativity predicts a singularity: a point where the equations give infinite density and stop returning sensible answers. That is best read as the theory reaching its limits rather than as a confirmed description of what is there. Describing the interior properly is expected to need a theory of quantum gravity, which we do not yet have.",
+    keyFacts: [
+      "The event horizon is a boundary, not a physical surface.",
+      "Light emitted inside the horizon cannot reach the outside.",
+      "The singularity is a prediction of classical relativity, not a settled description of the interior."
+    ]
+  },
+  {
+    id: "bh-how-they-form",
+    categoryId: "black_holes",
+    title: "How Black Holes Form",
+    level: "beginner",
+    summary: "Some massive stars end their lives as black holes — but not all of them, and not always with a bright explosion.",
+    body: "When a massive star exhausts its fuel, its core can no longer hold itself up and collapses. If enough mass ends up compressed into a small enough region, a black hole forms.\n\nNot every supernova produces one. Many leave a neutron star instead, and Type Ia supernovae — which come from white dwarfs rather than massive stars — leave nothing behind at all. The outcome depends on the star's mass, its composition and how much material it shed while alive.\n\nSome massive stars may also collapse with little or no visible explosion, a possibility usually described as a failed supernova, where the star simply disappears from view. Astronomers have candidate examples but this remains an active area of study.\n\nHow supermassive black holes formed is a genuinely open question. Growing one from a stellar-mass seed by ordinary accretion appears too slow to explain the very massive ones already present in the early universe, and several competing explanations are still being investigated.",
+    keyFacts: [
+      "Not every supernova leaves a black hole — many leave a neutron star, and some leave nothing.",
+      "Some massive stars may collapse with little visible explosion.",
+      "The formation of supermassive black holes is still an open research question."
+    ]
+  },
+  {
+    id: "bh-types",
+    categoryId: "black_holes",
+    title: "Types of Black Holes",
+    level: "beginner",
+    summary: "Stellar-mass, intermediate-mass and supermassive — separated by mass, which changes almost everything about how they behave.",
+    body: "Stellar-mass black holes form from collapsing stars and typically range from a few to a few tens of solar masses. They are the ones detected merging by gravitational-wave observatories.\n\nSupermassive black holes sit at the centres of most large galaxies and run from hundreds of thousands to billions of solar masses. Ours is one of them.\n\nIntermediate-mass black holes fall between these ranges. They are far harder to confirm, and building a solid census of them is ongoing work.\n\nPrimordial black holes — hypothetical objects formed from density fluctuations in the very early universe rather than from stars — are sometimes discussed as a possible component of dark matter. None has been confirmed to exist, and they should be treated as a hypothesis rather than an observed class.",
+    keyFacts: [
+      "Stellar-mass black holes come from collapsing massive stars.",
+      "Supermassive black holes sit at the centres of most large galaxies.",
+      "Primordial black holes are hypothetical — none has been confirmed."
+    ]
+  },
+  {
+    id: "bh-event-horizon",
+    categoryId: "black_holes",
+    title: "The Event Horizon",
+    level: "intermediate",
+    summary: "The point of no return — and why crossing it can be locally unremarkable while looking dramatic from far away.",
+    body: "For a non-rotating black hole, the horizon sits at the Schwarzschild radius, which is proportional to mass: roughly three kilometres for every solar mass. A black hole of ten solar masses has a horizon about thirty kilometres across; a supermassive one can be larger than our Solar System.\n\nIn classical relativity, crossing the horizon of a sufficiently large black hole is locally uneventful. There is no barrier and no jolt. Someone falling in would pass through without any local signal marking the moment.\n\nThe view from outside is very different. Light from an infalling object arrives increasingly redshifted and increasingly delayed, so a distant observer sees it approach the horizon and fade rather than cross. It is worth being careful here: that is what the distant observer measures, not what the falling observer experiences. Saying someone \"freezes in time\" describes the outside view only, and misdescribes their own.",
+    keyFacts: [
+      "The Schwarzschild radius is about 3 km per solar mass.",
+      "Crossing the horizon of a large black hole is locally uneventful in classical relativity.",
+      "Distant observers see infalling light redshifted and delayed — that is their view, not the faller's experience."
+    ]
+  },
+  {
+    id: "bh-accretion-disks",
+    categoryId: "black_holes",
+    title: "Accretion Disks",
+    level: "intermediate",
+    summary: "Black holes emit no light of their own. What we see is the material around some of them, heated until it glows.",
+    body: "A black hole itself radiates nothing we can see. When one is described as bright, what is bright is the material around it.\n\nGas drawn toward a black hole tends to settle into a rotating disk. Friction and compression heat that gas enormously, and in the hottest inner regions it can radiate strongly at X-ray wavelengths. This is why some black holes are among the most luminous objects known — the light comes from the disk, not the hole.\n\nNot every black hole has one. A black hole with no nearby gas supply has nothing to accrete and produces no such emission, which is a large part of why isolated stellar-mass black holes are so difficult to find.\n\nSome accreting systems also drive jets: narrow beams of material launched along the rotation axis at close to the speed of light. Jets are a feature of certain accreting systems, not a property every black hole has.",
+    keyFacts: [
+      "Black holes emit no light themselves — accreting material does.",
+      "Not every black hole has an accretion disk; that requires a gas supply.",
+      "Jets occur in some accreting systems, not around every black hole."
+    ]
+  },
+  {
+    id: "bh-gravitational-lensing",
+    categoryId: "black_holes",
+    title: "Gravitational Lensing",
+    level: "intermediate",
+    summary: "Mass curves spacetime, and light follows that curve — so a black hole can bend, magnify and wrap the light of things behind it.",
+    body: "Light travels in straight lines through spacetime, but mass curves spacetime, so light passing a massive object follows a curved path. Near a black hole the effect is extreme.\n\nLight from a source behind a black hole can be deflected, magnified, split into multiple images, or wrapped into arcs and rings. This is gravitational lensing, and it is a direct consequence of general relativity rather than anything specific to black holes.\n\nIt explains a feature of black-hole visualisations that otherwise looks like an error. The far side of an accretion disk should be hidden behind the black hole, yet it appears above and below it, because light from behind is bent up and over toward the viewer. What looks like a ring around the shadow is in part the disk's own far side, lifted into view by the curvature of spacetime.",
+    keyFacts: [
+      "Mass curves spacetime, and light follows that curvature.",
+      "Light from behind a black hole can be magnified or wrapped into arcs.",
+      "Visualisations show the disk's far side above and below the shadow because its light is bent toward the viewer."
+    ]
+  },
+  {
+    id: "bh-how-we-detect",
+    categoryId: "black_holes",
+    title: "How We Detect Black Holes",
+    level: "intermediate",
+    summary: "Almost always by their effects on something else — motion, heat, spacetime — rather than by seeing the object itself.",
+    body: "A black hole emits nothing to observe directly, so detection is essentially always inference from its influence.\n\nStellar motion is one route: stars whipping around an unseen mass reveal how much mass is there and how tightly it is packed. Accretion is another: gas heated as it spirals inward can radiate powerfully, particularly in X-rays, and the pattern of that emission constrains what sits at the centre.\n\nGravitational waves gave us a third. When two black holes merge they radiate ripples in spacetime that observatories on Earth can measure, carrying the masses and spins of the objects involved.\n\nLensing offers another, and horizon-scale imaging has now resolved the bright emission immediately surrounding a black hole, showing the dark region its shadow casts against that glow. Even there, what is imaged is the surrounding emission — the object itself remains, by definition, unseeable.",
+    keyFacts: [
+      "Black holes are inferred from their effects, not observed directly.",
+      "Stellar orbits, X-ray emission, gravitational waves and lensing are the main routes.",
+      "Horizon-scale images show surrounding emission and the shadow it outlines, not the black hole itself."
+    ]
+  },
+  {
+    id: "bh-sagittarius-a-star",
+    categoryId: "black_holes",
+    title: "Sagittarius A*",
+    level: "intermediate",
+    summary: "The supermassive black hole at the centre of our own galaxy, about four million times the mass of the Sun.",
+    body: "Sagittarius A* sits at the centre of the Milky Way, roughly 26,000 light-years away, with a mass of about four million Suns.\n\nThe evidence is unusually direct for an object of this kind. Astronomers tracked individual stars orbiting the galactic centre for decades and watched them follow tight, fast, closed orbits around something compact and invisible. One of those stars swings past at a few percent of the speed of light. The orbits pin down both the enclosed mass and how small the region containing it must be, and nothing but a black hole comfortably fits both.\n\nThat work was recognised with the 2020 Nobel Prize in Physics. Horizon-scale imaging has since resolved the glowing material immediately around it.\n\nDespite its mass, Sgr A* is a quiet black hole: it accretes very little compared with the luminous centres of some other galaxies.",
+    keyFacts: [
+      "Sagittarius A* is about 4 million solar masses.",
+      "It lies roughly 26,000 light-years away at the galactic centre.",
+      "Decades of stellar-orbit tracking provided the strongest dynamical evidence."
+    ],
+    skyLensAction: "Look toward Sagittarius"
+  },
+  {
+    id: "bh-mergers",
+    categoryId: "black_holes",
+    title: "Black Hole Mergers",
+    level: "advanced",
+    summary: "When two black holes spiral together, they shake spacetime hard enough for us to feel it from across the universe.",
+    body: "Two black holes in orbit gradually lose energy to gravitational radiation, spiral inward, and eventually merge into a single larger one.\n\nThe final moments release an enormous amount of energy as gravitational waves — ripples in spacetime itself. By the time those ripples reach Earth they are extraordinarily faint, stretching and squeezing a detector's kilometres-long arms by a fraction of the width of a proton.\n\nObservatories including LIGO, Virgo and KAGRA measure exactly that. The shape of the signal encodes the masses and spins of the two objects and the mass of what they became, and the difference between those numbers is the energy that left as gravitational waves.\n\nDetections are now routine enough that the catalogue grows with each observing run, so any fixed count would be out of date quickly. Notably, some detected mergers have involved black holes heavier than stellar-collapse models comfortably predicted, which has fed directly back into how we think black holes form.",
+    keyFacts: [
+      "Orbiting black holes lose energy to gravitational waves and spiral together.",
+      "LIGO, Virgo and KAGRA detect the resulting spacetime ripples.",
+      "The signal encodes the masses and spins of the merging objects."
+    ]
+  },
+  {
+    id: "bh-myths",
+    categoryId: "black_holes",
+    title: "What Black Holes Do Not Do",
+    level: "beginner",
+    summary: "They are not cosmic vacuum cleaners. Gravity at a distance depends on mass, not on what the mass is made of.",
+    body: "The most persistent myth is that black holes suck things in. They do not. Gravity does not become special because an object is a black hole — at a given distance, its pull depends on its mass, exactly as it would for any other object.\n\nThe standard demonstration: if the Sun were replaced by a black hole of precisely the same mass, Earth's orbit would be essentially unchanged. We would keep going round on the same path. What would change is that the sunlight would stop, which would matter enormously for everything living here, but the orbital mechanics would carry on as before.\n\nBlack holes only capture material that comes close enough. Something on a stable orbit stays on it. What makes them dangerous is not reach but depth: get close, and the escape velocity exceeds the speed of light. From a distance, a black hole is just mass.\n\nThey also do not roam the galaxy hoovering up stars, and they are not doorways to anywhere. Wormholes appear in some solutions of general relativity, but no observational evidence supports their existence, and they should not be presented as established science.",
+    keyFacts: [
+      "Black holes do not suck — gravity depends on mass and distance, not on being a black hole.",
+      "Replacing the Sun with an equal-mass black hole would leave Earth's orbit essentially unchanged.",
+      "Wormholes are a theoretical solution, not an observed phenomenon."
+    ]
+  },
+  {
+    id: "bh-time-tides-spaghettification",
+    categoryId: "black_holes",
+    title: "Time, Tides & Spaghettification",
+    level: "advanced",
+    summary: "Why a small black hole is more dangerous to approach than a giant one, and what time dilation actually means.",
+    body: "Tidal force comes from the difference in gravity between two points — your head and your feet, for instance. Close to a stellar-mass black hole that difference becomes severe enough to stretch an object along its fall and compress it sideways, the effect usually called spaghettification.\n\nCounter-intuitively, this is worse for small black holes than for large ones. Tidal force at the horizon falls as the black hole's mass increases, because the horizon of a supermassive black hole is so much further from the centre. An astronaut could cross the horizon of a sufficiently massive one without being torn apart, whereas approaching a stellar-mass black hole would be fatal well before reaching it.\n\nTime dilation is a separate effect. Clocks run slower in stronger gravity, so a clock near a black hole ticks slower as measured by a distant observer. Each clock still runs normally in its own frame — nobody experiences their own time slowing down. The asymmetry is real but it is a relationship between observers, not a change in anyone's local experience.\n\nHawking radiation belongs here too, with care. It is a theoretical prediction from quantum field theory in curved spacetime, not something that has been observed from an astrophysical black hole, and it is entirely distinct from the light emitted by an accretion disk. For a stellar-mass black hole the predicted temperature is far below that of the cosmic microwave background, so such a black hole absorbs more than it radiates, and the timescale for evaporation vastly exceeds the current age of the universe.",
+    keyFacts: [
+      "Tidal forces at the horizon are stronger for smaller black holes, not larger ones.",
+      "Time dilation is measured between observers — nobody feels their own time slow.",
+      "Hawking radiation is a theoretical prediction, distinct from accretion-disk light, and astrophysical evaporation is extraordinarily slow."
+    ]
+  },
+
 ];
 
 /**
@@ -584,6 +736,7 @@ export const learnCategories = [
   { id: "planets", title: "Planets", icon: "♃", description: "Mercury through Neptune with science, mythology, and visibility." },
   { id: "constellations", title: "Constellations", icon: "✦", description: "Constellation stories, seasons, mythology, and how to trace the sky." },
   { id: "stars", title: "Stars", icon: "★", description: "Bright stars, magnitude, color, distance, and star life cycles." },
+  { id: "black_holes", title: "Black Holes", icon: "◍", description: "Event horizons, accretion, gravity, detection, and the physics of extreme spacetime." },
   { id: "deep_sky", title: "Deep Sky", icon: "☄", description: "Nebulae, galaxies, star clusters, and supernova remnants." },
   { id: "milky_way", title: "Milky Way", icon: "◎", description: "Galaxy Mode, Milky Way band, core, dust lanes, and viewing conditions." },
   { id: "beginner_path", title: "30 Nights", icon: "◇", description: "A guided beginner course for learning the sky step by step." }

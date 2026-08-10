@@ -7,6 +7,7 @@ import { StarBrightnessVisual } from "./visuals/StarBrightnessVisual";
 import { DeepSkyGlowVisual } from "./visuals/DeepSkyGlowVisual";
 import { MilkyWayBandVisual } from "./visuals/MilkyWayBandVisual";
 import { ThirtyNightsProgressVisual } from "./visuals/ThirtyNightsProgressVisual";
+import { BlackHoleVisual } from "./visuals/BlackHoleVisual";
 
 export function LearnVisualForCategory({
   categoryId,
@@ -34,6 +35,8 @@ export function LearnVisualForCategory({
           selectedIndex={deepSkySelectedIndex}
         />
       );
+    case "black_holes":
+      return <BlackHoleVisual />;
     case "milky_way":
       return <MilkyWayBandVisual />;
     case "beginner_path":
