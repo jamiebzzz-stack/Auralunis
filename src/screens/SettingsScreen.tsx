@@ -10,7 +10,7 @@ import { PrivacyScreen } from "@/screens/PrivacyScreen";
 import { GlassPanel } from "@/components/GlassPanel";
 import { ScreenShell } from "@/components/ScreenShell";
 import { LogoMark } from "@/components/LogoMark";
-import { AuraLunisColors, AuraLunisPricing } from "@/theme/tokens";
+import { AuraLunisColors } from "@/theme/tokens";
 import { AuraLunisBrand } from "@/data/brand";
 import type { AuraLunisThemeMode } from "@/features/settings/SettingsTypes";
 import { useAuraLunisSettings } from "@/state/AuraLunisSettingsContext";
@@ -60,29 +60,23 @@ export function SettingsScreen() {
   const { membershipKind, refresh } = useEntitlement();
   const { openPaywall } = usePaywallNavigation();
   const { replayTutorial } = useOnboarding();
-  // Single source of truth for the membership card's copy, label, and action — derived
-  // from the RevenueCat-backed membershipKind (loading/unknown/error fail closed to "none").
   const membershipCta = resolveMembershipCta(membershipKind);
   const { items, clearPrototypeVault } = useAuraLunisVault();
   const [deviceDiagnosticsOpen, setDeviceDiagnosticsOpen] = useState(false);
   const [legalModal, setLegalModal] = useState<"terms" | "privacy" | null>(null);
   const [learnPrefsOpen, setLearnPrefsOpen] = useState(false);
 
-
   async function handleRestorePurchases() {
     try {
       const result = await restoreAuraLunisPurchases();
       if (result.status === "not_configured") {
-        Alert.alert("Restore Purchases", "Purchases will be available once AuraLunis is live on the App Store.");
+        Alert.alert("Restore Purchases", "Purchases cannot be restored right now. Please try again when the App Store connection is available.");
         return;
       }
       if (result.status === "error") {
         Alert.alert("Restore Purchases", "We couldn't reach the App Store to restore your purchases. Please check your connection and try again.");
         return;
       }
-      // Re-fetch entitlement so the UI reflects the restore immediately (not just on
-      // next foreground), and tell the user the truth about what was found — success ONLY
-      // when the active AuraLunis Premium entitlement is present, never on a bare completion.
       await refresh();
       Alert.alert(
         "Restore Purchases",
@@ -95,10 +89,6 @@ export function SettingsScreen() {
     }
   }
 
-  // Explicit, user-initiated notification permission request. This is the ONLY place the app
-  // asks for notification authorization — turning the master Notifications switch on. Automatic
-  // paths (startup, onboarding, Home mount-time scheduling) never prompt. The saved preference
-  // must reflect the real iOS authorization result so denial never appears enabled.
   async function handleNotificationsToggle(value: boolean) {
     if (!value) {
       updateSetting("notificationsEnabled", false);
@@ -116,14 +106,13 @@ export function SettingsScreen() {
   async function handleManageSubscription() {
     try {
       const result = await openAuraLunisSubscriptionManagement();
-
       if (result.status === "opened") return;
 
       Alert.alert(
         "Manage Subscription",
         result.status === "not_configured"
-          ? "Subscriptions are managed through your Apple ID and will be available once AuraLunis is live on the App Store."
-          : "You don't have an active AuraLunis subscription on this Apple ID yet."
+          ? "Your existing subscription is managed through your Apple ID. Please try again when the App Store connection is available."
+          : "No active AuraLunis subscription-management link was found for this Apple ID."
       );
     } catch {
       Alert.alert(
@@ -147,22 +136,18 @@ export function SettingsScreen() {
         <LogoMark size={126} showWordmark showDescriptor centered />
         <Text style={styles.heroTagline}>{AuraLunisBrand.tagline}</Text>
         <Text style={styles.heroCopy}>
-          Manage subscription, appearance, privacy, Sky Lens calibration,
+          Manage membership, appearance, privacy, Sky Lens calibration,
           notifications, learning preferences, and local data.
         </Text>
         <Text style={styles.syncState}>{hydrated ? "Settings saved locally" : "Loading local settings…"}</Text>
       </View>
 
-      <SettingsSection title="Subscription">
+      <SettingsSection title="Membership">
         <GlassPanel accent>
-          <Text style={styles.infoTitle}>AuraLunis Memberships</Text>
+          <Text style={styles.infoTitle}>AuraLunis Premium</Text>
           <Text style={styles.infoCopy}>
-            AuraLunis Premium: {AuraLunisPricing.monthly} or {AuraLunisPricing.annual}. Lifetime {AuraLunisPricing.lifetime} one-time.
+            New purchases are Lifetime only. The current localized one-time price is shown on the purchase screen from the App Store. Existing Monthly and Annual subscribers keep their active access and can manage those legacy subscriptions through Apple.
           </Text>
-          {/* Copy + primary CTA come from resolveMembershipCta(membershipKind), so the card
-              can never show contradictory subscriber/non-subscriber states. Non-subscriber
-              (incl. loading/unknown/error) → paywall; active sub → Apple management; lifetime
-              → a non-recurring active badge that never opens subscription management. */}
           <Text style={styles.infoCopy}>{membershipCta.statusCopy}</Text>
           {membershipCta.ctaKind === "paywall" && (
             <Pressable style={styles.actionButton} onPress={openPaywall}>
@@ -185,10 +170,6 @@ export function SettingsScreen() {
           >
             <Text style={styles.secondaryButtonText}>Restore Purchases</Text>
           </Pressable>
-          {/* Development-only: opens the REAL ThreeTierPaywallModal so trial/pricing
-              states can be inspected visually. __DEV__ is false in release builds, so
-              this is stripped from production. It only calls openPaywall() — it never
-              touches entitlement state, RevenueCat config, or purchase logic. */}
           {__DEV__ && (
             <Pressable style={styles.devButton} onPress={openPaywall}>
               <Text style={styles.devButtonText}>Preview Paywall (Dev Only)</Text>
@@ -286,8 +267,6 @@ export function SettingsScreen() {
 
       <SettingsSection title="Privacy + Data">
         <SettingRow title="Local-First Vault" description="Keep Notes, LifeSky moments, lessons, and saved objects local by default." value={settings.localFirstVaultEnabled} onValueChange={(value) => updateSetting("localFirstVaultEnabled", value)} />
-        {/* Cloud Sync and AI Oracle removed — features not built. 
-            Re-add when actual implementations exist. */}
         <Text style={styles.localCount}>{items.length} Vault items</Text>
         <Pressable style={styles.secondaryButton} onPress={() => Linking.openSettings()}>
           <Text style={styles.secondaryButtonText}>Review App Permissions in Settings</Text>
@@ -297,10 +276,6 @@ export function SettingsScreen() {
         </Pressable>
       </SettingsSection>
 
-      {/* Widgets section removed for v1 — the WidgetKit extension is not bundled in
-          this build, so the toggle controlled nothing and advertised widgets that
-          don't ship. Re-add when the widget extension is wired into the app. */}
-
       <SettingsSection title="Learning">
         <Pressable style={styles.secondaryButton} onPress={() => setLearnPrefsOpen(true)}>
           <Text style={styles.secondaryButtonText}>Learning Preferences</Text>
@@ -309,10 +284,6 @@ export function SettingsScreen() {
 
       <LearnPreferencesModal visible={learnPrefsOpen} onClose={() => setLearnPrefsOpen(false)} />
 
-
-      {/* Developer-only on-device QA. __DEV__ compiles to false in release builds, so this
-          section is completely absent from production / TestFlight / App Store binaries;
-          the panel code is preserved for local development. */}
       {__DEV__ && (
         <SettingsSection title="Native Device QA">
           <Text style={styles.infoCopy}>
@@ -344,16 +315,13 @@ export function SettingsScreen() {
 
         <Pressable style={styles.secondaryButton} onPress={() => Alert.alert(
           "Frequently Asked Questions",
-          "How do I use Sky Lens?\nPoint your phone at the sky. Stars, constellations, and planets align to the direction your phone is pointing.\n\nWhy can't I see the Milky Way?\nTurn toward the south (heading ~160-180°). The galactic core is brightest in Sagittarius.\n\nHow do I find a specific object?\nLook for the 'Pan to...' hint at the bottom of Sky Lens. It guides you to bright objects.\n\nIs there a free trial?\nThe monthly and annual plans support Apple's 7-day introductory trial for eligible new subscribers. Apple determines eligibility and shows the trial at checkout only when your account qualifies; otherwise standard pricing applies. Lifetime has no trial.\n\nHow do I restore my purchase?\nGo to Settings → Manage Subscription → Restore Purchases.\n\nNeed more help?\nTap 'Contact Support' below to email us."
+          "How do I use Sky Lens?\nPoint your phone at the sky. Stars, constellations, and planets align to the direction your phone is pointing.\n\nWhy can't I see the Milky Way?\nTurn toward the south (heading ~160-180°). The galactic core is brightest in Sagittarius.\n\nHow do I find a specific object?\nLook for the 'Pan to...' hint at the bottom of Sky Lens. It guides you to bright objects.\n\nHow does Premium work?\nNew purchases are AuraLunis Lifetime only: one purchase, no subscription, no recurring billing, and no free trial. Existing Monthly and Annual subscribers keep their active Premium access and can manage those legacy subscriptions through Apple.\n\nHow do I restore my purchase?\nGo to Settings → Membership → Restore Purchases.\n\nNeed more help?\nTap 'Contact Support' below to email us."
         )}>
           <Text style={styles.secondaryButtonText}>FAQ / Help</Text>
         </Pressable>
         <Pressable style={styles.secondaryButton} onPress={() => Alert.alert("About AuraLunis", `${AuraLunisBrand.name} · ${AuraLunisBrand.descriptor}\n${AuraLunisBrand.tagline}`)}>
           <Text style={styles.secondaryButtonText}>About AuraLunis</Text>
         </Pressable>
-        {/* Re-opens the first-run onboarding from the beginning. Purely presentational: it
-            never erases birth data, clears entitlement/RevenueCat state, or marks the app as
-            a new install. */}
         <Pressable
           style={styles.secondaryButton}
           onPress={replayTutorial}
@@ -376,7 +344,6 @@ export function SettingsScreen() {
         </Pressable>
       </SettingsSection>
 
-      {/* Brand footer with app icon */}
       <View style={styles.brandFooter}>
         <Image
           source={require("../../assets/icon.png")}
@@ -388,7 +355,6 @@ export function SettingsScreen() {
         <Text style={styles.brandVersion}>v1.0.0 · Ocoee Studios</Text>
         <Text style={styles.brandEmail}>admin@ocoeestudios.com</Text>
       </View>
-      {/* Legal modals — in-app, no web hosting needed */}
       <Modal visible={legalModal !== null} animationType="slide" presentationStyle="pageSheet">
         <View style={{ flex: 1, backgroundColor: AuraLunisColors.cosmicBlack }}>
           <Pressable
@@ -430,7 +396,6 @@ const styles = StyleSheet.create({
   secondaryButtonText: { color: "#FFF", fontWeight: "800" },
   dangerButton: { borderRadius: 17, paddingVertical: 13, paddingHorizontal: 12, alignItems: "center", marginTop: 10, backgroundColor: "rgba(255,120,120,0.08)", borderWidth: 1, borderColor: "rgba(255,120,120,0.22)" },
   dangerButtonText: { color: "#FFD2D2", fontWeight: "800" },
-  // Dev-only preview button — dashed border marks it as a non-production tool.
   devButton: { borderRadius: 17, paddingVertical: 13, paddingHorizontal: 12, alignItems: "center", marginTop: 10, backgroundColor: "rgba(120,180,255,0.08)", borderWidth: 1, borderStyle: "dashed", borderColor: "rgba(120,180,255,0.40)" },
   devButtonText: { color: "#BFD8FF", fontWeight: "800" },
   qualityLabel: { color: "#FFF", fontSize: 14, fontWeight: "800", marginTop: 12 },
