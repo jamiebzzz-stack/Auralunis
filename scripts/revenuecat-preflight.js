@@ -29,10 +29,8 @@ const paywall = fs.readFileSync(
   path.join(root, "src/features/paywall/ThreeTierPaywallModal.tsx"),
   "utf8"
 );
-// Paywall copy (trial gating, CTA, disclosure) lives in the pure, node-tested resolvePlanCopy
-// helper; the modal consumes it. Trial-gating assertions read the helper, not the modal.
-const copy = fs.readFileSync(
-  path.join(root, "src/features/paywall/paywallCopy.ts"),
+const offersHook = fs.readFileSync(
+  path.join(root, "src/features/paywall/usePaywallOffers.ts"),
   "utf8"
 );
 
@@ -47,11 +45,9 @@ check(
 // (No Android RevenueCat key check — AuraLunis ships iOS-only; app.json carries only the
 // iOS key. Requiring an Android key audited a platform the app doesn't target.)
 
-// The pricing was migrated off the old `chronaura` Horizon/Aura/Sovereign product model
-// to the shipped AuraLunis Premium model. Assert the REAL product IDs + entitlement that
-// live in MonetizationCatalog.ts today (CLAUDE.md: premium monthly/annual + founders
-// lifetime, all unlocking one entitlement). This audits the pricing that ships — it does
-// not change it.
+// Keep all three store product IDs in the catalog because Monthly/Annual remain valid legacy
+// subscriptions and must continue restoring/unlocking the shared AuraLunis Premium entitlement.
+// The NEW-CUSTOMER offering/paywall is lifetime-only; product retention != product saleability.
 for (const term of [
   "com.ocoeestudios.auralunis.premium.monthly",
   "com.ocoeestudios.auralunis.premium.annual",
@@ -72,63 +68,47 @@ for (const term of [
   check(`RevenueCat service: ${term}`, service.includes(term));
 }
 
-// Real three-tier paywall: Monthly, Annual, Lifetime, plus Restore Purchases. (The old
-// "Horizon Free / Aura Pro / Sovereign Coming Later" tier gating belonged to the retired
-// chronaura model and is no longer part of the shipped paywall.)
-check("paywall copy: Monthly tier", paywall.includes("Monthly"));
-check("paywall copy: Annual tier", paywall.includes("Annual"));
+// New-customer paywall contract: Lifetime only. Monthly/Annual are intentionally retained in
+// the catalog + entitlement for legacy subscribers, but must not be rendered as selectable
+// new purchases. Restore remains visible so legacy customers can recover access.
 check("paywall copy: Lifetime tier", paywall.includes("Lifetime"));
 check("paywall copy: Restore Purchases", paywall.includes("Restore Purchases"));
-
-// ── 7-day introductory trial wiring ────────────────────────────────────────────
-// The trial is Apple-owned (an introductory offer on the monthly/annual products). The app
-// must only REFLECT it — read the real offer + eligibility from StoreKit/RevenueCat, gate
-// all trial copy on confirmed eligibility, keep lifetime trial-free, and never fabricate a
-// local trial timer or locally granted entitlement. These assertions lock that contract.
-const offersHook = fs.readFileSync(
-  path.join(root, "src/features/paywall/usePaywallOffers.ts"),
-  "utf8"
+check(
+  "new-customer paywall does not render Monthly tier",
+  !paywall.includes("plan={monthly}") && !paywall.includes('id === "premium_monthly"')
+);
+check(
+  "new-customer paywall does not render Annual tier",
+  !paywall.includes("plan={annual}") && !paywall.includes('id === "premium_annual"')
 );
 
-// 1. Purchasing still goes through RevenueCat packages (no fake local unlock).
+// Purchasing must still go through RevenueCat packages; no fake/local unlocks.
 check("purchase still uses RevenueCat packages", service.includes("Purchases.purchasePackage"));
 
-// 2. Eligibility is read from the supported RevenueCat API, not assumed.
+// Legacy subscription support remains wired in the RevenueCat service. This preserves existing
+// subscribers and restore/manage behavior even though those plans are no longer shown for sale.
 check(
-  "reads introductory-offer eligibility from RevenueCat",
+  "legacy introductory-offer eligibility support remains available",
   service.includes("checkTrialOrIntroductoryPriceEligibility")
 );
-
-// 3. Offer details are read from live StoreKit product data (introPrice), and localized
-//    store prices remain the source of truth.
 check("reads intro offer from live product data (introPrice)", service.includes("introPrice"));
 check(
   "localized StoreKit prices are the source of truth",
   service.includes("priceString") && paywall.includes("localizedPrice")
 );
 
-// 4. A trial is promised ONLY when BOTH the store reports an offer AND the account is
-//    eligible — never on eligibility alone.
+// If a legacy subscription surface ever uses trial metadata, it must still require BOTH a real
+// StoreKit intro offer and positive account eligibility; retaining this guard prevents regressions.
 check(
-  "trial requires an actual offer AND eligibility",
+  "legacy trial requires an actual offer AND eligibility",
   offersHook.includes('elig === "eligible" && pkg?.introOffer')
 );
-
-// 5. Trial copy is CONDITIONAL: the pure copy helper produces trial wording ONLY for the
-//    store-confirmed eligible branch; the modal delegates every string to it (no re-derivation).
-check(
-  "paywall trial copy is gated on confirmed eligibility",
-  copy.includes('trial.status === "eligible"') && paywall.includes("resolvePlanCopy")
-);
-
-// 6. Lifetime never shows trial wording.
 check(
   "lifetime is forced trial-free",
   offersHook.includes('p.interval === "lifetime"') &&
     offersHook.includes("lifetime is one-time — NEVER a trial")
 );
 
-// 7. No fabricated local trial: no timer, no locally granted entitlement, no fake unlock.
 const trialSurfaces = `${service}\n${offersHook}\n${paywall}`;
 check(
   "no local trial timer",
@@ -138,19 +118,19 @@ check(
   "no locally granted premium entitlement for trials",
   !/grantPremium|setPremium\s*\(\s*true|entitlements\.active\[[^\]]+\]\s*=/.test(trialSurfaces)
 );
-
-// 8. Failed eligibility must not block purchasing — the lookup degrades to {} / normal price.
 check(
   "eligibility failure degrades gracefully (never blocks purchase)",
   service.includes("return {}") && offersHook.includes('status: "unavailable"')
 );
 
-// 9. Renewal / trial-renewal disclosure is present (in the copy helper) and rendered by the modal.
+// The lifetime-only new-customer paywall must not advertise subscription or trial terms.
 check(
-  "renewal disclosure present",
-  copy.includes("renews automatically") &&
-    copy.includes("After the free trial") &&
-    paywall.includes("{disclosure}")
+  "new-customer paywall has no trial language",
+  !/free trial|7-day|7 days free/i.test(paywall)
+);
+check(
+  "new-customer paywall has no auto-renewal disclosure",
+  !/renews automatically|After the free trial/i.test(paywall)
 );
 
 console.log("");
