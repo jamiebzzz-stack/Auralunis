@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Alert, Image, Linking, Modal, Pressable, StyleSheet, Switch, Text, View } from "react-native";
+import Constants from "expo-constants";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { usePaywallNavigation } from "@/context/PaywallNavigationContext";
@@ -20,6 +21,9 @@ import { DeviceDiagnosticsPanel } from "@/features/device-qa/DeviceDiagnosticsPa
 import { LearnPreferencesModal } from "@/features/learn/LearnPreferencesModal";
 import { openAuraLunisSubscriptionManagement, restoreAuraLunisPurchases } from "@/services/RevenueCatService";
 import { requestNotificationPermission } from "@/services/NotificationService";
+
+// Single source of truth for the footer version: app.json → expo config.
+const APP_VERSION = Constants.expoConfig?.version ?? "1.0.1";
 
 type SettingRowProps = {
   title: string;
@@ -395,7 +399,10 @@ export function SettingsScreen() {
         />
         <Text style={styles.brandName}>AuraLunis</Text>
         <Text style={styles.brandTagline}>Your Time, Written in the Stars</Text>
-        <Text style={styles.brandVersion}>v1.0.0 · Ocoee Studios</Text>
+        {/* Read from the Expo config rather than a literal: a hardcoded string silently
+            drifts from app.json (it still said v1.0.0 while the app shipped as 1.0.1) and
+            the wrong version reaches the App Store listing. */}
+        <Text style={styles.brandVersion}>v{APP_VERSION} · Ocoee Studios</Text>
         <Text style={styles.brandEmail}>admin@ocoeestudios.com</Text>
       </View>
       {/* Legal modals — in-app, no web hosting needed */}
