@@ -200,7 +200,14 @@ export function SkyScreen() {
         actionLabel="Find Venus"
         onPress={() => {
           const venus = findBody(sky, "venus");
-          if (!venus) {
+          // RA/Dec are optional on the accuracy model, so absence is a real state — not a
+          // type nuisance. Refuse to open Find Mode without both: passing undefined through
+          // to Horizon() would point the guide at NaN instead of at Venus.
+          if (
+            !venus ||
+            venus.rightAscensionHours == null ||
+            venus.declinationDegrees == null
+          ) {
             Alert.alert("Find Mode · Venus", "Venus position data is unavailable right now.");
             return;
           }
