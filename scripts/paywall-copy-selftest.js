@@ -1,8 +1,9 @@
 // Paywall-copy deterministic self-test.
 //
 // Current new-customer contract: Lifetime only, one-time, App Store price fallback $29.99.
-// Monthly/Annual copy logic remains tested only as legacy-safe helper behavior; those plans must
-// not appear as selectable new-customer options in ThreeTierPaywallModal.
+// Monthly/Annual product IDs and entitlement behavior remain only for legacy subscriber
+// recognition, restore, renewal, and management. This test intentionally scans every major
+// user-facing monetization surface so stale subscription sales copy cannot sneak back in.
 
 const fs = require("fs");
 const path = require("path");
@@ -70,7 +71,7 @@ const annualUnavailable = resolvePlanCopy("annual", "$49.99/year", null, unavail
 eq("legacy annual unavailable helper is paid", annualUnavailable.isTrial, false);
 eq("legacy annual unavailable CTA", annualUnavailable.ctaLabel, "Subscribe Annually");
 
-console.log("\n── Runtime modal is Lifetime only ──");
+console.log("\n── Runtime paywall is Lifetime only ──");
 const modal = read("src/features/paywall/ThreeTierPaywallModal.tsx");
 const catalog = read("src/features/paywall/MonetizationCatalog.ts");
 has(modal, 'plans.find(p => p.id === "lifetime")', "modal selects Lifetime plan");
@@ -83,6 +84,40 @@ TRIAL_RE.test(modal) ? bad("modal contains new-customer trial language") : ok("m
 has(catalog, 'displayPrice: "$29.99"', "catalog Lifetime fallback is $29.99");
 hasnt(catalog, "$129.99", "retired $129.99 fallback is absent from catalog");
 has(catalog, 'entitlement: "AuraLunis Premium"', "legacy/shared entitlement identifier is unchanged");
+
+console.log("\n── Shared UI pricing and non-subscriber CTA ──");
+const tokens = read("src/theme/tokens.ts");
+const entitlement = read("src/features/paywall/entitlementStatus.ts");
+has(tokens, 'lifetime: "$29.99"', "shared Lifetime fallback is $29.99");
+hasnt(tokens, "$129.99", "shared tokens contain no retired $129.99 price");
+has(entitlement, 'ctaLabel: "View Lifetime"', "non-subscriber CTA points to Lifetime");
+has(entitlement, "Unlock AuraLunis Premium for life with one purchase.", "non-subscriber status copy is Lifetime-only");
+hasnt(entitlement, "subscribe or own it for life", "retired subscription sales CTA is absent");
+
+console.log("\n── Settings surface is truthful ──");
+const settings = read("src/screens/SettingsScreen.tsx");
+has(settings, "New purchases are Lifetime only.", "Settings states Lifetime-only new purchases");
+has(settings, "Existing Monthly and Annual subscribers", "Settings preserves legacy subscriber explanation");
+has(settings, "Settings → Membership → Restore Purchases", "Settings FAQ points to the current restore location");
+hasnt(settings, "AuraLunisPricing.monthly", "Settings does not advertise Monthly pricing");
+hasnt(settings, "AuraLunisPricing.annual", "Settings does not advertise Annual pricing");
+hasnt(settings, "7-day introductory", "Settings does not advertise a legacy trial");
+hasnt(settings, "Is there a free trial?", "Settings FAQ no longer sells a free trial");
+hasnt(settings, "$129.99", "Settings contains no retired Lifetime price");
+
+console.log("\n── In-app Terms match the launch contract ──");
+const terms = read("src/screens/TermsScreen.tsx");
+has(terms, "Lifetime access is a one-time, non-consumable in-app purchase", "Terms describe Lifetime correctly");
+has(terms, "The U.S. storefront price is $29.99", "Terms use the current U.S. Lifetime price");
+has(terms, "New customers are not offered Monthly or Annual subscriptions", "Terms distinguish legacy subscriptions from new purchases");
+hasnt(terms, "$129.99", "Terms contain no retired Lifetime price");
+hasnt(terms, "7-day introductory", "Terms contain no retired new-subscriber trial offer");
+
+console.log("\n── Purchase/restore alerts do not advertise retired plans ──");
+const app = read("App.tsx");
+has(app, "AuraLunis Lifetime is temporarily unavailable", "purchase-unavailable alert names Lifetime");
+hasnt(app, "Subscriptions available after launch", "App has no generic subscription-launch alert");
+hasnt(app, "Premium plans will be purchasable", "App does not promise multiple purchasable plans");
 
 console.log(`\nPaywall-copy self-test: ${pass} passed, ${fail} failed.`);
 process.exit(fail === 0 ? 0 : 1);
