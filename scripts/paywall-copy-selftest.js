@@ -1,19 +1,14 @@
 // Paywall-copy deterministic self-test.
 //
-// Locks the fail-closed trial-copy behavior: free-trial wording is produced ONLY for a
-// store-confirmed eligible subscription offer. Every other state (ineligible / unavailable /
-// loading — and, upstream, unknown / no-offer / error, which usePaywallOffers folds into
-// "unavailable") and lifetime in ALL states resolve to plan-accurate PAID copy with no trial
-// wording. Part A executes the pure `resolvePlanCopy` helper across the full matrix; Part B is a
-// static guard that no trial string can leak from a non-eligible/lifetime state, plus source
-// invariants on the (unchanged) eligibility derivation and purchase/restore wiring.
+// Current new-customer contract: Lifetime only, one-time, App Store price fallback $29.99.
+// Monthly/Annual copy logic remains tested only as legacy-safe helper behavior; those plans must
+// not appear as selectable new-customer options in ThreeTierPaywallModal.
 
 const fs = require("fs");
 const path = require("path");
 const ROOT = path.resolve(__dirname, "..");
 const SRC = path.join(ROOT, "src");
 
-// ── transpile-require: load node-safe .ts as CommonJS, resolve "@/…" → src/… ──
 const ts = require(path.join(ROOT, "node_modules/typescript"));
 const Module = require("module");
 require.extensions[".ts"] = function (module, filename) {
@@ -35,111 +30,59 @@ Module._resolveFilename = function (request, ...rest) {
   return origResolve.call(this, request, ...rest);
 };
 
-const { resolvePlanCopy, DEFAULT_HEADLINE } = require(path.join(SRC, "features/paywall/paywallCopy.ts"));
+const { resolvePlanCopy } = require(path.join(SRC, "features/paywall/paywallCopy.ts"));
 
 let pass = 0, fail = 0;
 const ok = (m) => { pass += 1; console.log("PASS " + m); };
 const bad = (m) => { fail += 1; console.log("FAIL " + m); };
 const eq = (n, a, b) => (a === b ? ok(n) : bad(`${n} — got ${JSON.stringify(a)} expected ${JSON.stringify(b)}`));
-const read = (rel) => fs.readFileSync(path.join(ROOT, rel), "utf8");
 const has = (hay, needle, n) => (hay.includes(needle) ? ok(n) : bad(`${n} — expected present: ${needle}`));
 const hasnt = (hay, needle, n) => (!hay.includes(needle) ? ok(n) : bad(`${n} — should be absent: ${needle}`));
+const read = (rel) => fs.readFileSync(path.join(ROOT, rel), "utf8");
 
-const MONTHLY = ["monthly", "$9.99/month", null];
-const ANNUAL = ["annual", "$49.99/year", null];
-const LIFETIME = ["lifetime", "$129.99", null];
 const eligible = { status: "eligible", durationText: "7 days" };
-const ineligible = { status: "ineligible" };
-const unavailable = { status: "unavailable" }; // also represents unknown / no-offer / error upstream
+const unavailable = { status: "unavailable" };
 const loading = { status: "loading" };
-const c = (plan, trial) => resolvePlanCopy(plan[0], plan[1], plan[2], trial);
+const ineligible = { status: "ineligible" };
+const TRIAL_RE = /free trial|7-day|7 days free|\btrial\b/i;
 
-const TRIAL_RE = [/free trial/i, /7-day/i, /7 days free/i, /\bfree\b/i, /\btrial\b/i];
-const noTrial = (copy, label) => {
-  const blob = [copy.heading, copy.detailText, copy.ctaLabel, copy.disclosure ?? ""].join(" || ");
-  const hit = TRIAL_RE.find((re) => re.test(blob));
-  hit ? bad(`${label} — trial wording leaked: ${hit} in ${JSON.stringify(blob)}`) : ok(`${label} — no trial wording`);
-};
-
-console.log("── Part A: behavioral matrix (pure resolvePlanCopy) ──");
-
-// 1. Monthly eligible — trial copy PRESERVED exactly.
-{
-  const m = c(MONTHLY, eligible);
-  eq("1 monthly eligible: isTrial", m.isTrial, true);
-  eq("1 monthly eligible: heading", m.heading, "Start your 7-day free trial");
-  eq("1 monthly eligible: detail", m.detailText, "7 days free, then $9.99/month");
-  eq("1 monthly eligible: cta", m.ctaLabel, "Start 7-Day Free Trial");
-}
-// 2/3/4/5/6/7. Monthly ineligible / unknown(→unavailable) / loading / unavailable / no-offer(→unavailable) / error(→unavailable)
-for (const [label, st] of [["2 ineligible", ineligible], ["3 unknown→unavailable", unavailable], ["4 loading", loading], ["5 unavailable", unavailable], ["6 no-offer→unavailable", unavailable], ["7 error→unavailable", unavailable]]) {
-  const m = c(MONTHLY, st);
-  eq(`monthly ${label}: isTrial`, m.isTrial, false);
-  eq(`monthly ${label}: cta`, m.ctaLabel, "Subscribe Monthly");
-  eq(`monthly ${label}: detail`, m.detailText, "$9.99 per month");
-  eq(`monthly ${label}: heading`, m.heading, DEFAULT_HEADLINE);
-  noTrial(m, `monthly ${label}`);
-}
-// 8. Annual eligible.
-{
-  const a = c(ANNUAL, eligible);
-  eq("8 annual eligible: isTrial", a.isTrial, true);
-  eq("8 annual eligible: heading", a.heading, "Start your 7-day free trial");
-  eq("8 annual eligible: detail", a.detailText, "7 days free, then $49.99/year");
-  eq("8 annual eligible: cta", a.ctaLabel, "Start 7-Day Free Trial");
-}
-// 9/10/11. Annual ineligible / unknown(→unavailable) / loading.
-for (const [label, st] of [["9 ineligible", ineligible], ["10 unknown→unavailable", unavailable], ["11 loading", loading]]) {
-  const a = c(ANNUAL, st);
-  eq(`annual ${label}: cta`, a.ctaLabel, "Subscribe Annually");
-  eq(`annual ${label}: detail`, a.detailText, "$49.99 per year");
-  noTrial(a, `annual ${label}`);
-}
-// 12. Switch eligible monthly → ineligible annual (stateless: new inputs).
-{
-  const before = c(MONTHLY, eligible); const after = c(ANNUAL, ineligible);
-  eq("12 switch: before is trial", before.isTrial, true);
-  eq("12 switch: after annual cta", after.ctaLabel, "Subscribe Annually");
-  noTrial(after, "12 switch → ineligible annual");
-}
-// 13. Switch eligible annual → monthly unknown(→unavailable).
-{
-  const after = c(MONTHLY, unavailable);
-  eq("13 switch → monthly unknown cta", after.ctaLabel, "Subscribe Monthly");
-  noTrial(after, "13 switch → monthly unknown");
-}
-// 14/15. Switch eligible subscription → lifetime; lifetime never shows trial (even if an eligible trial state is passed).
-for (const [label, st] of [["14 lifetime (from eligible)", eligible], ["15 lifetime ineligible", ineligible], ["15 lifetime loading", loading], ["15 lifetime unavailable", unavailable]]) {
-  const l = c(LIFETIME, st);
-  eq(`${label}: cta`, l.ctaLabel, "Unlock Lifetime");
-  eq(`${label}: detail`, l.detailText, "One-time purchase · $129.99");
-  eq(`${label}: price`, l.priceText, "$129.99 one-time");
-  eq(`${label}: disclosure null`, l.disclosure, null);
-  eq(`${label}: isTrial`, l.isTrial, false);
-  noTrial(l, label);
-}
-// 18. Offering unavailable → live price null → catalog fallback, no trial.
-{
-  const m = c(MONTHLY, unavailable);
-  eq("18 offering unavailable: price falls back to catalog", m.priceText, "$9.99/month");
-  noTrial(m, "18 offering unavailable");
+console.log("── Lifetime new-customer contract ──");
+for (const [label, state] of [["eligible", eligible], ["ineligible", ineligible], ["loading", loading], ["unavailable", unavailable]]) {
+  const life = resolvePlanCopy("lifetime", "$29.99", null, state);
+  eq(`${label}: lifetime is never trial`, life.isTrial, false);
+  eq(`${label}: lifetime CTA`, life.ctaLabel, "Unlock Lifetime");
+  eq(`${label}: lifetime detail`, life.detailText, "One-time purchase · $29.99");
+  eq(`${label}: lifetime price`, life.priceText, "$29.99 one-time");
+  eq(`${label}: lifetime has no renewal disclosure`, life.disclosure, null);
+  TRIAL_RE.test([life.heading, life.detailText, life.ctaLabel, life.disclosure ?? ""].join(" "))
+    ? bad(`${label}: lifetime leaked trial wording`)
+    : ok(`${label}: lifetime has no trial wording`);
 }
 
-console.log("\n── Part B: static guards (derivation + wiring unchanged; no leak from the modal) ──");
-const offers = read("src/features/paywall/usePaywallOffers.ts");
+const localized = resolvePlanCopy("lifetime", "$29.99", "£24.99", loading);
+eq("localized StoreKit price overrides fallback", localized.priceText, "£24.99 one-time");
+eq("localized StoreKit detail overrides fallback", localized.detailText, "One-time purchase · £24.99");
+
+console.log("\n── Legacy subscription helper remains fail-closed ──");
+const monthlyEligible = resolvePlanCopy("monthly", "$9.99/month", null, eligible);
+eq("legacy monthly eligible helper can describe confirmed offer", monthlyEligible.isTrial, true);
+const annualUnavailable = resolvePlanCopy("annual", "$49.99/year", null, unavailable);
+eq("legacy annual unavailable helper is paid", annualUnavailable.isTrial, false);
+eq("legacy annual unavailable CTA", annualUnavailable.ctaLabel, "Subscribe Annually");
+
+console.log("\n── Runtime modal is Lifetime only ──");
 const modal = read("src/features/paywall/ThreeTierPaywallModal.tsx");
-// 16/17. Eligibility derivation still requires BOTH positive eligibility AND a real intro offer.
-has(offers, 'elig === "eligible" && pkg?.introOffer', "usePaywallOffers requires eligible AND an intro offer (offer≠eligibility)");
-has(offers, 'p.interval === "lifetime"', "usePaywallOffers forces lifetime to no-trial");
-has(offers, 'trial = { status: "unavailable" }', "unknown/no-offer/error fold to unavailable (no trial)");
-// 19/20. Purchase/restore wiring unchanged.
-has(modal, "onPurchase(selected)", "purchase handler still wired to the selected package");
-has(modal, "onRestore", "restore handler still wired");
-// The modal delegates ALL copy to the pure helper (behavioral leak-proofing is Part A, above —
-// no fragile source-text matching of rendered strings, which would false-match code comments).
-has(modal, "resolvePlanCopy", "modal consumes the pure resolvePlanCopy helper");
-has(modal, "selectedCopy.detailText", "CTA supporting line comes from the helper, not re-derived");
-has(modal, "copy.isTrial", "plan-card trial styling comes from the helper's resolved state");
+const catalog = read("src/features/paywall/MonetizationCatalog.ts");
+has(modal, 'plans.find(p => p.id === "lifetime")', "modal selects Lifetime plan");
+has(modal, "onPurchase(lifetime.id)", "modal purchases Lifetime plan");
+has(modal, "Restore Purchases", "restore remains available for legacy customers");
+has(modal, "localizedPrice", "modal consumes localized StoreKit/RevenueCat price");
+hasnt(modal, 'id === "premium_monthly"', "modal does not select Monthly");
+hasnt(modal, 'id === "premium_annual"', "modal does not select Annual");
+TRIAL_RE.test(modal) ? bad("modal contains new-customer trial language") : ok("modal contains no new-customer trial language");
+has(catalog, 'displayPrice: "$29.99"', "catalog Lifetime fallback is $29.99");
+hasnt(catalog, "$129.99", "retired $129.99 fallback is absent from catalog");
+has(catalog, 'entitlement: "AuraLunis Premium"', "legacy/shared entitlement identifier is unchanged");
 
 console.log(`\nPaywall-copy self-test: ${pass} passed, ${fail} failed.`);
 process.exit(fail === 0 ? 0 : 1);
