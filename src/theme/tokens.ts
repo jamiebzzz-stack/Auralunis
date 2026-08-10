@@ -40,15 +40,13 @@ export const AuraLunisColors = {
 } as const;
 
 export const AuraLunisTypography = {
-  // Display (brand name, screen titles)
   display: {
-    fontFamily: "Cinzel_400Regular",      // Google Fonts: Cinzel
-    fallback: "Georgia"                    // Fallback until font loads
+    fontFamily: "Cinzel_400Regular",
+    fallback: "Georgia"
   },
-  // Body (descriptions, labels, values)
   body: {
-    fontFamily: "PlayfairDisplay_400Regular",  // Google Fonts: Playfair Display
-    medium: "PlayfairDisplay_500Medium",       // Playfair Display Medium
+    fontFamily: "PlayfairDisplay_400Regular",
+    medium: "PlayfairDisplay_500Medium",
     fallback: "System"
   }
 } as const;
@@ -89,25 +87,19 @@ export const AuraLunisThemes: Record<string, AuraLunisThemePalette> = {
 };
 
 export const AuraLunisPricing = {
-  // Fallback prices only — the paywall prefers live localized StoreKit prices when
-  // available (see usePaywallOffers.ts). A 7-day introductory trial may be available to
-  // eligible new subscribers on monthly/annual; it is an Apple-configured intro offer, not
-  // defined here, and the app shows it only when StoreKit confirms eligibility.
-  // Monthly — direct charge nudges users toward annual.
+  // Legacy subscription values remain for existing-subscriber surfaces only. New customers
+  // are offered Lifetime only. StoreKit/RevenueCat localized pricing is the runtime source of truth.
   monthly: "$9.99/month",
-  monthlySubtitle: "Billed monthly · Cancel anytime",
-
-  // Annual — best recurring value.
+  monthlySubtitle: "Legacy monthly subscription",
   annual: "$49.99/year",
   annualMonthly: "$4.17/month",
-  annualSavings: "Save 58%",
-  annualSubtitle: "$4.17/month, billed annually",
+  annualSavings: "",
+  annualSubtitle: "Legacy annual subscription",
 
-  // Lifetime — anchor price, one-time purchase
-  lifetime: "$129.99",
+  // Current new-customer Lifetime fallback. Must match App Store Connect.
+  lifetime: "$29.99",
   lifetimeSubtitle: "One-time purchase · Forever",
   lifetimeBadge: "BEST VALUE",
 
-  // Free tier Cosmic Drift cap
   freeDriftEventLimit: 5,
 } as const;
