@@ -128,7 +128,7 @@ export function SettingsScreen() {
       Alert.alert(
         "Manage Subscription",
         result.status === "not_configured"
-          ? "Subscriptions are managed through your Apple ID and will be available once AuraLunis is live on the App Store."
+          ? "Subscription management is only available for legacy subscribers. If you previously subscribed, you can manage that subscription through your Apple ID subscriptions in iOS Settings."
           : "You don't have an active AuraLunis subscription on this Apple ID yet."
       );
     } catch {
@@ -285,7 +285,11 @@ export function SettingsScreen() {
         </Pressable>
         <Pressable style={styles.secondaryButton} onPress={() => Alert.alert(
           "Privacy-Safe Sky Map",
-          "AuraLunis works without location or camera access:\n\n• Planetarium Mode — full sky view with no camera, no location needed\n• Manual Location — set your city in iOS Settings → Privacy → Location Services\n• Offline — all star data is on-device, no internet required\n\nYour location is only used locally for sky calculations. It is never sent to any server.",
+          // The old copy promised a "Manual Location — set your city in iOS Settings" flow that
+          // exists in neither the app nor iOS, and claimed location "is never sent to any server"
+          // while approximate coordinates do go to Open-Meteo for weather. Both are now truthful
+          // and match PrivacyScreen.
+          "AuraLunis works without location or camera access:\n\n• Planetarium Mode — full sky view with no camera, no location needed\n• Offline — all star data is on-device, no internet required\n\nAuraLunis does not send your location to Ocoee Studios. If you choose \"Use My Location,\" your coordinates are used for sky calculations and may be sent to Open-Meteo only when fetching weather forecasts. If location access is unavailable, AuraLunis uses its built-in default location behavior.",
           [{ text: "OK", style: "default" }]
         )}>
           <Text style={styles.secondaryButtonText}>Privacy-Safe Sky Map</Text>
